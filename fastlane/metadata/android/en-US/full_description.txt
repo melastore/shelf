@@ -1,0 +1,23 @@
+Shelf is a private-space utility presented on the launcher as the habit tracker
+Momento. Long-pressing its title opens passphrase authentication for the private
+space.
+
+Folders can be hidden in three ways. On rooted devices Shelf clears their
+permission bits on the backing filesystem. With optional all-files access it
+moves them into a persistent hidden directory. With neither permission it uses
+the system folder picker to rename them with a leading dot. The app explains the
+strength of the active method before it is used.
+
+Each folder operation is journalled before anything changes. The journal uses
+synced atomic writes and retains its previous valid generation.
+
+Shelf can also lock a file by encrypting its first MiB with AES-256-GCM and a
+PBKDF2-derived key. Recovery data is appended to the file, allowing it to be
+restored after an interrupted write, app reinstall, or cleared app data.
+
+Root is optional. Shelf has no network access, analytics, advertising, or cloud
+service.
+
+Folder hiding is not encryption, and file locking does not encrypt bytes after
+the first MiB. Shelf is designed to prevent casual browsing, not forensic
+recovery or an attacker with root access.

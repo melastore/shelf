@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+	<string name="app_name" tools:ignore="Typos">Momento</string>
+
+	<!-- Habit tracker (the visible app) -->
+	<string name="add_habit">Add a habit</string>
+	<string name="habits_empty">No habits yet. Add one above.</string>
+	<plurals name="streak_format">
+		<item quantity="one">%d day streak</item>
+		<item quantity="other">%d day streak</item>
+	</plurals>
+	<string name="remove">Remove</string>
+	<string name="set_passphrase_title">Set passphrase</string>
+	<string name="unlock_vault_title">Open private space</string>
+	<string name="unlock">Open</string>
+	<string name="save">Save</string>
+
+	<!-- Vault -->
+	<string name="vault_title">Private</string>
+	<string name="close_vault">Close</string>
+	<string name="empty_hint">Nothing is hidden. Pick a folder to get started.</string>
+	<string name="add_folder">Add folder</string>
+	<string name="lock_file">Lock a file</string>
+	<string name="recover_file">Recover a locked file</string>
+	<string name="recover_file_title">Recover this file</string>
+	<string name="method_root">Hiding with root: permissions are cleared in place, nothing moves, and no other app can read the folder.</string>
+	<string name="method_private">Hiding by moving into a dedicated hidden folder. The move is instant and survives uninstalling the app, but another app with all-files access could still find it.</string>
+	<string name="method_dot">Hiding by renaming. Galleries skip the folder, but a file manager set to show hidden files can still list it.</string>
+	<string name="grant_all_files">Turn on all-files access for stronger hiding</string>
+	<string name="restore">Restore</string>
+	<string name="locked_label">locked file</string>
+	<string name="lock_title">Lock this file</string>
+	<string name="lock_action">Lock</string>
+	<string name="unlock_title">Unlock this file</string>
+	<string name="passphrase">Passphrase</string>
+	<string name="confirm_passphrase">Confirm passphrase</string>
+	<string name="cancel">Cancel</string>
+</resources>

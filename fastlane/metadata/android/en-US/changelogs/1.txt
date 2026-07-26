@@ -1,0 +1,6 @@
+First release.
+
+- Hide folders with root, all-files access, or the system folder picker.
+- Lock file headers with self-contained recovery data.
+- Restore files after reinstalling or clearing app data.
+- Atomic journals, automatic vault locking, and screenshot protection.
