@@ -48,6 +48,18 @@ contents. Keep the file passphrase: Shelf cannot reset it.
 Requires JDK 17 and Android SDK platform 36. The release build has no network,
 analytics, advertising, or proprietary runtime dependency.
 
+### Signing a direct release
+
+Create a private keystore, copy `keystore.properties.example` to
+`keystore.properties`, and fill in its four values. Both the properties file
+and common keystore formats are ignored by Git. Then run:
+
+    ./gradlew clean assembleRelease
+
+The signed APK is written to `app/build/outputs/apk/release/app-release.apk`.
+Keep the keystore and its password backed up: future direct-install updates
+must be signed with the same key.
+
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).

@@ -1,4 +1,12 @@
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+	if (keystorePropertiesFile.isFile) {
+		keystorePropertiesFile.inputStream().use(::load)
+	}
+}
 
 plugins {
 	alias(libs.plugins.android.application)
@@ -25,8 +33,20 @@ android {
 		versionName = "0.1.0"
 	}
 
+	if (keystorePropertiesFile.isFile) {
+		signingConfigs {
+			create("release") {
+				storeFile = rootProject.file(keystoreProperties.required("storeFile"))
+				storePassword = keystoreProperties.required("storePassword")
+				keyAlias = keystoreProperties.required("keyAlias")
+				keyPassword = keystoreProperties.required("keyPassword")
+			}
+		}
+	}
+
 	buildTypes {
 		release {
+			signingConfigs.findByName("release")?.let { signingConfig = it }
 			isMinifyEnabled = true
 			isShrinkResources = true
 			proguardFiles(
@@ -59,6 +79,10 @@ android {
 		includeInBundle = false
 	}
 }
+
+fun Properties.required(name: String): String =
+	getProperty(name)?.takeIf { it.isNotBlank() }
+		?: error("Missing $name in keystore.properties")
 
 dependencies {
 	implementation(platform(libs.androidx.compose.bom))
