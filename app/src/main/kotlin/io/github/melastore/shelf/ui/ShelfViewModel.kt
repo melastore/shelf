@@ -7,6 +7,11 @@ import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.melastore.shelf.data.AppPreferences
+import io.github.melastore.shelf.data.CalendarEvent
+import io.github.melastore.shelf.data.CalendarEventStore
+import io.github.melastore.shelf.data.DecoyType
+import io.github.melastore.shelf.data.EntryMethod
 import io.github.melastore.shelf.data.FileLocker
 import io.github.melastore.shelf.data.FolderHider
 import io.github.melastore.shelf.data.FolderTarget
@@ -16,6 +21,7 @@ import io.github.melastore.shelf.data.HeaderRecovery
 import io.github.melastore.shelf.data.HiddenEntry
 import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.HideResult
+import io.github.melastore.shelf.data.HidingPreference
 import io.github.melastore.shelf.data.Journal
 import io.github.melastore.shelf.data.LockResult
 import io.github.melastore.shelf.data.LockedFile
@@ -36,15 +42,23 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-enum class Screen { HABITS, VAULT }
+enum class Screen { DECOY, VAULT, SETTINGS }
 
 data class AppUiState(
-	val screen: Screen = Screen.HABITS,
-	val passphraseSet: Boolean = false,
+	val ready: Boolean = false,
+	val screen: Screen = Screen.DECOY,
+	val credentialSet: Boolean = false,
+	val vaultUsesPin: Boolean = true,
+	val decoyPinSet: Boolean = false,
+	val decoy: DecoyType = DecoyType.HABITS,
+	val entryMethod: EntryMethod = EntryMethod.TITLE_HOLD,
+	val hidingPreference: HidingPreference = HidingPreference.AUTO,
 	val habits: List<Habit> = emptyList(),
+	val calendarEvents: List<CalendarEvent> = emptyList(),
 	val method: HideMethod? = null,
+	val availableMethods: Set<HideMethod> = emptySet(),
 	val canRequestAllFiles: Boolean = false,
-	/** Set when an operation stopped to ask the user for access to a folder above the one it wants. */
+	/** Set when an operation stopped to ask for access to a folder above the target. */
 	val accessNeededFor: Uri? = null,
 	val entries: List<HiddenEntry> = emptyList(),
 	val lockedFiles: List<LockedFile> = emptyList(),
@@ -52,14 +66,14 @@ data class AppUiState(
 	val message: String? = null,
 )
 
-/**
- * Drives both faces of the app: the habit tracker the launcher opens, and the hidden vault behind
- * it. Authentication stays separate from habit input so a mistyped secret cannot become a habit.
- */
 class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 	private val habitStore = HabitStore(File(app.filesDir, "habits.json"))
+	private val calendarStore = CalendarEventStore(File(app.filesDir, "calendar.json"))
 	private val gate = PassphraseGate(File(app.filesDir, "gate"))
+	private val decoyGate = PassphraseGate(File(app.filesDir, "decoy_gate"))
+	private val preferences = AppPreferences(app)
+	private val launcherAliases = LauncherAliasController(app)
 
 	private val paths = StoragePaths.forCurrentUser()
 	private val journal = Journal(File(app.filesDir, "journal.json"))
@@ -71,38 +85,39 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	private val _state = MutableStateFlow(AppUiState())
 	val state: StateFlow<AppUiState> = _state.asStateFlow()
 
-	/**
-	 * Set while the system file picker has the foreground. Handing off to it stops the activity, and
-	 * without this the vault would lock itself the moment the user went to choose a folder.
-	 */
 	private var awaitingPicker = false
-
-	/** What to finish once the user has granted the access an operation asked for. */
 	private var pending: (suspend () -> Unit)? = null
 	private val operationMutex = Mutex()
 	private var recoveryCheckedFor: HideMethod? = null
 
 	init {
 		viewModelScope.launch {
-			val passphraseSet = gate.isSet()
+			val credentialSet = gate.isSet()
+			val settings = preferences.read(credentialSet)
+			withContext(Dispatchers.IO) { launcherAliases.apply(settings.decoy) }
 			val habits = guard { habitStore.read() }.orEmpty()
-			_state.update { it.copy(passphraseSet = passphraseSet, habits = habits) }
+			val events = guard { calendarStore.read() }.orEmpty()
+			_state.update {
+				it.copy(
+					ready = true,
+					credentialSet = credentialSet,
+					vaultUsesPin = settings.vaultUsesPin,
+					decoyPinSet = decoyGate.isSet(),
+					decoy = settings.decoy,
+					entryMethod = settings.entryMethod,
+					hidingPreference = settings.hidingPreference,
+					habits = habits,
+					calendarEvents = events,
+				)
+			}
 		}
 	}
 
-	/** Reads the habit list back after a change, leaving the shown list alone if it is unreadable. */
-	private suspend fun refreshHabits() {
-		val habits = guard { habitStore.read() } ?: return
-		_state.update { it.copy(habits = habits) }
-	}
+	// Decoy content
 
-	// --- Habit tracker (the visible app) ---
-
-	/** Adds a habit. Vault authentication has its own dialog so a mistyped secret is never stored. */
 	fun submitHabit(text: String) {
 		val trimmed = text.trim()
 		if (trimmed.isEmpty()) return
-
 		viewModelScope.launch {
 			guard { habitStore.add(trimmed) }
 			refreshHabits()
@@ -119,26 +134,126 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		refreshHabits()
 	}
 
-	/** Sets the vault passphrase the first time, through a deliberately obscure entry point. */
-	fun setPassphrase(passphrase: CharArray) = viewModelScope.launch {
-		try {
-			withContext(Dispatchers.Default) { gate.set(passphrase) }
-			_state.update { it.copy(passphraseSet = true) }
-		} finally {
-			passphrase.fill(' ')
+	fun addCalendarEvent(date: String, title: String) {
+		val clean = title.trim()
+		if (clean.isEmpty()) return
+		viewModelScope.launch {
+			guard { calendarStore.add(date, clean) }
+			refreshCalendar()
 		}
 	}
 
-	fun unlockVault(passphrase: CharArray) = viewModelScope.launch {
+	fun removeCalendarEvent(event: CalendarEvent) = viewModelScope.launch {
+		guard { calendarStore.remove(event.id) }
+		refreshCalendar()
+	}
+
+	private suspend fun refreshHabits() {
+		val habits = guard { habitStore.read() } ?: return
+		_state.update { it.copy(habits = habits) }
+	}
+
+	private suspend fun refreshCalendar() {
+		val events = guard { calendarStore.read() } ?: return
+		_state.update { it.copy(calendarEvents = events) }
+	}
+
+	// Authentication
+
+	fun setVaultPin(pin: CharArray) = viewModelScope.launch {
 		try {
-			val matches = withContext(Dispatchers.Default) { gate.matches(passphrase) }
-			if (matches) openVault() else fail("Wrong passphrase.")
+			validatePin(pin)?.let { return@launch fail(it) }
+			withContext(Dispatchers.Default) { gate.set(pin) }
+			preferences.setVaultUsesPin(true)
+			_state.update { it.copy(credentialSet = true, vaultUsesPin = true) }
+			openVault()
 		} finally {
-			passphrase.fill(' ')
+			pin.fill(' ')
 		}
 	}
 
-	// --- Vault (revealed only after the trigger) ---
+	fun unlockVault(input: CharArray) = viewModelScope.launch {
+		try {
+			val now = System.currentTimeMillis()
+			val blockedUntil = preferences.blockedUntil()
+			if (now < blockedUntil) {
+				val seconds = ((blockedUntil - now + 999) / 1_000).coerceAtLeast(1)
+				return@launch fail("Try again in $seconds seconds.")
+			}
+			val (vaultMatches, decoyMatches) = withContext(Dispatchers.Default) {
+				gate.matches(input) to decoyGate.matches(input)
+			}
+			when {
+				vaultMatches -> {
+					preferences.clearFailedUnlocks()
+					openVault()
+				}
+				decoyMatches -> {
+					preferences.clearFailedUnlocks()
+					lockVault()
+				}
+				else -> recordFailedUnlock()
+			}
+		} finally {
+			input.fill(' ')
+		}
+	}
+
+	fun changeVaultPin(current: CharArray, newPin: CharArray) = launchBusy {
+		try {
+			validatePin(newPin)?.let { return@launchBusy fail(it) }
+			val valid = withContext(Dispatchers.Default) { gate.matches(current) }
+			if (!valid) return@launchBusy fail("Current credential is incorrect.")
+			if (withContext(Dispatchers.Default) { decoyGate.matches(newPin) }) {
+				return@launchBusy fail("Vault and decoy PINs must be different.")
+			}
+			withContext(Dispatchers.Default) { gate.set(newPin) }
+			preferences.setVaultUsesPin(true)
+			_state.update { it.copy(vaultUsesPin = true, message = "Vault PIN changed.") }
+		} finally {
+			current.fill(' ')
+			newPin.fill(' ')
+		}
+	}
+
+	fun setDecoyPin(pin: CharArray) = launchBusy {
+		try {
+			validatePin(pin)?.let { return@launchBusy fail(it) }
+			if (withContext(Dispatchers.Default) { gate.matches(pin) }) {
+				return@launchBusy fail("Vault and decoy PINs must be different.")
+			}
+			withContext(Dispatchers.Default) { decoyGate.set(pin) }
+			_state.update { it.copy(decoyPinSet = true, message = "Decoy PIN saved.") }
+		} finally {
+			pin.fill(' ')
+		}
+	}
+
+	fun clearDecoyPin() = viewModelScope.launch {
+		withContext(Dispatchers.IO) { decoyGate.clear() }
+		_state.update { it.copy(decoyPinSet = false, message = "Decoy PIN removed.") }
+	}
+
+	private fun validatePin(pin: CharArray): String? = when {
+		pin.size !in MIN_PIN_LENGTH..MAX_PIN_LENGTH -> "PIN must be 4 to 12 digits."
+		pin.any { !it.isDigit() } -> "PIN can contain digits only."
+		else -> null
+	}
+
+	private fun recordFailedUnlock() {
+		val blocked = preferences.recordFailedUnlock(
+			now = System.currentTimeMillis(),
+			maximumAttempts = MAX_UNLOCK_ATTEMPTS,
+			lockoutMillis = LOCKOUT_MILLIS,
+		)
+		if (blocked > 0) {
+			fail("Too many attempts. Try again in 30 seconds.")
+		} else {
+			fail("Wrong credential.")
+		}
+	}
+
+	// Vault and settings navigation
 
 	private suspend fun openVault() {
 		awaitingPicker = false
@@ -148,53 +263,72 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		refreshCapabilitiesNow()
 	}
 
-	/**
-	 * Works out how this device can hide a folder today. The answer can change while the app is
-	 * running — granting all-files access happens in Settings, not here — so it is re-read whenever
-	 * the user comes back to the vault.
-	 */
+	fun openSettings() {
+		if (_state.value.screen == Screen.VAULT) _state.update { it.copy(screen = Screen.SETTINGS) }
+	}
+
+	fun closeSettings() {
+		if (_state.value.screen == Screen.SETTINGS) _state.update { it.copy(screen = Screen.VAULT) }
+	}
+
+	fun lockVault() = _state.update {
+		it.copy(screen = Screen.DECOY, entries = emptyList(), lockedFiles = emptyList())
+	}
+
+	fun setDecoy(decoy: DecoyType) = viewModelScope.launch {
+		try {
+			withContext(Dispatchers.IO) {
+				preferences.setDecoy(decoy)
+				launcherAliases.apply(decoy)
+			}
+			_state.update { it.copy(decoy = decoy, message = "Decoy changed.") }
+		} catch (e: Exception) {
+			fail(e.message ?: "Could not change the launcher decoy.")
+		}
+	}
+
+	fun setEntryMethod(method: EntryMethod) = viewModelScope.launch {
+		withContext(Dispatchers.IO) { preferences.setEntryMethod(method) }
+		_state.update { it.copy(entryMethod = method, message = "Entry method changed.") }
+	}
+
+	fun setHidingPreference(preference: HidingPreference) = viewModelScope.launch {
+		withContext(Dispatchers.IO) { preferences.setHidingPreference(preference) }
+		_state.update { it.copy(hidingPreference = preference) }
+		refreshCapabilitiesNow()
+	}
+
 	fun refreshCapabilities() = viewModelScope.launch { refreshCapabilitiesNow() }
 
 	private suspend fun refreshCapabilitiesNow() {
-		val method = hider.activeMethod()
+		val preference = _state.value.hidingPreference
+		val available = hider.availableMethods(
+			checkRoot = preference == HidingPreference.AUTO || preference == HidingPreference.ROOT,
+		)
+		val method = hider.selectedMethod(preference, available)
 		var recoveredEntries: List<HiddenEntry>? = null
 		if (_state.value.entries.isEmpty() && method != null && method != recoveryCheckedFor) {
 			recoveryCheckedFor = method
-			if ((guard { hider.recoverOrphans() } ?: 0) > 0) {
-				recoveredEntries = guard { journal.read() }
-			}
+			if ((guard { hider.recoverOrphans(method) } ?: 0) > 0) recoveredEntries = guard { journal.read() }
 		}
 		_state.update {
 			it.copy(
 				method = method,
+				availableMethods = available,
 				entries = recoveredEntries ?: it.entries,
-				// Root already beats anything all-files access would add, so the upgrade is only worth
-				// offering when the fallback rename is all that is left.
-				canRequestAllFiles = method == HideMethod.DOT_RENAME,
+				canRequestAllFiles = HideMethod.PRIVATE_MOVE !in available,
 			)
 		}
 	}
 
-	/** Leaves the vault and returns to the habit face; the vault contents drop out of memory. */
-	fun lockVault() = _state.update {
-		it.copy(screen = Screen.HABITS, entries = emptyList(), lockedFiles = emptyList())
-	}
-
-	/** Called before handing off to the system picker, which stops the activity underneath it. */
 	fun expectExternalPicker() {
 		awaitingPicker = true
 	}
 
-	/** Called when the picker hands control back, cancelled or not, so the reprieve does not linger. */
 	fun onPickerResult() {
 		awaitingPicker = false
 	}
 
-	/**
-	 * The vault must not outlive the app being in the foreground: the next person to pick up an
-	 * unlocked phone would find it open behind the launcher. The one exception is the file picker,
-	 * which the user reached from inside the vault and returns to it.
-	 */
 	fun onMovedToBackground() {
 		if (awaitingPicker) {
 			awaitingPicker = false
@@ -203,17 +337,18 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		lockVault()
 	}
 
+	// Folder and file operations
+
 	fun hideFolder(treeUri: Uri) = launchBusy {
 		val path = resolveDocumentPath(treeUri, isTree = true)
 			?: return@launchBusy fail("Could not resolve that folder to a storage path.")
 		val name = DocumentFile.fromTreeUri(getApplication(), treeUri)?.name ?: File(path).name
-		// The grant has to outlive this process: without it there is no way to rename the folder back.
 		val persisted = persist(treeUri)
 		hide(FolderTarget(path, name, treeUri.takeIf { persisted }))
 	}
 
 	private suspend fun hide(target: FolderTarget) {
-		when (val result = hider.hide(target)) {
+		when (val result = hider.hide(target, _state.value.hidingPreference)) {
 			is HideResult.Ok -> reloadVault("Hidden ${result.entry.displayName}", result.warning)
 			is HideResult.Failed -> fail(result.reason)
 			is HideResult.NeedsAccess -> askForAccess(result) { hide(target) }
@@ -230,16 +365,11 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		}
 	}
 
-	/**
-	 * Stops and asks for the folder access the operation turned out to need, holding on to what was
-	 * being done so the user does not have to start it again.
-	 */
 	private fun askForAccess(needed: HideResult.NeedsAccess, retry: suspend () -> Unit) {
 		pending = retry
 		_state.update { it.copy(message = needed.reason, accessNeededFor = initialUri(needed.path)) }
 	}
 
-	/** The user answered the request for folder access; take the grant and finish what was asked. */
 	fun grantedAccess(treeUri: Uri?) = launchBusy {
 		_state.update { it.copy(accessNeededFor = null) }
 		val retry = pending ?: return@launchBusy
@@ -251,7 +381,6 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		retry()
 	}
 
-	/** Points the folder picker at [path] so the user is not left to find it themselves. */
 	private fun initialUri(path: String): Uri? {
 		val id = SafPaths.documentId(paths.emulatedRoot, path) ?: return null
 		return runCatching { DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE, id) }.getOrNull()
@@ -263,7 +392,6 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				?: return@launchBusy fail("Could not resolve that file to a storage path.")
 			val name = DocumentFile.fromSingleUri(getApplication(), fileUri)?.name ?: File(path).name
 			val persistedUri = fileUri.takeIf { persist(fileUri) }
-
 			when (val result = locker.lock(path, name, persistedUri, passphrase)) {
 				is LockResult.Ok -> reloadVault("Locked ${result.locked.displayName}", result.warning)
 				is LockResult.Failed -> fail(result.reason)
@@ -302,17 +430,10 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 	fun consumeMessage() = _state.update { it.copy(message = null) }
 
-	/**
-	 * Holds on to a document grant across restarts. Without it a folder hidden today could not be
-	 * renamed back tomorrow, and a locked file could not be reopened to decrypt its header.
-	 */
 	private fun persist(uri: Uri): Boolean {
 		val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
 		val resolver = getApplication<Application>().contentResolver
-		val taken = runCatching {
-			resolver.takePersistableUriPermission(uri, flags)
-		}.isSuccess
-		if (!taken) return false
+		if (runCatching { resolver.takePersistableUriPermission(uri, flags) }.isFailure) return false
 		return resolver.persistedUriPermissions.any {
 			it.uri == uri && it.isReadPermission && it.isWritePermission
 		}
@@ -347,10 +468,6 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		}
 	}
 
-	/**
-	 * Runs a read or write of the persisted records, turning an unreadable file into a message rather
-	 * than a crash. Callers get null and leave the list they already had alone.
-	 */
 	private suspend fun <T> guard(block: suspend () -> T): T? = try {
 		block()
 	} catch (e: RecordsCorrupted) {
@@ -364,28 +481,25 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 	private fun fail(reason: String) = _state.update { it.copy(message = reason) }
 
-	private companion object {
-		const val EXTERNAL_STORAGE = "com.android.externalstorage.documents"
-	}
-
-	/**
-	 * Maps a Storage Access Framework document Uri back to an absolute path on the primary volume,
-	 * whose document ids are "primary:Relative/Path". Other volumes are left for a later revision
-	 * rather than guessed at. The root comes from [paths], so on a secondary user or a work profile
-	 * this stays on that user's storage.
-	 */
 	private fun resolveDocumentPath(uri: Uri, isTree: Boolean): String? {
 		if (uri.authority != EXTERNAL_STORAGE) return null
-		val doc = if (isTree) {
+		val document = if (isTree) {
 			DocumentFile.fromTreeUri(getApplication(), uri)
 		} else {
 			DocumentFile.fromSingleUri(getApplication(), uri)
 		}
-		val docId = doc?.uri?.lastPathSegment ?: uri.lastPathSegment ?: return null
-		val (volume, relative) = docId.split(':', limit = 2).let {
-			it[0] to it.getOrElse(1) { "" }
-		}
-		if (volume != "primary") return null
+		val documentId = document?.uri?.lastPathSegment ?: uri.lastPathSegment ?: return null
+		val parts = documentId.split(':', limit = 2)
+		if (parts.firstOrNull() != "primary") return null
+		val relative = parts.getOrElse(1) { "" }
 		return paths.emulatedRoot + if (relative.isEmpty()) "" else "/$relative"
+	}
+
+	private companion object {
+		const val EXTERNAL_STORAGE = "com.android.externalstorage.documents"
+		const val MIN_PIN_LENGTH = 4
+		const val MAX_PIN_LENGTH = 12
+		const val MAX_UNLOCK_ATTEMPTS = 5
+		const val LOCKOUT_MILLIS = 30_000L
 	}
 }

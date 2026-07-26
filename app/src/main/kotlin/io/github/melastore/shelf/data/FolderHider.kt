@@ -23,20 +23,36 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 		),
 	)
 
-	/** The method a hide would use right now, or null if the device allows none of them. */
-	suspend fun activeMethod(): HideMethod? = strategies.firstOrNull { it.isAvailable() }?.method
+	suspend fun availableMethods(checkRoot: Boolean = true): Set<HideMethod> = strategies
+		.filter { (checkRoot || it.method != HideMethod.ROOT_CHMOD) && it.isAvailable() }
+		.mapTo(linkedSetOf()) { it.method }
 
-	suspend fun hide(target: FolderTarget): HideResult =
-		strategies.firstOrNull { it.isAvailable() }?.hide(target)
-			?: HideResult.Failed("Shelf has no way to hide folders on this device")
+	/** The configured method a hide would use right now, or null when it is unavailable. */
+	suspend fun activeMethod(preference: HidingPreference): HideMethod? {
+		val available = availableMethods(
+			checkRoot = preference == HidingPreference.AUTO || preference == HidingPreference.ROOT,
+		)
+		return selectedMethod(preference, available)
+	}
+
+	fun selectedMethod(preference: HidingPreference, available: Set<HideMethod>): HideMethod? =
+		when (preference) {
+			HidingPreference.AUTO -> strategies.firstOrNull { it.method in available }?.method
+			HidingPreference.ROOT -> HideMethod.ROOT_CHMOD.takeIf { it in available }
+			HidingPreference.ALL_FILES -> HideMethod.PRIVATE_MOVE.takeIf { it in available }
+			HidingPreference.SAF -> HideMethod.DOT_RENAME.takeIf { it in available }
+		}
+
+	suspend fun hide(target: FolderTarget, preference: HidingPreference): HideResult {
+		val method = activeMethod(preference)
+			?: return HideResult.Failed("The selected hiding method is not available on this device")
+		return strategies.first { it.method == method }.hide(target)
+	}
 
 	suspend fun restore(entry: HiddenEntry): HideResult =
 		strategies.firstOrNull { it.method == entry.method }?.restore(entry)
 			?: HideResult.Failed("${entry.displayName} was hidden in a way this build cannot reverse")
 
-	suspend fun recoverOrphans(): Int {
-		var recovered = 0
-		for (strategy in strategies) recovered += strategy.recoverOrphans()
-		return recovered
-	}
+	suspend fun recoverOrphans(method: HideMethod): Int =
+		strategies.firstOrNull { it.method == method }?.recoverOrphans() ?: 0
 }

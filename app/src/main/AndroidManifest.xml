@@ -24,11 +24,48 @@
 
 		<activity
 			android:name=".ui.MainActivity"
-			android:exported="true">
+			android:exported="true" />
+
+		<activity-alias
+			android:name=".HabitLauncher"
+			android:enabled="true"
+			android:exported="true"
+			android:icon="@mipmap/ic_launcher"
+			android:label="@string/launcher_habits"
+			android:roundIcon="@mipmap/ic_launcher_round"
+			android:targetActivity=".ui.MainActivity">
 			<intent-filter>
 				<action android:name="android.intent.action.MAIN" />
 				<category android:name="android.intent.category.LAUNCHER" />
 			</intent-filter>
-		</activity>
+		</activity-alias>
+
+		<activity-alias
+			android:name=".CalendarLauncher"
+			android:enabled="false"
+			android:exported="true"
+			android:icon="@mipmap/ic_launcher_calendar"
+			android:label="@string/launcher_calendar"
+			android:roundIcon="@mipmap/ic_launcher_calendar"
+			android:targetActivity=".ui.MainActivity">
+			<intent-filter>
+				<action android:name="android.intent.action.MAIN" />
+				<category android:name="android.intent.category.LAUNCHER" />
+			</intent-filter>
+		</activity-alias>
+
+		<activity-alias
+			android:name=".CalculatorLauncher"
+			android:enabled="false"
+			android:exported="true"
+			android:icon="@mipmap/ic_launcher_calculator"
+			android:label="@string/launcher_calculator"
+			android:roundIcon="@mipmap/ic_launcher_calculator"
+			android:targetActivity=".ui.MainActivity">
+			<intent-filter>
+				<action android:name="android.intent.action.MAIN" />
+				<category android:name="android.intent.category.LAUNCHER" />
+			</intent-filter>
+		</activity-alias>
 	</application>
 </manifest>

@@ -19,6 +19,9 @@ attacker who can modify the operating system.
 - Hiding the existence of a locked file from forensic inspection. Its recovery
   trailer has a versioned marker.
 - Recovery without the user's file passphrase.
+- Offline guessing of a short vault PIN by an attacker who can read app-private
+  files. A four-digit PIN has only 10,000 combinations; the persisted attempt
+  delay only limits guesses made through Shelf's own interface.
 
 ## Storage methods
 

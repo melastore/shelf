@@ -1,6 +1,9 @@
 package io.github.melastore.shelf.security
 
 import java.io.File
+import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.Base64
 import javax.crypto.spec.PBEKeySpec
@@ -21,7 +24,25 @@ class PassphraseGate(private val file: File) {
 		require(passphrase.size >= MIN_LENGTH) { "passphrase must be at least $MIN_LENGTH characters" }
 		val salt = ByteArray(SALT_LEN).also { java.security.SecureRandom().nextBytes(it) }
 		val hash = hash(passphrase, salt)
-		file.writeText("${salt.encode()}:${hash.encode()}")
+		val temporary = File(file.parentFile, ".${file.name}.tmp")
+		try {
+			FileOutputStream(temporary).use { output ->
+				output.write("${salt.encode()}:${hash.encode()}".toByteArray(Charsets.US_ASCII))
+				output.fd.sync()
+			}
+			runCatching {
+				Files.move(
+					temporary.toPath(),
+					file.toPath(),
+					StandardCopyOption.ATOMIC_MOVE,
+					StandardCopyOption.REPLACE_EXISTING,
+				)
+			}.getOrElse {
+				Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+			}
+		} finally {
+			temporary.delete()
+		}
 	}
 
 	fun clear() {
@@ -54,6 +75,6 @@ class PassphraseGate(private val file: File) {
 		const val PBKDF2_ROUNDS = 210_000
 		const val KEY_BITS = 256
 		const val SALT_LEN = 16
-		const val MIN_LENGTH = 8
+		const val MIN_LENGTH = 4
 	}
 }

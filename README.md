@@ -1,16 +1,24 @@
 # Shelf
 
-Shelf is a private-space utility disguised as the small habit tracker **Momento**.
-It can hide folders and make individual files unreadable without sending data off
+Shelf is a private-space utility that can present itself as **Momento**, a
+calendar, or a calculator. All three decoys work as ordinary local apps. Shelf
+can hide folders and make individual files unreadable without sending data off
 the device. Root improves folder hiding, but is optional.
 
 ## Using the private space
 
-Long-press the Momento title to set or enter the private-space passphrase. Habit
-input is kept separate from authentication, so a mistyped passphrase is never
-saved as a habit.
+The default entry gesture is a long press on the decoy title. Inside the private
+space, Settings can change that to five taps in the top-right corner or a long
+press on a natural decoy control. Access uses a 4–12 digit vault PIN. An optional
+different decoy PIN quietly returns to the public screen when entered under
+pressure. Older installs can use their existing passphrase once, then migrate to
+a PIN from Settings.
 
-Shelf chooses the strongest folder-hiding method available:
+The selected decoy changes its launcher label and icon. Calendar events and
+habits stay on-device, and the calculator performs ordinary chained arithmetic.
+
+The quiet default is SAF. In Settings, the user can explicitly select root,
+all-files, or automatic strongest-method selection:
 
 - **Root:** clears permission bits on `/data/media/<user>` after recording the
   original mode and owner.
@@ -27,8 +35,8 @@ can rebuild an empty journal after reinstalling or clearing app data.
 File locking encrypts the first MiB with AES-256-GCM and a PBKDF2-derived key. A
 sealed recovery copy and the parameters needed to reverse the operation are
 appended to the same file. This makes recovery possible after a torn write,
-reinstall, or cleared app data: open the private space, choose **Recover a locked
-file**, select the file, and enter its passphrase.
+reinstall, or cleared app data: open **Settings → Recovery**, select the file,
+and enter its original file passphrase.
 
 ## What it does not do
 
@@ -37,6 +45,10 @@ and a locked file's body after its first MiB is unchanged. The recovery trailer
 also makes a Shelf-locked file identifiable under forensic inspection. This app
 is intended to stop casual browsing, not a determined attacker with physical or
 root access.
+
+A four-digit PIN is convenient but has only 10,000 combinations. Shelf slows
+repeated in-app attempts, but a longer PIN is recommended and app-private
+credential data is not designed to resist an attacker with root access.
 
 Do not edit, truncate, or move a locked file through software that rewrites its
 contents. Keep the file passphrase: Shelf cannot reset it.
@@ -59,6 +71,12 @@ and common keystore formats are ignored by Git. Then run:
 The signed APK is written to `app/build/outputs/apk/release/app-release.apk`.
 Keep the keystore and its password backed up: future direct-install updates
 must be signed with the same key.
+
+## Acknowledgements
+
+Shelf's configurable camouflage was inspired by the public ideas in
+[Amarok-Hider](https://github.com/deltazefiro/Amarok-Hider). Shelf's Compose UI,
+credential handling, storage journal, and recovery format are independent.
 
 ## License
 

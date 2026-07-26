@@ -1,0 +1,9 @@
+New camouflage and settings release.
+
+- Choose a functional habit, calendar, or calculator decoy.
+- Change the launcher name and icon with the selected decoy.
+- Use a 4–12 digit vault PIN and an optional separate decoy PIN.
+- Choose from three concealed entry gestures.
+- Select automatic, root, all-files, or SAF folder hiding.
+- Access locked-file recovery from authenticated Settings.
+- Updated Material 3 interface and persistent attempt throttling.

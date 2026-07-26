@@ -1,38 +1,106 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
 	<string name="app_name" tools:ignore="Typos">Momento</string>
+	<string name="launcher_habits" tools:ignore="Typos">Momento</string>
+	<string name="launcher_calendar">Calendar</string>
+	<string name="launcher_calculator">Calculator</string>
 
-	<!-- Habit tracker (the visible app) -->
+	<!-- Decoys -->
+	<string name="habit_day_prompt">A little progress is still progress.</string>
+	<string name="completed_today">completed today</string>
 	<string name="add_habit">Add a habit</string>
-	<string name="habits_empty">No habits yet. Add one above.</string>
+	<string name="habits_empty">Add your first habit and build from there.</string>
+	<string name="start_small">Start small</string>
 	<plurals name="streak_format">
 		<item quantity="one">%d day streak</item>
 		<item quantity="other">%d day streak</item>
 	</plurals>
+	<string name="add_event">Add event</string>
+	<string name="new_event">New event</string>
+	<string name="event_title">Event title</string>
+	<string name="schedule">Schedule</string>
+	<string name="no_events">Nothing scheduled for this day.</string>
+	<string name="previous_month">Previous month</string>
+	<string name="next_month">Next month</string>
+	<string name="add">Add</string>
 	<string name="remove">Remove</string>
-	<string name="set_passphrase_title">Set passphrase</string>
-	<string name="unlock_vault_title">Open private space</string>
-	<string name="unlock">Open</string>
+
+	<!-- Authentication -->
+	<string name="create_vault_pin">Create your PIN</string>
+	<string name="enter_pin">Enter PIN</string>
+	<string name="enter_current_passphrase">Enter passphrase</string>
+	<string name="pin">PIN</string>
+	<string name="confirm_pin">Confirm PIN</string>
+	<string name="pin_hint">Use 4–12 digits. A longer PIN is harder to guess.</string>
+	<string name="passphrase">Passphrase</string>
+	<string name="confirm_passphrase">Confirm passphrase</string>
+	<string name="current_pin">Current PIN</string>
+	<string name="current_passphrase">Current passphrase</string>
+	<string name="new_pin">New PIN</string>
+	<string name="continue_action">Continue</string>
+	<string name="unlock">Unlock</string>
 	<string name="save">Save</string>
+	<string name="cancel">Cancel</string>
 
 	<!-- Vault -->
-	<string name="vault_title">Private</string>
-	<string name="close_vault">Close</string>
-	<string name="empty_hint">Nothing is hidden. Pick a folder to get started.</string>
-	<string name="add_folder">Add folder</string>
-	<string name="lock_file">Lock a file</string>
-	<string name="recover_file">Recover a locked file</string>
-	<string name="recover_file_title">Recover this file</string>
-	<string name="method_root">Hiding with root: permissions are cleared in place, nothing moves, and no other app can read the folder.</string>
-	<string name="method_private">Hiding by moving into a dedicated hidden folder. The move is instant and survives uninstalling the app, but another app with all-files access could still find it.</string>
-	<string name="method_dot">Hiding by renaming. Galleries skip the folder, but a file manager set to show hidden files can still list it.</string>
-	<string name="grant_all_files">Turn on all-files access for stronger hiding</string>
+	<string name="vault_title">Private space</string>
+	<string name="close_vault">Close private space</string>
+	<string name="settings">Settings</string>
+	<string name="back">Back</string>
+	<string name="protected_items">protected items</string>
+	<string name="active_method">Folder method: %1$s</string>
+	<string name="method_unavailable">Unavailable — choose another in Settings</string>
+	<string name="hide_folder">Hide folder</string>
+	<string name="lock_file">Lock file</string>
+	<string name="vault_empty_title">Your space is ready</string>
+	<string name="empty_hint">Hide a folder or lock an individual file to get started.</string>
+	<string name="hidden_folders">Hidden folders</string>
+	<string name="locked_files">Locked files</string>
+	<string name="locked_label">Encrypted header with recovery trailer</string>
 	<string name="restore">Restore</string>
-	<string name="locked_label">locked file</string>
 	<string name="lock_title">Lock this file</string>
 	<string name="lock_action">Lock</string>
 	<string name="unlock_title">Unlock this file</string>
-	<string name="passphrase">Passphrase</string>
-	<string name="confirm_passphrase">Confirm passphrase</string>
-	<string name="cancel">Cancel</string>
+
+	<!-- Settings -->
+	<string name="disguise">Disguise</string>
+	<string name="disguise_description">Choose the app that appears on your launcher and opens by default.</string>
+	<string name="decoy_habits">Habits</string>
+	<string name="decoy_calendar">Calendar</string>
+	<string name="decoy_calculator">Calculator</string>
+	<string name="access">Private access</string>
+	<string name="access_description">Control the hidden gesture and credentials used to reach this screen.</string>
+	<string name="entry_title_hold">Hold the title</string>
+	<string name="entry_title_hold_summary">Press and hold the decoy app name.</string>
+	<string name="entry_corner_knock">Five corner taps</string>
+	<string name="entry_corner_knock_summary">Tap the invisible top-right corner five times, less than a second apart.</string>
+	<string name="entry_natural_hold">Hold a natural control</string>
+	<string name="entry_natural_hold_summary">Hold the progress card, calendar schedule heading, or calculator equals key.</string>
+	<string name="change_vault_pin">Change vault PIN</string>
+	<string name="vault_pin_summary">Replace the current PIN. Four digits work; 6 or more are safer.</string>
+	<string name="legacy_passphrase_summary">Replace the legacy passphrase with a 4–12 digit PIN.</string>
+	<string name="create_decoy_pin">Create decoy PIN</string>
+	<string name="change_decoy_pin">Change decoy PIN</string>
+	<string name="decoy_pin_summary">Entering this after the secret gesture quietly returns to the decoy.</string>
+	<string name="remove_decoy_pin">Remove decoy PIN</string>
+	<string name="remove_decoy_pin_summary">Wrong PINs will show an error again.</string>
+	<string name="remove_decoy_pin_confirm">The decoy PIN will stop working immediately.</string>
+	<string name="hiding_engine">Folder hiding</string>
+	<string name="hiding_engine_description">Folder rename is the quiet default. Root is checked only after you select Root or Automatic.</string>
+	<string name="mode_auto">Automatic</string>
+	<string name="mode_auto_summary">Root first, then all-files access, then a Storage Access Framework rename.</string>
+	<string name="root_mode">Root permissions</string>
+	<string name="root_mode_available">Available. Clears folder permission bits in place.</string>
+	<string name="root_mode_unavailable">Unavailable. A working root manager must grant Shelf access.</string>
+	<string name="all_files_mode">Private move</string>
+	<string name="all_files_available">Available. Moves folders instantly into persistent hidden storage.</string>
+	<string name="all_files_unavailable">Needs Android’s all-files access permission.</string>
+	<string name="saf_mode">Folder rename</string>
+	<string name="saf_mode_summary">No broad permission. Adds a leading dot through the system picker.</string>
+	<string name="grant_all_files">Open all-files access settings</string>
+	<string name="recovery">Recovery</string>
+	<string name="recovery_description">Tools for files whose app record was lost after reinstalling or clearing data.</string>
+	<string name="recover_file">Recover a locked file</string>
+	<string name="recover_file_summary">Select a Shelf-locked file and restore it using its original file passphrase.</string>
+	<string name="recover_file_title">Recover this file</string>
 </resources>

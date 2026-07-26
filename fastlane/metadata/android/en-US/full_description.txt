@@ -1,19 +1,26 @@
-Shelf is a private-space utility presented on the launcher as the habit tracker
-Momento. Long-pressing its title opens passphrase authentication for the private
-space.
+Shelf is a private-space utility that can appear on the launcher as a habit
+tracker, calendar, or calculator. Each decoy is functional and has its own name
+and icon.
+
+The private space uses a 4–12 digit PIN and supports three configurable hidden
+entry gestures. An optional separate decoy PIN quietly returns to the public
+screen. Existing passphrase users can migrate from Settings.
 
 Folders can be hidden in three ways. On rooted devices Shelf clears their
 permission bits on the backing filesystem. With optional all-files access it
 moves them into a persistent hidden directory. With neither permission it uses
 the system folder picker to rename them with a leading dot. The app explains the
-strength of the active method before it is used.
+strength of the active method before it is used. The quiet folder-rename mode is
+the default; automatic, root, and all-files modes can be chosen directly in
+Settings. Root is not checked until the user selects Root or Automatic.
 
 Each folder operation is journalled before anything changes. The journal uses
 synced atomic writes and retains its previous valid generation.
 
 Shelf can also lock a file by encrypting its first MiB with AES-256-GCM and a
 PBKDF2-derived key. Recovery data is appended to the file, allowing it to be
-restored after an interrupted write, app reinstall, or cleared app data.
+restored after an interrupted write, app reinstall, or cleared app data. The
+recovery picker lives under authenticated Settings.
 
 Root is optional. Shelf has no network access, analytics, advertising, or cloud
 service.
