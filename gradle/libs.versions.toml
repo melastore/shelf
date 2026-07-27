@@ -11,7 +11,7 @@ junit = "4.13.2"
 androidxTest = "1.7.0"
 androidxTestExt = "1.3.0"
 robolectric = "4.16.1"
-robolectricAndroid = "15-robolectric-13954326-i7"
+robolectricAndroid = "17-robolectric-15733970-i7"
 spotless = "8.8.0"
 
 [libraries]
