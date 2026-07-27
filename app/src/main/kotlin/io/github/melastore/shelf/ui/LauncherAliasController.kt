@@ -30,6 +30,7 @@ class LauncherAliasController(context: Context) {
 	private companion object {
 		const val PACKAGE = "io.github.melastore.shelf"
 		val aliases = mapOf(
+			DecoyType.NONE to "$PACKAGE.ShelfLauncher",
 			DecoyType.HABITS to "$PACKAGE.HabitLauncher",
 			DecoyType.CALENDAR to "$PACKAGE.CalendarLauncher",
 			DecoyType.CALCULATOR to "$PACKAGE.CalculatorLauncher",

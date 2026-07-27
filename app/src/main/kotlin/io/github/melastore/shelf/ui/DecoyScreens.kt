@@ -1,13 +1,18 @@
 package io.github.melastore.shelf.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,16 +23,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,7 +42,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,12 +53,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.melastore.shelf.R
 import io.github.melastore.shelf.data.CalculatorOperation
 import io.github.melastore.shelf.data.CalculatorState
@@ -73,17 +80,80 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun DecoyScreen(state: AppUiState, viewModel: ShelfViewModel, onSecretEntry: () -> Unit) {
-	when (state.decoy) {
-		DecoyType.HABITS -> HabitDecoy(state, viewModel, onSecretEntry)
-		DecoyType.CALENDAR -> CalendarDecoy(state, viewModel, onSecretEntry)
-		DecoyType.CALCULATOR -> CalculatorDecoy(state.entryMethod, onSecretEntry)
+	Box(Modifier.fillMaxSize()) {
+		when (state.decoy) {
+			DecoyType.NONE -> LockScreen(onSecretEntry)
+			DecoyType.HABITS -> HabitDecoy(state, viewModel, onSecretEntry)
+			DecoyType.CALENDAR -> CalendarDecoy(state, viewModel, onSecretEntry)
+			DecoyType.CALCULATOR -> CalculatorDecoy(state.entryMethod, onSecretEntry)
+		}
+		// With no disguise there is nothing to hide the way in behind, and the lock screen offers a
+		// button, so the corner target would only be a second route to a door that is already open.
+		if (state.decoy != DecoyType.NONE) {
+			// Always live, whatever gesture is configured, because the knock is the way back in when the
+			// chosen long-press lands on a control that is not on screen. An owner locked out of their own
+			// private space is a worse outcome than a gesture that is slightly easier to stumble on.
+			//
+			// Top-right only: no decoy puts a control there, whereas the left of the bar is the title, and
+			// a target over it would swallow the long-press that is the default way in.
+			KnockTarget(onSecretEntry, Modifier.align(Alignment.TopEnd).statusBarsPadding())
+		}
 	}
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+/**
+ * What the app shows when it is wearing no disguise, which is the default.
+ *
+ * There is nothing to conceal here and therefore nothing to find: one button, doing the one thing
+ * the app is for. The hidden gestures still exist for anyone who later picks a disguise, but making
+ * an undisguised app hide its own front door would only lock out the owner.
+ */
+@Composable
+private fun LockScreen(onUnlock: () -> Unit) {
+	Column(
+		Modifier.fillMaxSize().padding(horizontal = 32.dp),
+		verticalArrangement = Arrangement.Center,
+		horizontalAlignment = Alignment.CenterHorizontally,
+	) {
+		Box(
+			Modifier.size(96.dp).clip(CircleShape)
+				.background(MaterialTheme.colorScheme.primaryContainer),
+			contentAlignment = Alignment.Center,
+		) {
+			Icon(
+				Icons.Filled.Lock,
+				contentDescription = null,
+				modifier = Modifier.size(42.dp),
+				tint = MaterialTheme.colorScheme.onPrimaryContainer,
+			)
+		}
+		Spacer(Modifier.height(28.dp))
+		Text(
+			stringResource(R.string.launcher_shelf),
+			style = MaterialTheme.typography.headlineMedium,
+		)
+		Spacer(Modifier.height(8.dp))
+		Text(
+			stringResource(R.string.lock_screen_subtitle),
+			style = MaterialTheme.typography.bodyMedium,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			textAlign = TextAlign.Center,
+		)
+		Spacer(Modifier.height(36.dp))
+		Button(onClick = onUnlock, shape = CircleShape) {
+			Text(
+				stringResource(R.string.unlock),
+				modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+				style = MaterialTheme.typography.titleMedium,
+			)
+		}
+	}
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HabitDecoy(state: AppUiState, viewModel: ShelfViewModel, onSecretEntry: () -> Unit) {
-	var entry by remember { mutableStateOf("") }
+	var adding by remember { mutableStateOf(false) }
 	var today by remember { mutableStateOf(LocalDate.now()) }
 	LaunchedEffect(Unit) {
 		while (true) {
@@ -91,235 +161,342 @@ private fun HabitDecoy(state: AppUiState, viewModel: ShelfViewModel, onSecretEnt
 			today = LocalDate.now()
 		}
 	}
-	val completedToday = state.habits.count { today.toString() in it.checkedDates }
+	val done = state.habits.count { today.toString() in it.checkedDates }
 
-	Box(Modifier.fillMaxSize()) {
-		Scaffold(
-			topBar = {
-				TopAppBar(title = {
-					SecretTitle("Momento", state.entryMethod, onSecretEntry)
-				})
-			},
-		) { padding ->
-			LazyColumn(
-				modifier = Modifier.padding(padding).fillMaxSize(),
-				contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-				verticalArrangement = Arrangement.spacedBy(12.dp),
-			) {
-				item {
+	Scaffold(
+		containerColor = MaterialTheme.colorScheme.background,
+		topBar = {
+			TopAppBar(
+				title = { SecretTitle(stringResource(R.string.launcher_habits), state.entryMethod, onSecretEntry) },
+				colors = TopAppBarDefaults.topAppBarColors(
+					containerColor = MaterialTheme.colorScheme.background,
+				),
+			)
+		},
+		floatingActionButton = {
+			FloatingActionButton(onClick = { adding = true }) {
+				Icon(Icons.Filled.Add, stringResource(R.string.add_habit))
+			}
+		},
+	) { padding ->
+		LazyColumn(
+			modifier = Modifier.padding(padding).fillMaxSize(),
+			contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
+			verticalArrangement = Arrangement.spacedBy(12.dp),
+		) {
+			item {
+				Column(Modifier.padding(top = 4.dp, bottom = 4.dp)) {
 					Text(
-						today.format(DateTimeFormatter.ofPattern("EEEE, MMMM d")),
-						style = MaterialTheme.typography.headlineSmall,
-						fontWeight = FontWeight.SemiBold,
+						today.format(DateTimeFormatter.ofPattern("EEEE")),
+						style = MaterialTheme.typography.headlineLarge,
 					)
 					Text(
-						stringResource(R.string.habit_day_prompt),
+						today.format(DateTimeFormatter.ofPattern("d MMMM yyyy")),
+						style = MaterialTheme.typography.bodyLarge,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
 				}
+			}
+			item {
+				ProgressCard(
+					done = done,
+					total = state.habits.size,
+					modifier = Modifier.secretHold(
+						state.entryMethod == EntryMethod.NATURAL_HOLD,
+						onSecretEntry,
+					),
+				)
+			}
+			if (state.habits.isEmpty()) {
 				item {
-					Card(
-						modifier = Modifier.fillMaxWidth().secretHold(
-							state.entryMethod == EntryMethod.NATURAL_HOLD,
-							onSecretEntry,
-						),
-						colors = CardDefaults.cardColors(
-							containerColor = MaterialTheme.colorScheme.primaryContainer,
-						),
-					) {
-						Column(Modifier.padding(20.dp)) {
-							Text(
-								"$completedToday / ${state.habits.size}",
-								style = MaterialTheme.typography.headlineMedium,
-								fontWeight = FontWeight.Bold,
-							)
-							Text(stringResource(R.string.completed_today))
-						}
-					}
+					EmptyState(
+						stringResource(R.string.start_small),
+						stringResource(R.string.habits_empty),
+					)
 				}
-				item {
-					Row(verticalAlignment = Alignment.CenterVertically) {
-						OutlinedTextField(
-							value = entry,
-							onValueChange = { entry = it },
-							modifier = Modifier.weight(1f),
-							singleLine = true,
-							label = { Text(stringResource(R.string.add_habit)) },
-							keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-							keyboardActions = KeyboardActions(onDone = {
-								viewModel.submitHabit(entry)
-								entry = ""
-							}),
-						)
-						IconButton(
-							onClick = {
-								viewModel.submitHabit(entry)
-								entry = ""
-							},
-							enabled = entry.isNotBlank(),
-						) { Icon(Icons.Filled.Add, stringResource(R.string.add_habit)) }
-					}
-				}
-				if (state.habits.isEmpty()) {
-					item { EmptyState(stringResource(R.string.start_small), stringResource(R.string.habits_empty)) }
-				} else {
-					items(state.habits, key = { it.id }) { habit ->
-						HabitCard(habit, today, viewModel)
-					}
+			} else {
+				items(state.habits, key = { it.id }) { habit ->
+					HabitCard(habit, today, viewModel)
 				}
 			}
 		}
-		CornerKnockTarget(
-			state.entryMethod,
-			onSecretEntry,
-			Modifier.align(Alignment.TopEnd).statusBarsPadding(),
+	}
+
+	if (adding) {
+		TextEntryDialog(
+			title = stringResource(R.string.add_habit),
+			label = stringResource(R.string.habit_name),
+			onAdd = {
+				viewModel.submitHabit(it)
+				adding = false
+			},
+			onDismiss = { adding = false },
 		)
+	}
+}
+
+@Composable
+private fun ProgressCard(done: Int, total: Int, modifier: Modifier = Modifier) {
+	val fraction = if (total == 0) 0f else done.toFloat() / total
+	val animated by animateFloatAsState(fraction, tween(600), label = "progress")
+	Surface(
+		modifier = modifier.fillMaxWidth(),
+		shape = MaterialTheme.shapes.extraLarge,
+		color = MaterialTheme.colorScheme.primaryContainer,
+	) {
+		Row(Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
+			Box(Modifier.size(76.dp), contentAlignment = Alignment.Center) {
+				val track = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.18f)
+				val arc = MaterialTheme.colorScheme.primary
+				Canvas(Modifier.fillMaxSize()) {
+					val stroke = Stroke(width = 9.dp.toPx(), cap = StrokeCap.Round)
+					val inset = stroke.width / 2
+					drawArc(
+						color = track,
+						startAngle = -90f,
+						sweepAngle = 360f,
+						useCenter = false,
+						topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
+						size = androidx.compose.ui.geometry.Size(
+							size.width - stroke.width,
+							size.height - stroke.width,
+						),
+						style = stroke,
+					)
+					drawArc(
+						color = arc,
+						startAngle = -90f,
+						sweepAngle = 360f * animated,
+						useCenter = false,
+						topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
+						size = androidx.compose.ui.geometry.Size(
+							size.width - stroke.width,
+							size.height - stroke.width,
+						),
+						style = stroke,
+					)
+				}
+				Text(
+					"${(fraction * 100).toInt()}%",
+					style = MaterialTheme.typography.titleMedium,
+					color = MaterialTheme.colorScheme.onPrimaryContainer,
+				)
+			}
+			Column(Modifier.padding(start = 20.dp)) {
+				Text(
+					"$done / $total",
+					style = MaterialTheme.typography.headlineMedium,
+					color = MaterialTheme.colorScheme.onPrimaryContainer,
+				)
+				Text(
+					stringResource(R.string.completed_today),
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onPrimaryContainer,
+				)
+				Spacer(Modifier.height(6.dp))
+				Text(
+					stringResource(R.string.habit_day_prompt),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+				)
+			}
+		}
 	}
 }
 
 @Composable
 private fun HabitCard(habit: Habit, today: LocalDate, viewModel: ShelfViewModel) {
 	val week = remember(today) { (6L downTo 0L).map(today::minusDays) }
-	Card(Modifier.fillMaxWidth()) {
-		Column(Modifier.padding(16.dp)) {
+	Surface(
+		modifier = Modifier.fillMaxWidth(),
+		shape = MaterialTheme.shapes.large,
+		color = MaterialTheme.colorScheme.surfaceContainer,
+	) {
+		Column(Modifier.padding(start = 20.dp, end = 8.dp, top = 16.dp, bottom = 16.dp)) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				Column(Modifier.weight(1f)) {
-					Text(habit.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+					Text(
+						habit.name,
+						style = MaterialTheme.typography.titleMedium,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis,
+					)
 					val streak = currentStreak(habit.checkedDates, today)
 					Text(
 						pluralStringResource(R.plurals.streak_format, streak, streak),
 						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						color = MaterialTheme.colorScheme.primary,
 					)
 				}
 				IconButton(onClick = { viewModel.removeHabit(habit) }) {
-					Icon(Icons.Filled.Delete, stringResource(R.string.remove), tint = MaterialTheme.colorScheme.error)
+					Icon(
+						Icons.Filled.Delete,
+						stringResource(R.string.remove),
+						tint = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
 				}
 			}
-			Spacer(Modifier.height(12.dp))
-			Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+			Spacer(Modifier.height(14.dp))
+			Row(
+				Modifier.fillMaxWidth().padding(end = 12.dp),
+				horizontalArrangement = Arrangement.SpaceBetween,
+			) {
 				week.forEach { date ->
-					DayBubble(
-						date,
-						date.toString() in habit.checkedDates,
-					) { viewModel.toggleHabit(habit, date.toString()) }
+					DayBubble(date, date.toString() in habit.checkedDates) {
+						viewModel.toggleHabit(habit, date.toString())
+					}
 				}
 			}
 		}
 	}
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DayBubble(date: LocalDate, checked: Boolean, onClick: () -> Unit) {
 	Column(horizontalAlignment = Alignment.CenterHorizontally) {
 		Text(
 			date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()),
 			style = MaterialTheme.typography.labelSmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
-		Spacer(Modifier.height(4.dp))
+		Spacer(Modifier.height(6.dp))
 		Box(
-			Modifier.size(38.dp).clip(CircleShape).background(
-				if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+			Modifier.size(36.dp).clip(CircleShape).background(
+				if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
 			).combinedClickable(onClick = onClick),
 			contentAlignment = Alignment.Center,
 		) {
 			Text(
 				date.dayOfMonth.toString(),
-				color = if (checked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+				style = MaterialTheme.typography.labelLarge,
+				color = if (checked) {
+					MaterialTheme.colorScheme.onPrimary
+				} else {
+					MaterialTheme.colorScheme.onSurfaceVariant
+				},
 			)
 		}
 	}
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CalendarDecoy(state: AppUiState, viewModel: ShelfViewModel, onSecretEntry: () -> Unit) {
 	var month by remember { mutableStateOf(YearMonth.now()) }
 	var selected by remember { mutableStateOf(LocalDate.now()) }
 	var showAdd by remember { mutableStateOf(false) }
 	val selectedEvents = state.calendarEvents.filter { it.date == selected.toString() }
+	val busyDays = remember(state.calendarEvents) { state.calendarEvents.mapTo(mutableSetOf()) { it.date } }
 
-	Box(Modifier.fillMaxSize()) {
-		Scaffold(
-			topBar = { TopAppBar(title = { SecretTitle("Calendar", state.entryMethod, onSecretEntry) }) },
-			floatingActionButton = {
-				FloatingActionButton(onClick = { showAdd = true }) {
-					Icon(Icons.Filled.Add, stringResource(R.string.add_event))
-				}
-			},
-		) { padding ->
-			LazyColumn(
-				Modifier.padding(padding).fillMaxSize(),
-				contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-				verticalArrangement = Arrangement.spacedBy(16.dp),
-			) {
-				item {
-					Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-						IconButton(onClick = {
-							month = month.minusMonths(1)
-							selected = month.atDay(1)
-						}) {
-							Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, stringResource(R.string.previous_month))
+	Scaffold(
+		containerColor = MaterialTheme.colorScheme.background,
+		topBar = {
+			TopAppBar(
+				title = {
+					SecretTitle(stringResource(R.string.launcher_calendar), state.entryMethod, onSecretEntry)
+				},
+				colors = TopAppBarDefaults.topAppBarColors(
+					containerColor = MaterialTheme.colorScheme.background,
+				),
+			)
+		},
+		floatingActionButton = {
+			FloatingActionButton(onClick = { showAdd = true }) {
+				Icon(Icons.Filled.Add, stringResource(R.string.add_event))
+			}
+		},
+	) { padding ->
+		LazyColumn(
+			Modifier.padding(padding).fillMaxSize(),
+			contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
+			verticalArrangement = Arrangement.spacedBy(12.dp),
+		) {
+			item {
+				Surface(
+					Modifier.fillMaxWidth(),
+					shape = MaterialTheme.shapes.extraLarge,
+					color = MaterialTheme.colorScheme.surfaceContainer,
+				) {
+					Column(Modifier.padding(16.dp)) {
+						Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+							IconButton(onClick = { month = month.minusMonths(1) }) {
+								Icon(
+									Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+									stringResource(R.string.previous_month),
+								)
+							}
+							Text(
+								month.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
+								modifier = Modifier.weight(1f),
+								style = MaterialTheme.typography.titleLarge,
+								textAlign = TextAlign.Center,
+							)
+							IconButton(onClick = { month = month.plusMonths(1) }) {
+								Icon(
+									Icons.AutoMirrored.Filled.KeyboardArrowRight,
+									stringResource(R.string.next_month),
+								)
+							}
 						}
-						Text(
-							month.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
-							modifier = Modifier.weight(1f),
-							style = MaterialTheme.typography.titleLarge,
-							fontWeight = FontWeight.SemiBold,
-						)
-						IconButton(onClick = {
-							month = month.plusMonths(1)
-							selected = month.atDay(1)
-						}) {
-							Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, stringResource(R.string.next_month))
+						Spacer(Modifier.height(8.dp))
+						MonthGrid(month, selected, busyDays) {
+							selected = it
+							month = YearMonth.from(it)
 						}
-					}
-					MonthGrid(month, selected) {
-						selected = it
-						month = YearMonth.from(it)
-					}
-				}
-				item {
-					Column(Modifier.secretHold(state.entryMethod == EntryMethod.NATURAL_HOLD, onSecretEntry)) {
-						Text(
-							selected.format(DateTimeFormatter.ofPattern("EEEE, MMMM d")),
-							style = MaterialTheme.typography.titleMedium,
-							fontWeight = FontWeight.SemiBold,
-						)
-						Text(
-							stringResource(R.string.schedule),
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-						)
-					}
-				}
-				if (selectedEvents.isEmpty()) {
-					item { Text(stringResource(R.string.no_events), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-				} else {
-					items(selectedEvents, key = { it.id }) { event ->
-						CalendarEventCard(event) { viewModel.removeCalendarEvent(event) }
 					}
 				}
 			}
+			item {
+				Column(
+					Modifier.padding(top = 4.dp).secretHold(
+						state.entryMethod == EntryMethod.NATURAL_HOLD,
+						onSecretEntry,
+					),
+				) {
+					Text(
+						selected.format(DateTimeFormatter.ofPattern("EEEE, d MMMM")),
+						style = MaterialTheme.typography.titleLarge,
+					)
+					Text(
+						stringResource(R.string.schedule),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+			}
+			if (selectedEvents.isEmpty()) {
+				item {
+					Text(
+						stringResource(R.string.no_events),
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+			} else {
+				items(selectedEvents, key = { it.id }) { event ->
+					CalendarEventCard(event) { viewModel.removeCalendarEvent(event) }
+				}
+			}
 		}
-		CornerKnockTarget(
-			state.entryMethod,
-			onSecretEntry,
-			Modifier.align(Alignment.TopEnd).statusBarsPadding(),
-		)
 	}
 
 	if (showAdd) {
-		AddEventDialog(
-			date = selected,
-			onAdd = { viewModel.addCalendarEvent(selected.toString(), it); showAdd = false },
+		TextEntryDialog(
+			title = stringResource(R.string.new_event),
+			label = stringResource(R.string.event_title),
+			subtitle = selected.format(DateTimeFormatter.ofPattern("EEEE, d MMMM")),
+			onAdd = {
+				viewModel.addCalendarEvent(selected.toString(), it)
+				showAdd = false
+			},
 			onDismiss = { showAdd = false },
 		)
 	}
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MonthGrid(month: YearMonth, selected: LocalDate, onSelected: (LocalDate) -> Unit) {
+private fun MonthGrid(month: YearMonth, selected: LocalDate, busyDays: Set<String>, onSelected: (LocalDate) -> Unit,) {
 	val locale = Locale.getDefault()
 	val firstWeekday = WeekFields.of(locale).firstDayOfWeek
 	val weekdays = remember(locale) { (0L..6L).map { firstWeekday.plus(it) } }
@@ -328,39 +505,62 @@ private fun MonthGrid(month: YearMonth, selected: LocalDate, onSelected: (LocalD
 	val cells = remember(month, firstWeekday) {
 		List<LocalDate?>(offset) { null } + (1..month.lengthOfMonth()).map(month::atDay)
 	}
+	val today = LocalDate.now()
+
 	Row(Modifier.fillMaxWidth()) {
 		weekdays.forEach {
 			Text(
-				it.getDisplayName(TextStyle.SHORT, locale),
+				it.getDisplayName(TextStyle.NARROW, locale),
 				modifier = Modifier.weight(1f),
-				style = MaterialTheme.typography.labelMedium,
+				style = MaterialTheme.typography.labelSmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				textAlign = TextAlign.Center,
 			)
 		}
 	}
-	Spacer(Modifier.height(8.dp))
-	Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+	Spacer(Modifier.height(6.dp))
+	Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
 		cells.chunked(7).forEach { week ->
 			Row(Modifier.fillMaxWidth()) {
 				(week + List(7 - week.size) { null }).forEach { date ->
-					Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+					Box(Modifier.weight(1f).aspectRatio(1f), contentAlignment = Alignment.Center) {
 						if (date != null) {
 							val chosen = date == selected
-							val today = date == LocalDate.now()
 							Box(
-								Modifier.size(42.dp).clip(CircleShape).background(
+								Modifier.fillMaxSize().padding(3.dp).clip(CircleShape).background(
 									when {
 										chosen -> MaterialTheme.colorScheme.primary
-										today -> MaterialTheme.colorScheme.primaryContainer
+										date == today -> MaterialTheme.colorScheme.primaryContainer
 										else -> Color.Transparent
 									},
 								).combinedClickable(onClick = { onSelected(date) }),
 								contentAlignment = Alignment.Center,
 							) {
-								Text(
-									date.dayOfMonth.toString(),
-									color = if (chosen) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-								)
+								Column(horizontalAlignment = Alignment.CenterHorizontally) {
+									Text(
+										date.dayOfMonth.toString(),
+										style = MaterialTheme.typography.bodyMedium,
+										color = if (chosen) {
+											MaterialTheme.colorScheme.onPrimary
+										} else {
+											MaterialTheme.colorScheme.onSurface
+										},
+									)
+									Box(
+										Modifier.padding(top = 2.dp).size(4.dp).clip(CircleShape)
+											.background(
+												if (date.toString() in busyDays) {
+													if (chosen) {
+														MaterialTheme.colorScheme.onPrimary
+													} else {
+														MaterialTheme.colorScheme.primary
+													}
+												} else {
+													Color.Transparent
+												},
+											),
+									)
+								}
 							}
 						}
 					}
@@ -372,37 +572,70 @@ private fun MonthGrid(month: YearMonth, selected: LocalDate, onSelected: (LocalD
 
 @Composable
 private fun CalendarEventCard(event: CalendarEvent, onDelete: () -> Unit) {
-	Card(Modifier.fillMaxWidth()) {
-		Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-			Box(Modifier.size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
-			Text(event.title, Modifier.padding(start = 12.dp).weight(1f), style = MaterialTheme.typography.bodyLarge)
+	Surface(
+		Modifier.fillMaxWidth(),
+		shape = MaterialTheme.shapes.large,
+		color = MaterialTheme.colorScheme.surfaceContainer,
+	) {
+		Row(
+			Modifier.padding(start = 20.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			Box(
+				Modifier.size(width = 4.dp, height = 28.dp).clip(CircleShape)
+					.background(MaterialTheme.colorScheme.primary),
+			)
+			Text(
+				event.title,
+				Modifier.padding(start = 16.dp).weight(1f),
+				style = MaterialTheme.typography.bodyLarge,
+			)
 			IconButton(onClick = onDelete) {
-				Icon(Icons.Filled.Delete, stringResource(R.string.remove), tint = MaterialTheme.colorScheme.error)
+				Icon(
+					Icons.Filled.Delete,
+					stringResource(R.string.remove),
+					tint = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
 			}
 		}
 	}
 }
 
 @Composable
-private fun AddEventDialog(date: LocalDate, onAdd: (String) -> Unit, onDismiss: () -> Unit) {
-	var title by remember { mutableStateOf("") }
+private fun TextEntryDialog(
+	title: String,
+	label: String,
+	subtitle: String? = null,
+	onAdd: (String) -> Unit,
+	onDismiss: () -> Unit,
+) {
+	var text by remember { mutableStateOf("") }
 	AlertDialog(
 		onDismissRequest = onDismiss,
-		title = { Text(stringResource(R.string.new_event)) },
+		shape = MaterialTheme.shapes.extraLarge,
+		title = { Text(title) },
 		text = {
 			Column {
-				Text(date.format(DateTimeFormatter.ofPattern("EEEE, MMMM d")))
-				Spacer(Modifier.height(12.dp))
+				if (subtitle != null) {
+					Text(
+						subtitle,
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					Spacer(Modifier.height(12.dp))
+				}
 				OutlinedTextField(
-					value = title,
-					onValueChange = { title = it },
-					label = { Text(stringResource(R.string.event_title)) },
+					value = text,
+					onValueChange = { text = it },
+					modifier = Modifier.fillMaxWidth(),
+					shape = MaterialTheme.shapes.medium,
+					label = { Text(label) },
 					singleLine = true,
 				)
 			}
 		},
 		confirmButton = {
-			TextButton(onClick = { onAdd(title) }, enabled = title.isNotBlank()) {
+			TextButton(onClick = { onAdd(text) }, enabled = text.isNotBlank()) {
 				Text(stringResource(R.string.add))
 			}
 		},
@@ -410,7 +643,7 @@ private fun AddEventDialog(date: LocalDate, onAdd: (String) -> Unit, onDismiss: 
 	)
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CalculatorDecoy(entryMethod: EntryMethod, onSecretEntry: () -> Unit) {
 	var calculator by remember { mutableStateOf(CalculatorState()) }
@@ -421,64 +654,92 @@ private fun CalculatorDecoy(entryMethod: EntryMethod, onSecretEntry: () -> Unit)
 		listOf("1", "2", "3", "+"),
 		listOf("0", ".", "="),
 	)
-	Box(Modifier.fillMaxSize()) {
-		Scaffold(topBar = { TopAppBar(title = { SecretTitle("Calculator", entryMethod, onSecretEntry) }) }) { padding ->
-			Column(
-				Modifier.padding(padding).fillMaxSize().padding(16.dp),
-				verticalArrangement = Arrangement.Bottom,
-			) {
-				Text(
-					calculator.display,
-					modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 32.dp),
-					style = MaterialTheme.typography.displayLarge,
-					fontWeight = FontWeight.Light,
-					textAlign = TextAlign.End,
-					maxLines = 1,
-				)
-				rows.forEach { row ->
-					Row(
-						Modifier.fillMaxWidth().padding(vertical = 5.dp),
-						horizontalArrangement = Arrangement.spacedBy(10.dp),
-					) {
-						row.forEach { key ->
-							CalculatorKey(
-								label = key,
-								modifier = Modifier.weight(if (key == "0" && row.size == 3) 2f else 1f),
-								accent = key in setOf("÷", "×", "−", "+", "="),
-								onClick = { calculator = calculator.press(key) },
-								onLongClick = onSecretEntry.takeIf {
-									key == "=" && entryMethod == EntryMethod.NATURAL_HOLD
-								},
-							)
-						}
+	Scaffold(
+		containerColor = MaterialTheme.colorScheme.background,
+		topBar = {
+			TopAppBar(
+				title = {
+					SecretTitle(stringResource(R.string.launcher_calculator), entryMethod, onSecretEntry)
+				},
+				colors = TopAppBarDefaults.topAppBarColors(
+					containerColor = MaterialTheme.colorScheme.background,
+				),
+			)
+		},
+	) { padding ->
+		Column(
+			Modifier.padding(padding).fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp),
+			verticalArrangement = Arrangement.Bottom,
+		) {
+			Text(
+				calculator.display,
+				modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 28.dp),
+				style = MaterialTheme.typography.displayLarge,
+				fontSize = 64.sp,
+				fontWeight = FontWeight.Light,
+				textAlign = TextAlign.End,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis,
+			)
+			rows.forEach { row ->
+				Row(
+					Modifier.fillMaxWidth().padding(vertical = 5.dp),
+					horizontalArrangement = Arrangement.spacedBy(12.dp),
+				) {
+					row.forEach { key ->
+						CalculatorKey(
+							label = key,
+							modifier = Modifier.weight(if (key == "0" && row.size == 3) 2f else 1f),
+							kind = keyKind(key),
+							onClick = { calculator = calculator.press(key) },
+							onLongClick = onSecretEntry.takeIf {
+								key == "=" && entryMethod == EntryMethod.NATURAL_HOLD
+							},
+						)
 					}
 				}
 			}
+			Spacer(Modifier.height(16.dp))
 		}
-		CornerKnockTarget(entryMethod, onSecretEntry, Modifier.align(Alignment.TopEnd).statusBarsPadding())
 	}
+}
+
+private enum class KeyKind { DIGIT, FUNCTION, OPERATOR }
+
+private fun keyKind(key: String): KeyKind = when (key) {
+	"C", "±", "%" -> KeyKind.FUNCTION
+	"÷", "×", "−", "+", "=" -> KeyKind.OPERATOR
+	else -> KeyKind.DIGIT
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CalculatorKey(
 	label: String,
-	accent: Boolean,
+	kind: KeyKind,
 	onClick: () -> Unit,
 	onLongClick: (() -> Unit)?,
 	modifier: Modifier = Modifier,
 ) {
+	val background = when (kind) {
+		KeyKind.DIGIT -> MaterialTheme.colorScheme.surfaceContainerHigh
+		KeyKind.FUNCTION -> MaterialTheme.colorScheme.secondaryContainer
+		KeyKind.OPERATOR -> MaterialTheme.colorScheme.primary
+	}
+	val foreground = when (kind) {
+		KeyKind.DIGIT -> MaterialTheme.colorScheme.onSurface
+		KeyKind.FUNCTION -> MaterialTheme.colorScheme.onSecondaryContainer
+		KeyKind.OPERATOR -> MaterialTheme.colorScheme.onPrimary
+	}
 	Surface(
-		modifier = modifier.height(72.dp).combinedClickable(
-			onClick = onClick,
-			onLongClick = onLongClick,
-		),
-		shape = RoundedCornerShape(24.dp),
-		color = if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-		contentColor = if (accent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+		modifier = modifier.aspectRatio(if (label == "0") 2.15f else 1f).clip(RoundedCornerShape(28.dp))
+			.combinedClickable(onClick = onClick, onLongClick = onLongClick),
+		shape = RoundedCornerShape(28.dp),
+		color = background,
+		contentColor = foreground,
 	) {
 		Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-			Text(label, style = MaterialTheme.typography.headlineSmall)
+			Text(label, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Medium)
 		}
 	}
 }
@@ -496,13 +757,12 @@ private fun CalculatorState.press(key: String): CalculatorState = when (key) {
 	else -> digit(key.toInt())
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SecretTitle(title: String, entryMethod: EntryMethod, onSecretEntry: () -> Unit) {
 	Text(
 		title,
 		modifier = Modifier.secretHold(entryMethod == EntryMethod.TITLE_HOLD, onSecretEntry),
-		fontWeight = FontWeight.SemiBold,
+		style = MaterialTheme.typography.titleLarge,
 	)
 }
 
