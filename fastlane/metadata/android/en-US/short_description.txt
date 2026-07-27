@@ -1,1 +1,1 @@
-Hide folders and lock files locally, with optional root support.
+Hide folders instantly behind a working decoy app. Root optional.

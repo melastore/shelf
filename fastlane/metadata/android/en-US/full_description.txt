@@ -1,30 +1,52 @@
 Shelf is a private-space utility that can appear on the launcher as a habit
-tracker, calendar, or calculator. Each decoy is functional and has its own name
-and icon.
+tracker, calendar, or calculator. Each decoy is a functional app with its own
+name, icon, and colour scheme.
 
-The private space uses a 4–12 digit PIN and supports three configurable hidden
-entry gestures. An optional separate decoy PIN quietly returns to the public
-screen. Existing passphrase users can migrate from Settings.
+Five taps in the top-right corner open the credential prompt. Settings adds a
+second, quieter gesture: a long press on the decoy title, or on a natural
+control inside the decoy. Access uses a 4–12 digit PIN entered on an in-app
+keypad. Optional strong-biometric unlock always opens the real space, with PIN
+fallback. Existing passphrase users can migrate from Settings.
 
-Folders can be hidden in three ways. On rooted devices Shelf clears their
-permission bits on the backing filesystem. With optional all-files access it
-moves them into a persistent hidden directory. With neither permission it uses
-the system folder picker to rename them with a leading dot. The app explains the
-strength of the active method before it is used. The quiet folder-rename mode is
-the default; automatic, root, and all-files modes can be chosen directly in
-Settings. Root is not checked until the user selects Root or Automatic.
+Auto hide has three clear choices: after screen off, immediately when Shelf
+leaves the foreground, or never. It closes the private space and puts exposed
+folders back out of sight. An optional quiet notification, carrying the
+disguise's own name, offers the same emergency hide on demand. The hide remains
+active until filename, header, and folder protection finish.
+
+Folders you add stay on the list whether or not they are hidden, so putting them
+away again is one tap rather than another trip through the picker. A single
+control at the top hides or unhides all of them at once.
+
+An optional second decoy PIN opens a private space that looks and behaves like
+the real one and contains nothing that matters — the PIN to give up if you are
+ever made to hand one over. Shelf records that it was used and tells you on your
+next real unlock.
+
+Folders can be hidden in three ways. On rooted devices Shelf protects file
+headers and clears permission bits on the backing filesystem. With optional
+all-files access it protects headers and moves the folder under random names in
+a persistent hidden directory. With neither permission it protects headers and
+uses the system folder picker to rename the folder with a leading dot. All three
+methods replace file names with opaque identifiers and keep the originals in a
+PIN-encrypted recovery manifest. Header protection touches a fixed 64 KiB per
+non-empty file rather than copying whole files, so a folder of large videos still
+hides quickly. A hidden-file browser may list a dot-renamed folder, but it sees
+random file names and ordinary previews and opening fail.
 
 Each folder operation is journalled before anything changes. The journal uses
-synced atomic writes and retains its previous valid generation.
-
-Shelf can also lock a file by encrypting its first MiB with AES-256-GCM and a
-PBKDF2-derived key. Recovery data is appended to the file, allowing it to be
-restored after an interrupted write, app reinstall, or cleared app data. The
-recovery picker lives under authenticated Settings.
+synced atomic writes and retains its previous valid generation. Root and
+all-files hides leave a recovery marker beside the folder, so Shelf can rebuild
+its records after a reinstall. "Unhide everything" in Settings scans for those
+markers and restores every folder in one pass.
+Manual rename recovery and read-only health checks cover records lost after a
+reinstall. Recovery records can also be exported in a password-encrypted,
+tamper-detecting file and merged back without overwriting existing records.
 
 Root is optional. Shelf has no network access, analytics, advertising, or cloud
 service.
 
-Folder hiding is not encryption, and file locking does not encrypt bytes after
-the first MiB. Shelf is designed to prevent casual browsing, not forensic
-recovery or an attacker with root access.
+Shelf does not provide full-file encryption. Data beyond each protected header
+remains recoverable with forensic tools, and historical file names may remain in
+system or app caches. Shelf is designed to prevent casual browsing, not resist
+an attacker with root access.

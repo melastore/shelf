@@ -1,0 +1,7 @@
+Fix protected filenames that some Android storage providers silently altered during hiding.
+
+- Existing 0.4.0 filename manifests remain fully supported.
+- Provider-adjusted opaque names are recognized during restore.
+- Name collisions preserve both files using a clearly labelled “Shelf recovered” copy.
+- Missing files no longer leave the entire folder permanently hidden.
+- New opaque names use a more storage-provider-compatible format.

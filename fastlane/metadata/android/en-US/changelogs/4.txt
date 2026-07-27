@@ -1,0 +1,15 @@
+Safer recovery, stronger authentication, and configurable locking.
+
+- Cleaner private-space layout, minimal lock screen, and consistent disguise icons.
+- One simple folder list with a clear unlocked status instead of open/hidden zones.
+- Fingerprint sessions can now restore PIN-protected filenames and file headers.
+- File names are replaced with opaque IDs and restored from a PIN-encrypted manifest.
+- Protected 64 KiB headers block ordinary previews even if a hidden folder is found.
+- Folders stay listed after unhiding, with one control to hide or unhide all.
+- Optional strong-biometric unlock, bound to a key that a new enrolment voids.
+- Immediate, delayed, screen-off, and never locking, plus an emergency hide.
+- Manual recovery for dot-renamed folders after reinstall or lost app data.
+- Read-only health checks for every tracked hidden folder.
+- Password-encrypted recovery export and validated, conflict-safe import.
+- Safer SAF rollback, bounded media scanning, and secure credential dialogs.
+- Private-move payloads use random names to be less obvious without root.
