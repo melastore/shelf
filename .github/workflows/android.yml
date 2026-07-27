@@ -17,5 +17,5 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
-      - name: Test, lint, and build release APK
-        run: ./gradlew --no-daemon test lint assembleRelease
+      - name: Format, test, lint, and build release APK
+        run: ./gradlew --no-daemon spotlessCheck test lint assembleRelease
