@@ -1,57 +1,127 @@
 # Shelf
 
-Shelf is a private-space utility that can present itself as **Momento**, a
-calendar, or a calculator. All three decoys work as ordinary local apps. Shelf
-can hide folders and make individual files unreadable without sending data off
-the device. Root improves folder hiding, but is optional.
+[![Android checks](https://github.com/melastore/shelf/actions/workflows/android.yml/badge.svg)](https://github.com/melastore/shelf/actions/workflows/android.yml)
+
+Shelf is an Android private-space utility that can present itself as **Momento**,
+a habit tracker, or as a calendar or a calculator. All three decoys work as
+ordinary local apps. Shelf hides folders instantly, whatever their size, without
+sending data off the device — it holds no network permission at all. Root
+improves folder hiding, but is optional.
+
+## Installing
+
+Android 11 or newer. Signed APKs are attached to each
+[release](https://github.com/melastore/shelf/releases). Shelf is not on Google
+Play, and because it cannot reach the network it will never update itself;
+new versions have to be installed by hand.
+
+Every release is signed with the same key, so an update that Android accepts is
+an update from the same source. To check a file before the first install:
+
+    apksigner verify --print-certs shelf-0.4.3.apk
+
+    Signer #1 certificate SHA-256 digest: c0a840767117551defe6282499cf23a10c586a42da67a8bb4f038ef297d6a405
 
 ## Using the private space
 
-The default entry gesture is a long press on the decoy title. Inside the private
-space, Settings can change that to five taps in the top-right corner or a long
-press on a natural decoy control. Access uses a 4–12 digit vault PIN. An optional
-different decoy PIN quietly returns to the public screen when entered under
-pressure. Older installs can use their existing passphrase once, then migrate to
-a PIN from Settings.
+Five taps in the top-right corner always open the credential prompt. Settings adds
+a second, quieter gesture: a long press on the decoy title (the default), or a
+long press on a natural decoy control. Access uses a 4–12 digit PIN entered on
+an in-app keypad. Strong biometric unlock can be enabled after the PIN is set;
+it always opens the real space, while the PIN screen accepts either the primary
+or decoy PIN. Older installs can use their existing passphrase once, then
+migrate to a PIN from Settings.
+
+One **Auto hide** setting controls both closing the private UI and putting exposed
+folders back out of sight: **After screen off**, **Immediately** when Shelf leaves
+the foreground, or **Never**. An optional quiet notification, carrying the
+disguise's own name and nothing about a private space, offers the same emergency
+hide on demand. That notification stays up for as long as any folder is unhidden,
+including after the app is closed, and its action works whether or not the app is
+still running. Hiding runs as a foreground operation until filename, header, and
+folder protection finish; interrupted journal entries are verified against the
+real folder state and safely retried.
+
+From inside the decoy space, the same five taps in the top-right corner open the
+credential prompt again: the primary PIN or a biometric switches straight to the
+real space, with no need to close the decoy first.
+
+When biometric unlock is enabled, Shelf keeps a copy of the primary PIN encrypted
+by a non-exportable Android Keystore key that requires a strong-biometric match
+for every use. This lets a fingerprint-opened session restore protected headers
+and filenames without prompting for the PIN again. Changing the PIN or enrolled
+biometrics deletes that encrypted copy and turns biometric unlock off.
+
+An optional second **decoy PIN** opens a private space that looks and behaves
+like the real one and holds nothing that matters — the one to give up if you are
+ever made to hand a PIN over. Its use is recorded, and the real space reports it
+on your next unlock.
 
 The selected decoy changes its launcher label and icon. Calendar events and
 habits stay on-device, and the calculator performs ordinary chained arithmetic.
 
+## The folder list
+
+A folder added to the private space stays on the list whether or not it is
+hidden, so putting it back out of sight later is one tap rather than another trip
+through the folder picker. One control at the top of the list moves all of them
+at once: **Unhide all folders** while any are hidden, **Hide all folders** once
+they are all in the open. Each row does the same for itself. The list is
+convenience only — [Journal](app/src/main/kotlin/io/github/melastore/shelf/data/Journal.kt)
+remains the sole record of how a folder was hidden, so losing the list costs a
+list, not a folder.
+
 The quiet default is SAF. In Settings, the user can explicitly select root,
 all-files, or automatic strongest-method selection:
 
-- **Root:** clears permission bits on `/data/media/<user>` after recording the
-  original mode and owner.
-- **All-files access:** moves the folder into a persistent `.shelf` directory on
-  the same volume. The move is instant and survives uninstalling the app.
-- **Storage Access Framework:** renames the folder with a leading dot. This keeps
-  it out of galleries, but file managers configured to show hidden files can see it.
+- **Root:** randomizes file names, protects file headers, then clears permission bits on
+  `/data/media/<user>` after recording the original mode and owner.
+- **All-files access:** randomizes file names, protects file headers, then moves the folder under random
+  container and payload names in a persistent `.shelf` directory on the same
+  volume. The move is instant and survives uninstalling the app.
+- **Storage Access Framework:** randomizes file names, protects file headers, then renames the folder
+  with a leading dot. File managers configured to show hidden files can list the
+  folder, but they see only opaque file identifiers; ordinary previews and file
+  opening fail while it is hidden.
+
+Header protection encrypts the first 64 KiB of every non-empty file with AES-GCM
+and appends authenticated recovery data before overwriting anything. Its cost is
+fixed per file rather than proportional to file size. The primary credential is
+available only while the real private space is open, whether it was recovered by
+a successful biometric match or entered directly.
+
+Filename protection replaces every file name with a random `sfn_…` identifier.
+The original relative names are stored only in an AES-GCM authenticated manifest
+encrypted with the primary PIN. The manifest is synced before the first rename,
+and restore can safely resume after interruption. Directory names are not changed.
 
 Every operation is journalled before the folder is changed. Records are written
 through a synced temporary file, and the last valid generation is retained. Root
 and all-files hides also leave a small recovery marker with the folder so Shelf
 can rebuild an empty journal after reinstalling or clearing app data.
 
-File locking encrypts the first MiB with AES-256-GCM and a PBKDF2-derived key. A
-sealed recovery copy and the parameters needed to reverse the operation are
-appended to the same file. This makes recovery possible after a torn write,
-reinstall, or cleared app data: open **Settings → Recovery**, select the file,
-and enter its original file passphrase.
+**Settings → Recovery → Unhide everything** scans for folders Shelf hid but no
+longer tracks, then restores every folder in one pass. Anything it cannot reach
+is reported and left untouched. A single stuck record can also be dropped from
+the row's menu; that removes the record only, never the folder.
+
+Recovery also includes a read-only health check and a manual SAF route: choose
+the parent of a dot-renamed folder, confirm the original name, and Shelf commits
+a recovery record before renaming it. Recovery records can be exported as an
+AES-GCM authenticated file protected by a separate passphrase of at least 12
+characters. Imports validate paths and merge without replacing existing records.
 
 ## What it does not do
 
-Shelf is not full-file or full-disk encryption. Hidden folders remain plaintext,
-and a locked file's body after its first MiB is unchanged. The recovery trailer
-also makes a Shelf-locked file identifiable under forensic inspection. This app
-is intended to stop casual browsing, not a determined attacker with physical or
-root access.
+Shelf does not provide full-file encryption. Data beyond each protected header
+remains plaintext on disk and can be recovered with forensic tools. Original
+file names may also survive in filesystem, media-index, backup, or app caches.
+Random names and protected headers stop ordinary browsing and previews, but
+Shelf is not intended to resist a determined attacker with physical or root access.
 
 A four-digit PIN is convenient but has only 10,000 combinations. Shelf slows
 repeated in-app attempts, but a longer PIN is recommended and app-private
 credential data is not designed to resist an attacker with root access.
-
-Do not edit, truncate, or move a locked file through software that rewrites its
-contents. Keep the file passphrase: Shelf cannot reset it.
 
 ## Building
 
