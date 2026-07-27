@@ -15,13 +15,17 @@ import android.os.Process
  * the volume is /data/media/10, and a hardcoded 0 would aim every privileged chmod at another
  * user's files.
  */
-class StoragePaths(private val userId: Int) {
+class StoragePaths private constructor(
+	val backingRoot: String,
+	val emulatedRoot: String,
+	private val root: RootCommandRunner,
+) {
 
-	/** Backing root for this user; every target must resolve to somewhere underneath it. */
-	val backingRoot: String = BACKING_PREFIX + userId
-
-	/** The path form the Storage Access Framework and MediaStore speak in. */
-	val emulatedRoot: String = EMULATED_PREFIX + userId
+	constructor(userId: Int) : this(
+		backingRoot = BACKING_PREFIX + userId,
+		emulatedRoot = EMULATED_PREFIX + userId,
+		root = RootShell,
+	)
 
 	private val emulatedRoots = listOf(emulatedRoot, SDCARD)
 
@@ -62,7 +66,8 @@ class StoragePaths(private val userId: Int) {
 	suspend fun resolveTarget(emulatedPath: String): String? {
 		val backing = runCatching { toBacking(emulatedPath) }.getOrNull() ?: return null
 		if (!isSafeTarget(backing)) return null
-		val real = RootShell.realPath(backing) ?: return null
+		val real = root.run("realpath ${RootShell.quote(backing)}")
+			.takeIf { it.ok }?.stdout?.firstOrNull()?.trim()?.ifEmpty { null } ?: return null
 		return real.takeIf { isSafeTarget(it) }
 	}
 
@@ -84,11 +89,15 @@ class StoragePaths(private val userId: Int) {
 	companion object {
 		private const val BACKING_PREFIX = "/data/media/"
 		private const val EMULATED_PREFIX = "/storage/emulated/"
+
 		@Suppress("SdCardPath")
 		private const val SDCARD = "/sdcard"
 		private const val PER_USER_RANGE = 100_000
 
 		/** Paths for the Android user this process is running as. */
 		fun forCurrentUser(): StoragePaths = StoragePaths(Process.myUid() / PER_USER_RANGE)
+
+		internal fun forTest(backingRoot: String, emulatedRoot: String, root: RootCommandRunner = RootShell,): StoragePaths =
+			StoragePaths(backingRoot.trimEnd('/'), emulatedRoot.trimEnd('/'), root)
 	}
 }

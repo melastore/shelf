@@ -6,11 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 
 @Serializable
-data class CalendarEvent(
-	val id: String = UUID.randomUUID().toString(),
-	val date: String,
-	val title: String,
-)
+data class CalendarEvent(val id: String = UUID.randomUUID().toString(), val date: String, val title: String,)
 
 class CalendarEventStore(file: File) {
 

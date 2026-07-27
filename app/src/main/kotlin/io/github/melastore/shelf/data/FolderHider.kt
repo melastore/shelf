@@ -35,24 +35,66 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 		return selectedMethod(preference, available)
 	}
 
-	fun selectedMethod(preference: HidingPreference, available: Set<HideMethod>): HideMethod? =
-		when (preference) {
-			HidingPreference.AUTO -> strategies.firstOrNull { it.method in available }?.method
-			HidingPreference.ROOT -> HideMethod.ROOT_CHMOD.takeIf { it in available }
-			HidingPreference.ALL_FILES -> HideMethod.PRIVATE_MOVE.takeIf { it in available }
-			HidingPreference.SAF -> HideMethod.DOT_RENAME.takeIf { it in available }
-		}
+	fun selectedMethod(preference: HidingPreference, available: Set<HideMethod>): HideMethod? = when (preference) {
+		HidingPreference.AUTO -> strategies.firstOrNull { it.method in available }?.method
+		HidingPreference.ROOT -> HideMethod.ROOT_CHMOD.takeIf { it in available }
+		HidingPreference.ALL_FILES -> HideMethod.PRIVATE_MOVE.takeIf { it in available }
+		HidingPreference.SAF -> HideMethod.DOT_RENAME.takeIf { it in available }
+	}
 
 	suspend fun hide(target: FolderTarget, preference: HidingPreference): HideResult {
 		val method = activeMethod(preference)
-			?: return HideResult.Failed("The selected hiding method is not available on this device")
+			?: return HideResult.Failed(HideFailure.MethodUnavailable)
 		return strategies.first { it.method == method }.hide(target)
+	}
+
+	/**
+	 * Completes a hide whose journal write survived but whose physical change did not. Rolling the
+	 * interrupted entry back first also restores any headers or names changed before Android stopped
+	 * the earlier operation, then a fresh journalled hide can safely start.
+	 */
+	suspend fun rehide(target: FolderTarget, preference: HidingPreference, interrupted: HiddenEntry?,): HideResult {
+		if (interrupted != null) {
+			val health = health(interrupted)
+			if (health.status != HiddenHealthStatus.ALREADY_RESTORED) {
+				return HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
+			}
+			val rolledBack = restore(interrupted)
+			if (rolledBack !is HideResult.Ok) return rolledBack
+		}
+		return hide(target, preference)
+	}
+
+	/** A journal record is not proof of hiding until its strategy confirms the physical state. */
+	suspend fun isExposed(entry: HiddenEntry): Boolean = when (health(entry).status) {
+		HiddenHealthStatus.ALREADY_RESTORED, HiddenHealthStatus.CONFLICT -> true
+		else -> false
 	}
 
 	suspend fun restore(entry: HiddenEntry): HideResult =
 		strategies.firstOrNull { it.method == entry.method }?.restore(entry)
-			?: HideResult.Failed("${entry.displayName} was hidden in a way this build cannot reverse")
+			?: HideResult.Failed(HideFailure.MethodCannotRestore)
+
+	suspend fun health(entry: HiddenEntry): HiddenHealth =
+		strategies.firstOrNull { it.method == entry.method }?.health(entry)
+			?: HiddenHealth(HiddenHealthStatus.UNKNOWN, HiddenHealthDetail.METHOD_UNAVAILABLE)
+
+	suspend fun recoveryCandidates(parentTree: android.net.Uri): List<SafRecoveryCandidate> =
+		strategies.firstOrNull { it.method == HideMethod.DOT_RENAME }
+			?.recoveryCandidates(parentTree).orEmpty()
+
+	suspend fun recover(candidate: SafRecoveryCandidate, restoredName: String): HideResult =
+		strategies.firstOrNull { it.method == HideMethod.DOT_RENAME }
+			?.recover(candidate, restoredName)
+			?: HideResult.Failed(HideFailure.MethodCannotRecover)
 
 	suspend fun recoverOrphans(method: HideMethod): Int =
 		strategies.firstOrNull { it.method == method }?.recoverOrphans() ?: 0
+
+	/**
+	 * Sweeps every method, not just the configured one. Each strategy performs its own capability
+	 * check; doing one here as well would ask for root twice. A folder hidden with root before the user
+	 * reinstalled is still on disk at mode 000 even when another method is selected today.
+	 */
+	suspend fun recoverEverything(): Int = strategies.sumOf { it.recoverOrphans() }
 }

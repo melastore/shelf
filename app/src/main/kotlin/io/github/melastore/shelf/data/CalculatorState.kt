@@ -61,16 +61,15 @@ data class CalculatorState(
 
 	private fun displayNumber(): BigDecimal? = display.toBigDecimalOrNull()
 
-	private fun calculate(
-		left: BigDecimal?,
-		right: BigDecimal,
-		operation: CalculatorOperation?,
-	): BigDecimal? {
+	private fun calculate(left: BigDecimal?, right: BigDecimal, operation: CalculatorOperation?,): BigDecimal? {
 		if (left == null || operation == null) return right
 		return when (operation) {
 			CalculatorOperation.ADD -> left + right
+
 			CalculatorOperation.SUBTRACT -> left - right
+
 			CalculatorOperation.MULTIPLY -> left * right
+
 			CalculatorOperation.DIVIDE -> if (right.compareTo(BigDecimal.ZERO) == 0) {
 				null
 			} else {
@@ -81,10 +80,14 @@ data class CalculatorState(
 
 	private fun format(value: BigDecimal): String {
 		val plain = value.stripTrailingZeros().toPlainString()
-		return if (plain.length <= MAX_DISPLAY) plain else value
-			.round(MathContextHolder.VALUE)
-			.stripTrailingZeros()
-			.toEngineeringString()
+		return if (plain.length <= MAX_DISPLAY) {
+			plain
+		} else {
+			value
+				.round(MathContextHolder.VALUE)
+				.stripTrailingZeros()
+				.toEngineeringString()
+		}
 	}
 
 	private companion object {

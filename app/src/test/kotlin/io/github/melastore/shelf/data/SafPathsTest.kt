@@ -1,10 +1,20 @@
 package io.github.melastore.shelf.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SafPathsTest {
+
+	@Test
+	fun `recovery accepts ordinary names and rejects traversal or separators`() {
+		assertTrue(SafPaths.isSafeName("Holiday photos"))
+		assertFalse(SafPaths.isSafeName(".."))
+		assertFalse(SafPaths.isSafeName("a/b"))
+		assertFalse(SafPaths.isSafeName("bad\u0000name"))
+	}
 
 	private val root = "/storage/emulated/0"
 

@@ -23,6 +23,9 @@ object SafPaths {
 
 	fun nameOf(path: String): String = path.trimEnd('/').substringAfterLast('/')
 
+	fun isSafeName(name: String): Boolean = name.isNotBlank() && name != "." && name != ".." &&
+		'/' !in name && '\u0000' !in name
+
 	fun parentOf(path: String): String = path.trimEnd('/').substringBeforeLast('/')
 
 	/** [path] with its last segment replaced, which is all a rename in place amounts to. */
