@@ -1,15 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A month sheet on its two hangers, with an agenda below the header band. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
 	android:width="108dp"
 	android:height="108dp"
 	android:viewportWidth="108"
 	android:viewportHeight="108">
+	<!-- Hangers -->
 	<path
-		android:fillColor="#FFFFFF"
-		android:pathData="M31,31h46a6,6 0,0 1,6 6v42a6,6 0,0 1,-6 6H31a6,6 0,0 1,-6 -6V37a6,6 0,0 1,6 -6z" />
+		android:fillColor="#FFE8F0FE"
+		android:pathData="M41,20 a3,3 0 0 1 3,3 v10 a3,3 0 0 1 -6,0 V23 a3,3 0 0 1 3,-3 z" />
 	<path
-		android:fillColor="#315A9A"
-		android:pathData="M25,45h58v7H25zM36,58h8v8h-8zM50,58h8v8h-8zM64,58h8v8h-8zM36,71h8v8h-8zM50,71h8v8h-8z" />
+		android:fillColor="#FFE8F0FE"
+		android:pathData="M67,20 a3,3 0 0 1 3,3 v10 a3,3 0 0 1 -6,0 V23 a3,3 0 0 1 3,-3 z" />
+	<!-- Sheet -->
 	<path
-		android:fillColor="#FFFFFF"
-		android:pathData="M36,25h6v13h-6zM66,25h6v13h-6z" />
+		android:fillColor="#FFFFFFFF"
+		android:pathData="M35,28 h38 a11,11 0 0 1 11,11 v36 a11,11 0 0 1 -11,11 H35 a11,11 0 0 1 -11,-11 V39 a11,11 0 0 1 11,-11 z" />
+	<!-- Header band, rounded only where it meets the sheet's top corners -->
+	<path
+		android:fillColor="#FF1550B4"
+		android:pathData="M24,45 V39 a11,11 0 0 1 11,-11 h38 a11,11 0 0 1 11,11 v6 z" />
+	<!-- Agenda -->
+	<path
+		android:fillColor="#FF4A8CF7"
+		android:pathData="M38,54.5 m-4.5,0 a4.5,4.5 0 1 0 9,0 a4.5,4.5 0 1 0 -9,0 z" />
+	<path
+		android:fillColor="#FFB9D2FA"
+		android:pathData="M54,54.5 m-4.5,0 a4.5,4.5 0 1 0 9,0 a4.5,4.5 0 1 0 -9,0 z" />
+	<path
+		android:fillColor="#FFB9D2FA"
+		android:pathData="M70,54.5 m-4.5,0 a4.5,4.5 0 1 0 9,0 a4.5,4.5 0 1 0 -9,0 z" />
+	<path
+		android:fillColor="#FFB9D2FA"
+		android:pathData="M38,71 m-4.5,0 a4.5,4.5 0 1 0 9,0 a4.5,4.5 0 1 0 -9,0 z" />
+	<path
+		android:fillColor="#FFB9D2FA"
+		android:pathData="M54,71 m-4.5,0 a4.5,4.5 0 1 0 9,0 a4.5,4.5 0 1 0 -9,0 z" />
+	<path
+		android:fillColor="#FFB9D2FA"
+		android:pathData="M70,71 m-4.5,0 a4.5,4.5 0 1 0 9,0 a4.5,4.5 0 1 0 -9,0 z" />
 </vector>

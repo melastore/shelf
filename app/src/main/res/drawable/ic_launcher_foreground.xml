@@ -1,15 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	A ring three quarters closed with the day's tick inside it. Everything sits inside the central
+	72dp safe zone, so no launcher mask can clip the mark.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
 	android:width="108dp"
 	android:height="108dp"
 	android:viewportWidth="108"
 	android:viewportHeight="108">
 	<path
-		android:fillColor="#ECEFF1"
-		android:pathData="M30,38h48a4,4 0 0 1 4,4v6H26v-6a4,4 0 0 1 4,-4z" />
+		android:pathData="M54,28 A26,26 0 1 1 28,54"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="7.5"
+		android:strokeLineCap="round"
+		android:fillColor="#00000000" />
 	<path
-		android:fillColor="#ECEFF1"
-		android:pathData="M26,54h56v4a4,4 0 0 1 -4,4H30a4,4 0 0 1 -4,-4z" />
-	<path
-		android:fillColor="#ECEFF1"
-		android:pathData="M26,68h56v4a4,4 0 0 1 -4,4H30a4,4 0 0 1 -4,-4z" />
+		android:pathData="M42,54.5 L50,62.5 L66.5,46"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="7.5"
+		android:strokeLineCap="round"
+		android:strokeLineJoin="round"
+		android:fillColor="#00000000" />
 </vector>

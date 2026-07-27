@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	Two shelf boards with objects standing on them, where the lower row has gone dark and slid
+	partly behind the upper board — the thing on the shelf that is still there and no longer on show.
+	The negative space between the boards reads as a keyhole slot at a glance.
+
+	Everything sits inside the central 72dp safe zone (18..90), so no launcher mask clips it, and the
+	whole mark is drawn in one colour so it doubles as the monochrome/themed-icon layer.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+	android:width="108dp"
+	android:height="108dp"
+	android:viewportWidth="108"
+	android:viewportHeight="108">
+
+	<!-- Upper board -->
+	<path
+		android:pathData="M26,52 L82,52"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="6"
+		android:strokeLineCap="round" />
+
+	<!-- Things standing on the upper board: visible, ordinary, unremarkable -->
+	<path
+		android:pathData="M34,49 L34,36"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="6"
+		android:strokeLineCap="round" />
+	<path
+		android:pathData="M45,49 L45,30"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="6"
+		android:strokeLineCap="round" />
+	<path
+		android:pathData="M56,49 L56,39"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="6"
+		android:strokeLineCap="round" />
+
+	<!-- Lower board -->
+	<path
+		android:pathData="M26,78 L82,78"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="6"
+		android:strokeLineCap="round" />
+
+	<!-- The hidden row: same shapes, dimmed and set back -->
+	<path
+		android:pathData="M34,75 L34,66"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="6"
+		android:strokeLineCap="round"
+		android:strokeAlpha="0.32" />
+	<path
+		android:pathData="M45,75 L45,62"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="6"
+		android:strokeLineCap="round"
+		android:strokeAlpha="0.32" />
+
+	<!-- The one still locked away, drawn solid so the eye lands on it last -->
+	<path
+		android:pathData="M67,75 L67,66"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="6"
+		android:strokeLineCap="round" />
+	<path
+		android:pathData="M67,63 m-5,0 a5,5 0 1,1 10,0"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="4"
+		android:strokeLineCap="round"
+		android:fillColor="#00000000" />
+</vector>
