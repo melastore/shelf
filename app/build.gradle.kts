@@ -31,6 +31,7 @@ android {
 		targetSdk = 36
 		versionCode = 2
 		versionName = "0.2.0"
+		testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 	}
 
 	if (keystorePropertiesFile.isFile) {
@@ -60,6 +61,10 @@ android {
 		compose = true
 	}
 
+	testOptions {
+		unitTests.isIncludeAndroidResources = true
+	}
+
 	compileOptions {
 		sourceCompatibility = JavaVersion.VERSION_17
 		targetCompatibility = JavaVersion.VERSION_17
@@ -80,9 +85,8 @@ android {
 	}
 }
 
-fun Properties.required(name: String): String =
-	getProperty(name)?.takeIf { it.isNotBlank() }
-		?: error("Missing $name in keystore.properties")
+fun Properties.required(name: String): String = getProperty(name)?.takeIf { it.isNotBlank() }
+	?: error("Missing $name in keystore.properties")
 
 dependencies {
 	implementation(platform(libs.androidx.compose.bom))
@@ -98,6 +102,15 @@ dependencies {
 	implementation(libs.kotlinx.serialization.json)
 
 	debugImplementation(libs.androidx.compose.ui.tooling)
+	debugImplementation(libs.androidx.compose.ui.test.manifest)
 
 	testImplementation(libs.junit)
+	testImplementation(libs.androidx.test.core)
+	testImplementation(libs.robolectric)
+	testImplementation(libs.robolectric.android)
+	androidTestImplementation(platform(libs.androidx.compose.bom))
+	androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+	androidTestImplementation(libs.androidx.test.ext.junit)
+	androidTestImplementation(libs.androidx.test.rules)
+	androidTestImplementation(libs.androidx.test.runner)
 }
