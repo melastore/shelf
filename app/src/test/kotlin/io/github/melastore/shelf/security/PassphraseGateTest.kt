@@ -23,4 +23,22 @@ class PassphraseGateTest {
 			directory.deleteRecursively()
 		}
 	}
+
+	@Test
+	fun `primary and decoy pins remain independent`() {
+		val directory = Files.createTempDirectory("shelf-two-gates-test").toFile()
+		try {
+			val primary = PassphraseGate(directory.resolve("primary"))
+			val decoy = PassphraseGate(directory.resolve("decoy"))
+			primary.set("4826".toCharArray())
+			decoy.set("1937".toCharArray())
+
+			assertTrue(primary.matches("4826".toCharArray()))
+			assertFalse(primary.matches("1937".toCharArray()))
+			assertTrue(decoy.matches("1937".toCharArray()))
+			assertFalse(decoy.matches("4826".toCharArray()))
+		} finally {
+			directory.deleteRecursively()
+		}
+	}
 }

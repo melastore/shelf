@@ -6,8 +6,8 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.Base64
-import javax.crypto.spec.PBEKeySpec
 import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 
 /**
  * Guards the hidden features behind a passphrase, without ever storing the passphrase itself.
