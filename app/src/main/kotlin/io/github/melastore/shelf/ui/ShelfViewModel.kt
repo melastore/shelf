@@ -3,36 +3,50 @@ package io.github.melastore.shelf.ui
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.DocumentsContract
+import android.text.format.DateFormat
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.melastore.shelf.R
 import io.github.melastore.shelf.data.AppPreferences
+import io.github.melastore.shelf.data.AutoHideMode
 import io.github.melastore.shelf.data.CalendarEvent
 import io.github.melastore.shelf.data.CalendarEventStore
+import io.github.melastore.shelf.data.ContentCredential
+import io.github.melastore.shelf.data.DecoyItem
 import io.github.melastore.shelf.data.DecoyType
+import io.github.melastore.shelf.data.DuressLog
 import io.github.melastore.shelf.data.EntryMethod
-import io.github.melastore.shelf.data.FileLocker
-import io.github.melastore.shelf.data.FolderHider
 import io.github.melastore.shelf.data.FolderTarget
 import io.github.melastore.shelf.data.Habit
 import io.github.melastore.shelf.data.HabitStore
-import io.github.melastore.shelf.data.HeaderRecovery
 import io.github.melastore.shelf.data.HiddenEntry
+import io.github.melastore.shelf.data.HiddenHealth
+import io.github.melastore.shelf.data.HideFailure
 import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.HideResult
+import io.github.melastore.shelf.data.HideWarning
 import io.github.melastore.shelf.data.HidingPreference
-import io.github.melastore.shelf.data.Journal
-import io.github.melastore.shelf.data.LockResult
-import io.github.melastore.shelf.data.LockedFile
 import io.github.melastore.shelf.data.RecordsCorrupted
+import io.github.melastore.shelf.data.RecoveryBundleCodec
 import io.github.melastore.shelf.data.SafPaths
-import io.github.melastore.shelf.data.UnlockResult
-import io.github.melastore.shelf.data.VaultStore
-import io.github.melastore.shelf.root.StoragePaths
-import io.github.melastore.shelf.security.PassphraseGate
+import io.github.melastore.shelf.data.SafRecoveryCandidate
+import io.github.melastore.shelf.data.ShelfCore
+import io.github.melastore.shelf.data.TrackedFolder
+import io.github.melastore.shelf.security.BiometricAuth
+import io.github.melastore.shelf.security.EmergencyCredentialStore
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,11 +58,34 @@ import kotlinx.coroutines.withContext
 
 enum class Screen { DECOY, VAULT, SETTINGS }
 
+/** Shared with the dialog that collects it, so the two cannot disagree about what is long enough. */
+const val MIN_RECOVERY_PASSWORD = 12
+
+/**
+ * One row of the private space: a folder the user has handed to Shelf, and whether it is hidden right
+ * now. [entry] is the journal record describing how to put it back, and is null exactly when the
+ * folder is sitting in the open under its own name.
+ */
+data class VaultFolder(
+	val path: String,
+	val displayName: String,
+	val entry: HiddenEntry?,
+	val health: HiddenHealth? = null,
+) {
+	val hidden: Boolean get() = entry != null
+}
+
 data class AppUiState(
 	val ready: Boolean = false,
 	val screen: Screen = Screen.DECOY,
 	val credentialSet: Boolean = false,
 	val vaultUsesPin: Boolean = true,
+	val biometricEnabled: Boolean = false,
+	val biometricAvailable: Boolean = false,
+	val autoHideMode: AutoHideMode = AutoHideMode.SCREEN_OFF,
+	val quickLockNotification: Boolean = false,
+	/** Count only — it outlives the private space, so it must say nothing about which folders. */
+	val exposedFolders: Int = 0,
 	val decoyPinSet: Boolean = false,
 	val decoy: DecoyType = DecoyType.HABITS,
 	val entryMethod: EntryMethod = EntryMethod.TITLE_HOLD,
@@ -60,40 +97,90 @@ data class AppUiState(
 	val canRequestAllFiles: Boolean = false,
 	/** Set when an operation stopped to ask for access to a folder above the target. */
 	val accessNeededFor: Uri? = null,
-	val entries: List<HiddenEntry> = emptyList(),
-	val lockedFiles: List<LockedFile> = emptyList(),
+	/** Where the folder picker opens, so the first hide does not start at an empty Recents list. */
+	val pickerStart: Uri? = null,
+	/** Every folder the user has added, hidden or not, in the order they were added. */
+	val folders: List<VaultFolder> = emptyList(),
+	val safRecoveryCandidates: List<SafRecoveryCandidate> = emptyList(),
+	/** True when the decoy PIN opened this space. Nothing shown here touches real storage. */
+	val duress: Boolean = false,
+	val decoyItems: List<DecoyItem> = emptyList(),
+	/** Repeated on real unlocks until the owner explicitly dismisses it. */
+	val duressAlert: UiMessage? = null,
 	val busy: Boolean = false,
-	val message: String? = null,
-)
+	val message: UiMessage? = null,
+) {
+	/** Anything still hidden means the one bulk action worth offering is putting it all back. */
+	val anyHidden: Boolean
+		get() = if (duress) decoyItems.any { it.hidden } else folders.any { it.hidden }
+
+	val hasFolders: Boolean get() = if (duress) decoyItems.isNotEmpty() else folders.isNotEmpty()
+}
 
 class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
+	// Before anything below reaches for it: the shared instances are built lazily against this.
+	init {
+		ShelfCore.install(app)
+	}
+
 	private val habitStore = HabitStore(File(app.filesDir, "habits.json"))
 	private val calendarStore = CalendarEventStore(File(app.filesDir, "calendar.json"))
-	private val gate = PassphraseGate(File(app.filesDir, "gate"))
-	private val decoyGate = PassphraseGate(File(app.filesDir, "decoy_gate"))
 	private val preferences = AppPreferences(app)
+	private val auth = AuthCoordinator(app.filesDir, preferences)
 	private val launcherAliases = LauncherAliasController(app)
 
-	private val paths = StoragePaths.forCurrentUser()
-	private val journal = Journal(File(app.filesDir, "journal.json"))
-	private val hider = FolderHider(app, journal, paths)
-	private val vault = VaultStore(File(app.filesDir, "vault.json"))
-	private val recovery = HeaderRecovery(File(app.filesDir, "headers"))
-	private val locker = FileLocker(app, vault, recovery, paths)
+	// Shared with the emergency-hide receiver rather than built again here. The lock that serialises a
+	// read-modify-write lives on the object holding the file, so a second one over the same path would
+	// let a hide started from the notification interleave with one started from this screen.
+	private val paths = ShelfCore.paths
+	private val journal = ShelfCore.journal
+	private val registry = ShelfCore.registry
+	private val hider = ShelfCore.hider
+	private val folderCoordinator = FolderCoordinator(paths, journal, registry, hider)
+	private val decoyVault = ShelfCore.decoyVault
+	private val recoveryCoordinator = RecoveryCoordinator(journal, RecoveryBundleCodec(paths))
+	private val duressLog = DuressLog(File(app.filesDir, "duress.json"))
 
 	private val _state = MutableStateFlow(AppUiState())
 	val state: StateFlow<AppUiState> = _state.asStateFlow()
 
-	private var awaitingPicker = false
+	/**
+	 * When the wait for an external picker expires. An unbounded flag would suspend automatic locking
+	 * for good the first time a picker was opened and never came back — leaving Settings for the
+	 * all-files permission and then walking away is enough to do it.
+	 */
+	private var awaitingPickerUntil = 0L
 	private var pending: (suspend () -> Unit)? = null
 	private val operationMutex = Mutex()
+	private val authenticationMutex = Mutex()
 	private var recoveryCheckedFor: HideMethod? = null
+	private var backgroundLock: Job? = null
+	private var autoHideRequested = false
 
 	init {
 		viewModelScope.launch {
-			val credentialSet = gate.isSet()
+			QuickLockSignal.requests.collect {
+				QuickLockSignal.consume()
+				onEmergencyHide()
+			}
+		}
+		viewModelScope.launch {
+			QuickLockSignal.completions.collect { refreshExposure() }
+		}
+		refreshExposure()
+		viewModelScope.launch {
+			val credentialSet = auth.primaryIsSet()
 			val settings = preferences.read(credentialSet)
+			val biometricEnabled = withContext(Dispatchers.IO) {
+				if (settings.biometricEnabled && !BiometricAuth.hasCredential(app)) {
+					preferences.setBiometricEnabled(false)
+					BiometricAuth.reset(app)
+					false
+				} else {
+					settings.biometricEnabled
+				}
+			}
 			withContext(Dispatchers.IO) { launcherAliases.apply(settings.decoy) }
 			val habits = guard { habitStore.read() }.orEmpty()
 			val events = guard { calendarStore.read() }.orEmpty()
@@ -102,7 +189,11 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					ready = true,
 					credentialSet = credentialSet,
 					vaultUsesPin = settings.vaultUsesPin,
-					decoyPinSet = decoyGate.isSet(),
+					biometricEnabled = biometricEnabled,
+					biometricAvailable = BiometricAuth.isAvailable(app),
+					autoHideMode = settings.autoHideMode,
+					quickLockNotification = settings.quickLockNotification,
+					decoyPinSet = auth.decoyIsSet(),
 					decoy = settings.decoy,
 					entryMethod = settings.entryMethod,
 					hidingPreference = settings.hidingPreference,
@@ -163,8 +254,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	fun setVaultPin(pin: CharArray) = viewModelScope.launch {
 		try {
 			validatePin(pin)?.let { return@launch fail(it) }
-			withContext(Dispatchers.Default) { gate.set(pin) }
-			preferences.setVaultUsesPin(true)
+			withContext(Dispatchers.IO) { EmergencyCredentialStore.clear(getApplication()) }
+			auth.setPrimary(pin)
+			ContentCredential.set(pin)
 			_state.update { it.copy(credentialSet = true, vaultUsesPin = true) }
 			openVault()
 		} finally {
@@ -173,106 +265,382 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	}
 
 	fun unlockVault(input: CharArray) = viewModelScope.launch {
+		if (!authenticationMutex.tryLock()) {
+			input.fill(' ')
+			return@launch
+		}
 		try {
-			val now = System.currentTimeMillis()
-			val blockedUntil = preferences.blockedUntil()
-			if (now < blockedUntil) {
-				val seconds = ((blockedUntil - now + 999) / 1_000).coerceAtLeast(1)
-				return@launch fail("Try again in $seconds seconds.")
+			val uptime = SystemClock.elapsedRealtime()
+			val blockedUntil = preferences.blockedUntil(uptime, LOCKOUT_MILLIS)
+			if (uptime < blockedUntil) {
+				val seconds = ((blockedUntil - uptime + 999) / 1_000).coerceAtLeast(1)
+				return@launch fail(uiMessage(R.string.unlock_retry_seconds, seconds))
 			}
-			val (vaultMatches, decoyMatches) = withContext(Dispatchers.Default) {
-				gate.matches(input) to decoyGate.matches(input)
-			}
-			when {
-				vaultMatches -> {
+			when (auth.match(input)) {
+				CredentialMatch.PRIMARY -> {
 					preferences.clearFailedUnlocks()
+					ContentCredential.set(input)
 					openVault()
 				}
-				decoyMatches -> {
+
+				CredentialMatch.DECOY -> {
 					preferences.clearFailedUnlocks()
-					lockVault()
+					openDecoyVault(System.currentTimeMillis())
 				}
-				else -> recordFailedUnlock()
+
+				CredentialMatch.NONE -> recordFailedUnlock()
 			}
+		} catch (e: Exception) {
+			// Never let a storage problem reach the user as a rejected credential.
+			fail(
+				e.message?.let { uiMessage(R.string.private_space_open_failed_detail, it) }
+					?: uiMessage(R.string.private_space_open_failed)
+			)
 		} finally {
 			input.fill(' ')
+			authenticationMutex.unlock()
 		}
 	}
 
 	fun changeVaultPin(current: CharArray, newPin: CharArray) = launchBusy {
 		try {
 			validatePin(newPin)?.let { return@launchBusy fail(it) }
-			val valid = withContext(Dispatchers.Default) { gate.matches(current) }
-			if (!valid) return@launchBusy fail("Current credential is incorrect.")
-			if (withContext(Dispatchers.Default) { decoyGate.matches(newPin) }) {
-				return@launchBusy fail("Vault and decoy PINs must be different.")
+			if (_state.value.folders.any { it.hidden } || journal.read().isNotEmpty()) {
+				return@launchBusy fail(uiMessage(R.string.unhide_before_pin_change))
 			}
-			withContext(Dispatchers.Default) { gate.set(newPin) }
-			preferences.setVaultUsesPin(true)
-			_state.update { it.copy(vaultUsesPin = true, message = "Vault PIN changed.") }
+			val valid = auth.primaryMatches(current)
+			if (!valid) return@launchBusy fail(uiMessage(R.string.current_credential_incorrect))
+			if (auth.decoyMatches(newPin)) {
+				return@launchBusy fail(uiMessage(R.string.primary_decoy_pin_different))
+			}
+			val biometricWasEnabled = _state.value.biometricEnabled
+			if (biometricWasEnabled) {
+				withContext(Dispatchers.IO) {
+					preferences.setBiometricEnabled(false)
+					BiometricAuth.reset(getApplication())
+				}
+			}
+			withContext(Dispatchers.IO) { EmergencyCredentialStore.clear(getApplication()) }
+			auth.setPrimary(newPin)
+			ContentCredential.set(newPin)
+			_state.update {
+				it.copy(
+					vaultUsesPin = true,
+					biometricEnabled = if (biometricWasEnabled) false else it.biometricEnabled,
+					message = uiMessage(
+						if (biometricWasEnabled) {
+							R.string.primary_pin_changed_biometric_disabled
+						} else {
+							R.string.primary_pin_changed
+						},
+					),
+				)
+			}
 		} finally {
 			current.fill(' ')
 			newPin.fill(' ')
 		}
 	}
 
-	fun setDecoyPin(pin: CharArray) = launchBusy {
+	fun setDecoyPin(current: CharArray, pin: CharArray) = launchBusy {
 		try {
 			validatePin(pin)?.let { return@launchBusy fail(it) }
-			if (withContext(Dispatchers.Default) { gate.matches(pin) }) {
-				return@launchBusy fail("Vault and decoy PINs must be different.")
+			if (!auth.primaryMatches(current)) {
+				return@launchBusy fail(uiMessage(R.string.primary_credential_incorrect))
 			}
-			withContext(Dispatchers.Default) { decoyGate.set(pin) }
-			_state.update { it.copy(decoyPinSet = true, message = "Decoy PIN saved.") }
+			if (auth.primaryMatches(pin)) {
+				return@launchBusy fail(uiMessage(R.string.primary_decoy_pin_different))
+			}
+			auth.setDecoy(pin)
+			_state.update { it.copy(decoyPinSet = true, message = uiMessage(R.string.decoy_pin_saved)) }
 		} finally {
+			current.fill(' ')
 			pin.fill(' ')
 		}
 	}
 
-	fun clearDecoyPin() = viewModelScope.launch {
-		withContext(Dispatchers.IO) { decoyGate.clear() }
-		_state.update { it.copy(decoyPinSet = false, message = "Decoy PIN removed.") }
+	fun clearDecoyPin(current: CharArray) = launchBusy {
+		try {
+			if (!auth.primaryMatches(current)) {
+				return@launchBusy fail(uiMessage(R.string.primary_credential_incorrect))
+			}
+			auth.clearDecoy()
+			_state.update { it.copy(decoyPinSet = false, message = uiMessage(R.string.decoy_pin_removed)) }
+		} finally {
+			current.fill(' ')
+		}
 	}
 
-	private fun validatePin(pin: CharArray): String? = when {
-		pin.size !in MIN_PIN_LENGTH..MAX_PIN_LENGTH -> "PIN must be 4 to 12 digits."
-		pin.any { !it.isDigit() } -> "PIN can contain digits only."
+	/**
+	 * [credential] has already been authenticated and decrypted by the per-use Keystore operation in
+	 * [BiometricAuth]. Installing it here gives the session exactly the same folder capabilities as a
+	 * primary-PIN entry; in-process code is not treated as a second authentication boundary.
+	 */
+	fun unlockWithBiometric(credential: CharArray, onRejected: () -> Unit) = viewModelScope.launch {
+		try {
+			val uptime = SystemClock.elapsedRealtime()
+			if (uptime < preferences.blockedUntil(uptime, LOCKOUT_MILLIS)) {
+				fail(uiMessage(R.string.too_many_attempts_use_pin))
+				onRejected()
+				return@launch
+			}
+			preferences.clearFailedUnlocks()
+			ContentCredential.set(credential)
+			openVault()
+		} finally {
+			credential.fill(' ')
+		}
+	}
+
+	/** The enrolment behind an enabled key changed, so the key is gone and the PIN is the way in. */
+	fun onBiometricEnrolmentChanged() = viewModelScope.launch {
+		if (!preferences.biometricEnabled()) return@launch
+		disableBiometric(R.string.biometric_disabled_enrolment_changed)
+	}
+
+	fun onBiometricCredentialMissing() = viewModelScope.launch {
+		disableBiometric(R.string.biometric_enable_again)
+	}
+
+	/** A caller enabling biometric owns this copy and must hand it directly to [BiometricAuth]. */
+	fun biometricEnrollmentCredential(): CharArray? = ContentCredential.copy()
+
+	fun setBiometricEnabled(enabled: Boolean) = viewModelScope.launch {
+		val available = !enabled || withContext(Dispatchers.IO) {
+			BiometricAuth.hasCredential(getApplication())
+		}
+		if (!available) return@launch fail(uiMessage(R.string.biometric_enable_failed))
+		withContext(Dispatchers.IO) {
+			preferences.setBiometricEnabled(enabled)
+			if (!enabled) BiometricAuth.reset(getApplication())
+		}
+		_state.update {
+			it.copy(
+				biometricEnabled = enabled,
+				biometricAvailable = BiometricAuth.isAvailable(getApplication()),
+				message = uiMessage(
+					if (enabled) R.string.biometric_enabled else R.string.biometric_disabled,
+				),
+			)
+		}
+	}
+
+	private suspend fun disableBiometric(message: Int) {
+		withContext(Dispatchers.IO) {
+			preferences.setBiometricEnabled(false)
+			BiometricAuth.reset(getApplication())
+		}
+		_state.update { it.copy(biometricEnabled = false, message = uiMessage(message)) }
+	}
+
+	fun setAutoHideMode(mode: AutoHideMode) = viewModelScope.launch {
+		withContext(Dispatchers.IO) { preferences.setAutoHideMode(mode) }
+		_state.update { it.copy(autoHideMode = mode, message = uiMessage(R.string.auto_hide_updated)) }
+	}
+
+	fun setQuickLockNotification(enabled: Boolean) = viewModelScope.launch {
+		withContext(Dispatchers.IO) { preferences.setQuickLockNotification(enabled) }
+		_state.update { it.copy(quickLockNotification = enabled) }
+	}
+
+	fun refreshBiometricAvailability() = _state.update {
+		it.copy(biometricAvailable = BiometricAuth.isAvailable(getApplication()))
+	}
+
+	private fun validatePin(pin: CharArray): UiMessage? = when {
+		pin.size !in MIN_PIN..MAX_PIN -> uiMessage(R.string.pin_length_error)
+		pin.any { !it.isDigit() } -> uiMessage(R.string.pin_digits_only)
 		else -> null
 	}
 
 	private fun recordFailedUnlock() {
 		val blocked = preferences.recordFailedUnlock(
-			now = System.currentTimeMillis(),
+			now = SystemClock.elapsedRealtime(),
 			maximumAttempts = MAX_UNLOCK_ATTEMPTS,
 			lockoutMillis = LOCKOUT_MILLIS,
 		)
 		if (blocked > 0) {
-			fail("Too many attempts. Try again in 30 seconds.")
+			fail(uiMessage(R.string.too_many_attempts_retry))
 		} else {
-			fail("Wrong credential.")
+			fail(uiMessage(R.string.wrong_credential))
 		}
 	}
 
 	// Vault and settings navigation
 
+	/**
+	 * Opens the real space, and does so whatever the folder list has to say.
+	 *
+	 * A correct credential has already been proven by the time this runs, so nothing after that point
+	 * is allowed to decide otherwise. Reading the list touches storage and can fail — and adopting old
+	 * records into the tracked list writes to it — and letting that escape closed the prompt without
+	 * changing screens, which is indistinguishable from the PIN being wrong.
+	 */
 	private suspend fun openVault() {
-		awaitingPicker = false
-		val entries = guard { journal.read() }.orEmpty()
-		val locked = guard { vault.read() }.orEmpty()
-		_state.update { it.copy(screen = Screen.VAULT, entries = entries, lockedFiles = locked) }
-		refreshCapabilitiesNow()
+		awaitingPickerUntil = 0L
+		autoHideRequested = false
+		val loaded = runCatching { loadFolders() }
+		loaded.getOrNull()?.let { syncEmergencyCredential(it) }
+		val alert = runCatching { duressLog.read() }.getOrNull().orEmpty()
+			.takeIf { it.isNotEmpty() }?.let(::duressSummary)
+		_state.update {
+			it.copy(
+				screen = Screen.VAULT,
+				duress = false,
+				folders = loaded.getOrDefault(emptyList()),
+				exposedFolders = loaded.getOrNull()?.count { folder -> !folder.hidden } ?: it.exposedFolders,
+				decoyItems = emptyList(),
+				duressAlert = alert,
+				message = loaded.exceptionOrNull()?.let(::listFailure) ?: it.message,
+			)
+		}
+		runCatching { refreshCapabilitiesNow() }
+	}
+
+	private fun listFailure(cause: Throwable): UiMessage = when (cause) {
+		is RecordsCorrupted -> recoveryMessage(cause)
+
+		else -> cause.message?.let { uiMessage(R.string.folder_list_read_failed_detail, it) }
+			?: uiMessage(R.string.folder_list_read_failed)
+	}
+
+	/**
+	 * The tracked list joined to the journal. A folder is hidden exactly when a record describes it,
+	 * and records Shelf rebuilt on its own — after a reinstall, say — are adopted into the list so the
+	 * user is not looking at a folder they cannot see any history for.
+	 */
+	private suspend fun loadFolders(): List<VaultFolder> {
+		val health = _state.value.folders.associate { it.path to it.health }
+		return folderCoordinator.load(health)
+	}
+
+	/**
+	 * Opens a space that behaves like the real one and contains nothing that matters. The visit is
+	 * logged so the owner learns, on their next real unlock, that the decoy PIN was handed over.
+	 */
+	private suspend fun openDecoyVault(now: Long) {
+		awaitingPickerUntil = 0L
+		autoHideRequested = false
+		// Never surface internal storage errors in the decoy space: a warning mentioning a duress log
+		// would reveal the disguise to the person the decoy PIN is meant for.
+		runCatching { duressLog.record(now) }
+		val items = runCatching { decoyVault.read() }.getOrElse { decoyVault.fallback() }
+		_state.update {
+			it.copy(
+				screen = Screen.VAULT,
+				duress = true,
+				folders = emptyList(),
+				decoyItems = items,
+				duressAlert = null,
+				method = HideMethod.DOT_RENAME,
+				safRecoveryCandidates = emptyList(),
+			)
+		}
+	}
+
+	fun toggleDecoyItem(item: DecoyItem) = launchBusy {
+		val hidden = !item.hidden
+		runCatching { decoyVault.setHidden(item.id, hidden) }
+		refreshDecoyItems(
+			uiMessage(if (hidden) R.string.folder_hidden_named else R.string.folder_restored_named, item.name),
+		)
+	}
+
+	private suspend fun setAllDecoyItemsHidden(hidden: Boolean) {
+		runCatching { decoyVault.setAllHidden(hidden) }
+		val count = _state.value.decoyItems.count { it.hidden != hidden }
+		refreshDecoyItems(
+			uiMessage(
+				if (hidden) R.string.bulk_hidden else R.string.bulk_restored,
+				folderCount(count),
+			),
+		)
+	}
+
+	private suspend fun refreshDecoyItems(message: UiMessage?) {
+		val items = runCatching { decoyVault.read() }.getOrDefault(_state.value.decoyItems)
+		_state.update { it.copy(decoyItems = items, message = message ?: it.message) }
+	}
+
+	fun dismissDuressAlert() = viewModelScope.launch {
+		val cleared = guard {
+			duressLog.clear()
+			true
+		}
+		if (cleared == true) _state.update { it.copy(duressAlert = null) }
+	}
+
+	private fun duressSummary(events: List<io.github.melastore.shelf.data.DuressEvent>): UiMessage {
+		val last = events.maxOf { it.at }
+		val formatted = DateTimeFormatter.ofPattern(
+			DateFormat.getBestDateTimePattern(Locale.getDefault(), "dMMMHHmm"),
+			Locale.getDefault(),
+		)
+			.withZone(ZoneId.systemDefault())
+			.format(Instant.ofEpochMilli(last))
+		return if (events.size == 1) {
+			uiMessage(R.string.duress_used_once, formatted)
+		} else {
+			uiMessage(R.string.duress_used_multiple, events.size, formatted)
+		}
 	}
 
 	fun openSettings() {
-		if (_state.value.screen == Screen.VAULT) _state.update { it.copy(screen = Screen.SETTINGS) }
+		val current = _state.value
+		if (current.screen == Screen.VAULT && !current.duress) {
+			_state.update { it.copy(screen = Screen.SETTINGS) }
+		}
 	}
 
 	fun closeSettings() {
 		if (_state.value.screen == Screen.SETTINGS) _state.update { it.copy(screen = Screen.VAULT) }
 	}
 
-	fun lockVault() = _state.update {
-		it.copy(screen = Screen.DECOY, entries = emptyList(), lockedFiles = emptyList())
+	/**
+	 * Everything derived from the private space goes with it, not just the list. Health details and
+	 * recovery candidates are real folder paths, and [pending] is an operation waiting on a grant that
+	 * would otherwise run itself the moment the next person to open the app — decoy PIN included —
+	 * answered a folder picker they never asked for.
+	 */
+	fun lockVault() {
+		ContentCredential.clear()
+		backgroundLock?.cancel()
+		backgroundLock = null
+		awaitingPickerUntil = 0L
+		pending = null
+		recoveryCheckedFor = null
+		_state.update {
+			it.copy(
+				screen = Screen.DECOY,
+				duress = false,
+				folders = emptyList(),
+				decoyItems = emptyList(),
+				duressAlert = null,
+				safRecoveryCandidates = emptyList(),
+				accessNeededFor = null,
+				method = null,
+			)
+		}
+	}
+
+	/**
+	 * The visible half of the panic button. The hiding itself belongs to the receiver that handled the
+	 * tap, because the notification outlives this screen and usually outlives the view model with it;
+	 * all that is left to do here is get the private space off the display.
+	 */
+	private fun onEmergencyHide() {
+		autoHideRequested = false
+		lockVault()
+	}
+
+	/**
+	 * How many folders are sitting in the open, which is what decides whether the emergency-hide
+	 * notification is worth showing. A count and nothing else: it survives locking, and no path,
+	 * name, or record does.
+	 */
+	fun refreshExposure() = viewModelScope.launch {
+		val exposed = runCatching { ShelfCore.exposedFolders().size }.getOrNull() ?: return@launch
+		_state.update { it.copy(exposedFolders = exposed) }
 	}
 
 	fun setDecoy(decoy: DecoyType) = viewModelScope.launch {
@@ -281,15 +649,18 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				preferences.setDecoy(decoy)
 				launcherAliases.apply(decoy)
 			}
-			_state.update { it.copy(decoy = decoy, message = "Decoy changed.") }
+			_state.update { it.copy(decoy = decoy, message = uiMessage(R.string.disguise_changed)) }
 		} catch (e: Exception) {
-			fail(e.message ?: "Could not change the launcher decoy.")
+			fail(
+				e.message?.let { uiMessage(R.string.disguise_change_failed_detail, it) }
+					?: uiMessage(R.string.disguise_change_failed)
+			)
 		}
 	}
 
 	fun setEntryMethod(method: EntryMethod) = viewModelScope.launch {
 		withContext(Dispatchers.IO) { preferences.setEntryMethod(method) }
-		_state.update { it.copy(entryMethod = method, message = "Entry method changed.") }
+		_state.update { it.copy(entryMethod = method, message = uiMessage(R.string.entry_gesture_changed)) }
 	}
 
 	fun setHidingPreference(preference: HidingPreference) = viewModelScope.launch {
@@ -302,81 +673,425 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 	private suspend fun refreshCapabilitiesNow() {
 		val preference = _state.value.hidingPreference
-		val available = hider.availableMethods(
+		val available = folderCoordinator.availableMethods(
 			checkRoot = preference == HidingPreference.AUTO || preference == HidingPreference.ROOT,
 		)
-		val method = hider.selectedMethod(preference, available)
-		var recoveredEntries: List<HiddenEntry>? = null
-		if (_state.value.entries.isEmpty() && method != null && method != recoveryCheckedFor) {
+		val method = folderCoordinator.selectedMethod(preference, available)
+		var recovered: List<VaultFolder>? = null
+		if (_state.value.folders.isEmpty() && method != null && method != recoveryCheckedFor) {
 			recoveryCheckedFor = method
-			if ((guard { hider.recoverOrphans(method) } ?: 0) > 0) recoveredEntries = guard { journal.read() }
+			if ((guard { folderCoordinator.recoverOrphans(method) } ?: 0) > 0) recovered = guard { loadFolders() }
 		}
 		_state.update {
 			it.copy(
 				method = method,
 				availableMethods = available,
-				entries = recoveredEntries ?: it.entries,
+				folders = recovered ?: it.folders,
 				canRequestAllFiles = HideMethod.PRIVATE_MOVE !in available,
+				pickerStart = it.pickerStart ?: folderPickerStart(),
 			)
 		}
 	}
 
+	/**
+	 * The primary volume root. Without it the picker opens on Recents, which lists no folders at all,
+	 * so a first-time user is shown an empty screen at the exact moment they are trying to hide
+	 * something.
+	 */
+	private fun folderPickerStart(): Uri? = runCatching {
+		DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE, "primary:")
+	}.getOrNull()
+
 	fun expectExternalPicker() {
-		awaitingPicker = true
+		awaitingPickerUntil = SystemClock.elapsedRealtime() + PICKER_GRACE_MILLIS
 	}
 
 	fun onPickerResult() {
-		awaitingPicker = false
+		awaitingPickerUntil = 0L
 	}
 
 	fun onMovedToBackground() {
+		val awaitingPicker = SystemClock.elapsedRealtime() < awaitingPickerUntil
+		awaitingPickerUntil = 0L
+		backgroundLock?.cancel()
+		if (_state.value.autoHideMode != AutoHideMode.IMMEDIATE) return
+		// A picker can briefly interrupt an immediate hide, or no folder could ever be selected. If the
+		// picker is abandoned, the grace period still ends by closing and hiding everything.
 		if (awaitingPicker) {
-			awaitingPicker = false
-			return
+			backgroundLock = viewModelScope.launch {
+				delay(PICKER_GRACE_MILLIS)
+				autoHideAndClose()
+			}
+		} else {
+			autoHideAndClose()
 		}
-		lockVault()
 	}
 
-	// Folder and file operations
+	fun onMovedToForeground() {
+		backgroundLock?.cancel()
+		backgroundLock = null
+	}
+
+	/** Screen-off applies to both non-never choices; immediate normally fired when onStop ran first. */
+	fun onScreenTurnedOff() {
+		if (preferences.autoHideMode() != AutoHideMode.NEVER) autoHideAndClose()
+	}
+
+	fun onScreenTurnedOn() = Unit
+
+	/**
+	 * Hands closing and hiding to a receiver that can finish after Android destroys this view model.
+	 * The receiver retains the authenticated session key before it tells this screen to close.
+	 */
+	private fun autoHideAndClose() {
+		if (_state.value.screen == Screen.DECOY || autoHideRequested) return
+		autoHideRequested = true
+		QuickLockNotification.requestHide(getApplication())
+	}
+
+	// Folder operations
 
 	fun hideFolder(treeUri: Uri) = launchBusy {
 		val path = resolveDocumentPath(treeUri, isTree = true)
-			?: return@launchBusy fail("Could not resolve that folder to a storage path.")
+			?: return@launchBusy fail(uiMessage(R.string.folder_path_unresolved))
 		val name = DocumentFile.fromTreeUri(getApplication(), treeUri)?.name ?: File(path).name
 		val persisted = persist(treeUri)
+		// Tracked before the hide, so a folder that needs a grant Shelf does not have yet is still on
+		// the list to try again from rather than something the user has to find in the picker twice.
+		guard { registry.put(path, name) }
 		hide(FolderTarget(path, name, treeUri.takeIf { persisted }))
 	}
 
 	private suspend fun hide(target: FolderTarget) {
-		when (val result = hider.hide(target, _state.value.hidingPreference)) {
-			is HideResult.Ok -> reloadVault("Hidden ${result.entry.displayName}", result.warning)
-			is HideResult.Failed -> fail(result.reason)
+		if (!ContentCredential.isAvailable()) {
+			return fail(HideFailure.PrimaryPinSessionRequired.toUiMessage())
+		}
+		when (val result = folderCoordinator.hide(target, _state.value.hidingPreference)) {
+			is HideResult.Ok -> reloadVault(
+				uiMessage(R.string.folder_hidden_named, result.entry.displayName),
+				result.warning,
+			)
+
+			is HideResult.Failed -> fail(result.failure.toUiMessage())
+
 			is HideResult.NeedsAccess -> askForAccess(result) { hide(target) }
 		}
 	}
 
-	fun restore(entry: HiddenEntry) = launchBusy { restoreEntry(entry) }
+	/** Puts a folder already on the list back out of sight, using whichever method applies today. */
+	fun hideAgain(folder: VaultFolder) = launchBusy { hideTrackedOrAsk(folder) }
+
+	// Retries run inside the grant callback, which already holds the operation lock, so this stays a
+	// plain suspend function rather than another launchBusy that would wait on itself.
+	private suspend fun hideTrackedOrAsk(folder: VaultFolder) {
+		when (val result = hideTracked(folder)) {
+			is HideResult.Ok -> reloadVault(
+				uiMessage(R.string.folder_hidden_named, result.entry.displayName),
+				result.warning,
+			)
+
+			is HideResult.Failed -> fail(result.failure.toUiMessage())
+
+			is HideResult.NeedsAccess -> askForAccess(result) { hideTrackedOrAsk(folder) }
+		}
+	}
+
+	private suspend fun hideTracked(folder: VaultFolder): HideResult = if (ContentCredential.isAvailable()) {
+		folderCoordinator.hide(
+			FolderTarget(folder.path, folder.displayName, null),
+			_state.value.hidingPreference,
+		)
+	} else {
+		HideResult.Failed(HideFailure.PrimaryPinSessionRequired)
+	}
+
+	fun restore(folder: VaultFolder) = launchBusy {
+		val entry = folder.entry ?: return@launchBusy
+		restoreEntry(entry)
+	}
+
+	/**
+	 * The one control at the top of the private space: everything out of sight, or everything back.
+	 * Anything still hidden means the useful direction is out, so a half-hidden list unhides.
+	 */
+	fun hideAll() = launchBusy {
+		if (_state.value.duress) setAllDecoyItemsHidden(true) else hideEverythingTracked()
+	}
+
+	fun unhideAll() = launchBusy {
+		if (_state.value.duress) setAllDecoyItemsHidden(false) else unhideEverythingTracked()
+	}
+
+	private suspend fun hideEverythingTracked() {
+		val targets = _state.value.folders.filterNot { it.hidden }
+		if (targets.isEmpty()) return fail(uiMessage(R.string.every_folder_hidden))
+		var hidden = 0
+		val failures = mutableListOf<UiMessage>()
+		for (folder in targets) {
+			when (val result = hideTracked(folder)) {
+				is HideResult.Ok -> hidden++
+
+				is HideResult.Failed -> failures += namedFailure(folder.displayName, result.failure.toUiMessage())
+
+				// One picker per folder would turn a single tap into a queue of dialogs. Report instead.
+				is HideResult.NeedsAccess -> failures += accessNeeded(result)
+			}
+		}
+		reloadVault(summarise(hidden = true, count = hidden, failures = failures))
+	}
+
+	private suspend fun unhideEverythingTracked() {
+		val targets = _state.value.folders.mapNotNull { it.entry }
+		if (targets.isEmpty()) return fail(uiMessage(R.string.nothing_hidden))
+		var restored = 0
+		val failures = mutableListOf<UiMessage>()
+		for (entry in targets) {
+			when (val result = folderCoordinator.restore(entry)) {
+				is HideResult.Ok -> restored++
+				is HideResult.Failed -> failures += namedFailure(entry.displayName, result.failure.toUiMessage())
+				is HideResult.NeedsAccess -> failures += accessNeeded(result)
+			}
+		}
+		reloadVault(summarise(hidden = false, count = restored, failures = failures))
+	}
+
+	private fun summarise(hidden: Boolean, count: Int, failures: List<UiMessage>): UiMessage = when {
+		failures.isEmpty() -> uiMessage(
+			if (hidden) R.string.bulk_hidden else R.string.bulk_restored,
+			folderCount(count),
+		)
+
+		count == 0 -> uiMessage(R.string.bulk_none_changed, failures.first())
+
+		else -> uiMessage(
+			if (hidden) R.string.bulk_hidden_partial else R.string.bulk_restored_partial,
+			folderCount(count),
+			failures.size,
+			failures.first(),
+		)
+	}
+
+	fun checkHiddenItems() = launchBusy {
+		val checks = _state.value.folders.associate { folder ->
+			folder.path to folder.entry?.let { folderCoordinator.health(it) }
+		}
+		val checked = checks.values.filterNotNull()
+		val healthy = checked.count { it.status == io.github.melastore.shelf.data.HiddenHealthStatus.HEALTHY }
+		_state.update { state ->
+			state.copy(
+				folders = state.folders.map { it.copy(health = checks[it.path]) },
+				message = uiMessage(
+					R.string.health_check_summary,
+					folderCount(checked.size),
+					healthy,
+					checked.size - healthy,
+				),
+			)
+		}
+	}
+
+	fun findRenamedFolders(parentTree: Uri) = launchBusy {
+		if (!persist(parentTree)) {
+			return@launchBusy fail(uiMessage(R.string.parent_access_not_persisted))
+		}
+		val candidates = folderCoordinator.recoveryCandidates(parentTree)
+		_state.update {
+			it.copy(
+				safRecoveryCandidates = candidates,
+				message = if (candidates.isEmpty()) {
+					uiMessage(R.string.no_renamed_folders_found)
+				} else {
+					uiMessage(R.string.renamed_folders_found, folderCount(candidates.size))
+				},
+			)
+		}
+	}
+
+	fun recoverRenamedFolder(candidate: SafRecoveryCandidate, restoredName: String) = launchBusy {
+		when (val result = folderCoordinator.recover(candidate, restoredName)) {
+			is HideResult.Ok -> {
+				_state.update {
+					it.copy(safRecoveryCandidates = it.safRecoveryCandidates - candidate)
+				}
+				reloadVault(uiMessage(R.string.folder_restored_named, result.entry.displayName), result.warning)
+			}
+
+			is HideResult.Failed -> fail(result.failure.toUiMessage())
+
+			is HideResult.NeedsAccess -> fail(accessNeeded(result))
+		}
+	}
+
+	fun exportRecoveryBundle(destination: Uri, password: CharArray) = launchBusy {
+		var encrypted = byteArrayOf()
+		try {
+			if (password.size < MIN_RECOVERY_PASSWORD) {
+				return@launchBusy fail(uiMessage(R.string.recovery_password_too_short))
+			}
+			encrypted = recoveryCoordinator.export(password)
+			val resolver = getApplication<Application>().contentResolver
+			val descriptor = resolver.openFileDescriptor(destination, "rwt")
+				?: return@launchBusy fail(uiMessage(R.string.recovery_destination_open_failed))
+			descriptor.use { pfd ->
+				FileOutputStream(pfd.fileDescriptor).use { output ->
+					output.write(encrypted)
+					output.fd.sync()
+				}
+			}
+			_state.update { it.copy(message = uiMessage(R.string.recovery_exported)) }
+		} finally {
+			password.fill(' ')
+			encrypted.fill(0)
+		}
+	}
+
+	fun importRecoveryBundle(source: Uri, password: CharArray) = launchBusy {
+		var encrypted = byteArrayOf()
+		try {
+			if (password.size < MIN_RECOVERY_PASSWORD) {
+				return@launchBusy fail(uiMessage(R.string.recovery_password_too_short))
+			}
+			val resolver = getApplication<Application>().contentResolver
+			encrypted = resolver.openInputStream(source)?.use { input ->
+				val bytes = ByteArrayOutputStream()
+				val buffer = ByteArray(16 * 1024)
+				while (true) {
+					val read = input.read(buffer)
+					if (read < 0) break
+					if (bytes.size() + read > RecoveryCoordinator.MAX_ENVELOPE_BYTES) {
+						return@launchBusy fail(uiMessage(R.string.recovery_file_too_large))
+					}
+					bytes.write(buffer, 0, read)
+				}
+				buffer.fill(0)
+				bytes.toByteArray()
+			} ?: return@launchBusy fail(uiMessage(R.string.recovery_file_open_failed))
+			val merged = runCatching { recoveryCoordinator.import(encrypted, password) }.getOrElse {
+				return@launchBusy if (it is InvalidRecoveryRecords) {
+					fail(uiMessage(R.string.recovery_records_invalid, it.cause?.message.orEmpty()))
+				} else {
+					fail(uiMessage(R.string.recovery_decrypt_failed))
+				}
+			}
+			val summary = when {
+				merged.duplicates == 0 && merged.conflicts == 0 -> uiMessage(
+					R.string.recovery_imported,
+					folderCount(merged.added),
+				)
+
+				else -> uiMessage(
+					R.string.recovery_imported_with_skips,
+					folderCount(merged.added),
+					merged.duplicates,
+					merged.conflicts,
+				)
+			}
+			reloadVault(summary)
+		} finally {
+			password.fill(' ')
+			encrypted.fill(0)
+		}
+	}
 
 	private suspend fun restoreEntry(entry: HiddenEntry) {
-		when (val result = hider.restore(entry)) {
-			is HideResult.Ok -> reloadVault("Restored ${entry.displayName}", result.warning)
-			is HideResult.Failed -> fail(result.reason)
+		when (val result = folderCoordinator.restore(entry)) {
+			is HideResult.Ok -> reloadVault(
+				uiMessage(R.string.folder_restored_named, entry.displayName),
+				result.warning,
+			)
+
+			is HideResult.Failed -> fail(result.failure.toUiMessage())
+
 			is HideResult.NeedsAccess -> askForAccess(result) { restoreEntry(entry) }
 		}
 	}
 
+	/**
+	 * Puts everything back in one pass, scanning first for folders whose record was lost. This is the
+	 * way out when the app has been reinstalled, a grant was dropped, or a single restore keeps
+	 * failing: it never stops at the first problem and reports what it could not do at the end.
+	 */
+	fun forceUnhideAll() = launchBusy {
+		val recovered = guard { folderCoordinator.recoverEverything() } ?: 0
+		val entries = guard { loadFolders() }.orEmpty().mapNotNull { it.entry }
+		if (entries.isEmpty()) {
+			reloadVault(
+				if (recovered > 0) {
+					uiMessage(R.string.recovered_records_unreadable, folderCount(recovered))
+				} else {
+					uiMessage(R.string.nothing_to_unhide)
+				},
+			)
+			return@launchBusy
+		}
+
+		var restored = 0
+		val failures = mutableListOf<UiMessage>()
+		for (entry in entries) {
+			when (val result = folderCoordinator.restore(entry)) {
+				is HideResult.Ok -> restored++
+
+				is HideResult.Failed -> failures += namedFailure(entry.displayName, result.failure.toUiMessage())
+
+				// Asking for a grant per folder would turn one action into a queue of pickers. Report
+				// it instead and let the user restore that one on its own.
+				is HideResult.NeedsAccess -> failures += accessNeeded(result)
+			}
+		}
+
+		val summary = when {
+			failures.isEmpty() -> if (recovered > 0) {
+				uiMessage(R.string.force_unhide_success_recovered, folderCount(restored), recovered)
+			} else {
+				uiMessage(R.string.bulk_restored, folderCount(restored))
+			}
+
+			restored == 0 -> uiMessage(R.string.force_unhide_none, failures.first())
+
+			else -> uiMessage(
+				R.string.force_unhide_partial,
+				folderCount(restored),
+				recovered,
+				failures.size,
+				failures.first(),
+			)
+		}
+		reloadVault(summary)
+	}
+
+	/**
+	 * Drops a record without touching storage, for a folder the user has already dealt with by hand.
+	 * Deliberately separate from a restore: this throws away the only description of how to put the
+	 * folder back, so it is never something an automatic pass decides to do.
+	 */
+	fun forgetEntry(folder: VaultFolder) = launchBusy {
+		guard {
+			folder.entry?.let { journal.remove(it.path) }
+			registry.remove(folder.path)
+		}
+		reloadVault(uiMessage(R.string.folder_record_removed, folder.displayName))
+	}
+
+	private fun folderCount(count: Int): UiMessage = uiPlural(R.plurals.folder_count, count, count)
+
+	private fun namedFailure(name: String, failure: UiMessage): UiMessage =
+		uiMessage(R.string.named_failure, name, failure)
+
+	private fun accessNeeded(needed: HideResult.NeedsAccess): UiMessage =
+		uiMessage(R.string.folder_access_needed, needed.name)
+
 	private fun askForAccess(needed: HideResult.NeedsAccess, retry: suspend () -> Unit) {
 		pending = retry
-		_state.update { it.copy(message = needed.reason, accessNeededFor = initialUri(needed.path)) }
+		_state.update { it.copy(message = accessNeeded(needed), accessNeededFor = initialUri(needed.path)) }
 	}
 
 	fun grantedAccess(treeUri: Uri?) = launchBusy {
 		_state.update { it.copy(accessNeededFor = null) }
 		val retry = pending ?: return@launchBusy
 		pending = null
-		if (treeUri == null) return@launchBusy fail("Nothing was changed.")
+		if (treeUri == null) return@launchBusy fail(uiMessage(R.string.nothing_changed))
 		if (!persist(treeUri)) {
-			return@launchBusy fail("Shelf could not keep access to that folder. Nothing was changed.")
+			return@launchBusy fail(uiMessage(R.string.folder_access_not_persisted))
 		}
 		retry()
 	}
@@ -384,48 +1099,6 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	private fun initialUri(path: String): Uri? {
 		val id = SafPaths.documentId(paths.emulatedRoot, path) ?: return null
 		return runCatching { DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE, id) }.getOrNull()
-	}
-
-	fun lockFile(fileUri: Uri, passphrase: CharArray) = launchBusy {
-		try {
-			val path = resolveDocumentPath(fileUri, isTree = false)
-				?: return@launchBusy fail("Could not resolve that file to a storage path.")
-			val name = DocumentFile.fromSingleUri(getApplication(), fileUri)?.name ?: File(path).name
-			val persistedUri = fileUri.takeIf { persist(fileUri) }
-			when (val result = locker.lock(path, name, persistedUri, passphrase)) {
-				is LockResult.Ok -> reloadVault("Locked ${result.locked.displayName}", result.warning)
-				is LockResult.Failed -> fail(result.reason)
-			}
-		} finally {
-			passphrase.fill(' ')
-		}
-	}
-
-	fun unlockFile(entry: LockedFile, passphrase: CharArray) = launchBusy {
-		try {
-			when (val result = locker.unlock(entry, passphrase)) {
-				is UnlockResult.Ok -> reloadVault("Unlocked ${entry.displayName}", result.warning)
-				is UnlockResult.WrongPassphrase -> fail("Wrong passphrase.")
-				is UnlockResult.Failed -> fail(result.reason)
-			}
-		} finally {
-			passphrase.fill(' ')
-		}
-	}
-
-	fun recoverFile(fileUri: Uri, passphrase: CharArray) = launchBusy {
-		try {
-			val path = resolveDocumentPath(fileUri, isTree = false)
-				?: return@launchBusy fail("Could not resolve that file to a storage path.")
-			val name = DocumentFile.fromSingleUri(getApplication(), fileUri)?.name ?: File(path).name
-			when (val result = locker.recover(path, name, fileUri, passphrase)) {
-				is UnlockResult.Ok -> reloadVault("Recovered $name", result.warning)
-				is UnlockResult.WrongPassphrase -> fail("Wrong passphrase.")
-				is UnlockResult.Failed -> fail(result.reason)
-			}
-		} finally {
-			passphrase.fill(' ')
-		}
 	}
 
 	fun consumeMessage() = _state.update { it.copy(message = null) }
@@ -439,15 +1112,35 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		}
 	}
 
-	private suspend fun reloadVault(message: String, warning: String? = null) {
-		val entries = guard { journal.read() }.orEmpty()
-		val locked = guard { vault.read() }.orEmpty()
+	private suspend fun reloadVault(message: UiMessage, warning: HideWarning? = null) {
+		val folders = guard { loadFolders() }.orEmpty()
+		syncEmergencyCredential(folders)
 		_state.update {
 			it.copy(
-				entries = entries,
-				lockedFiles = locked,
-				message = listOfNotNull(message, warning).joinToString(" — "),
+				folders = folders,
+				exposedFolders = folders.count { folder -> !folder.hidden },
+				message = warning?.let { uiMessage(R.string.message_joined, message, it.toUiMessage()) }
+					?: message,
 			)
+		}
+	}
+
+	/**
+	 * Keep a device-bound re-hide capability only for the period in which at least one real folder is
+	 * exposed. It is deleted immediately after the last successful hide.
+	 */
+	private suspend fun syncEmergencyCredential(folders: List<VaultFolder>) {
+		val exposed = folders.any { !it.hidden }
+		val credential = ContentCredential.copy()
+		try {
+			withContext(Dispatchers.IO) {
+				when {
+					exposed && credential != null -> EmergencyCredentialStore.arm(getApplication(), credential)
+					!exposed -> EmergencyCredentialStore.clear(getApplication())
+				}
+			}
+		} finally {
+			credential?.fill(' ')
 		}
 	}
 
@@ -460,7 +1153,10 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				} catch (e: RecordsCorrupted) {
 					fail(recoveryMessage(e))
 				} catch (e: Exception) {
-					fail(e.message ?: "That did not work.")
+					fail(
+						e.message?.let { uiMessage(R.string.operation_failed_detail, it) }
+							?: uiMessage(R.string.operation_failed)
+					)
 				} finally {
 					_state.update { it.copy(busy = false) }
 				}
@@ -475,11 +1171,15 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		null
 	}
 
-	private fun recoveryMessage(e: RecordsCorrupted): String =
-		"${e.original.name} is damaged and could not be read. Nothing was changed, and the file was " +
-			"kept as ${e.preserved.name} so its records can still be recovered."
+	override fun onCleared() {
+		ContentCredential.clear()
+		super.onCleared()
+	}
 
-	private fun fail(reason: String) = _state.update { it.copy(message = reason) }
+	private fun recoveryMessage(e: RecordsCorrupted): UiMessage =
+		uiMessage(R.string.records_corrupted, e.original.name, e.preserved.name)
+
+	private fun fail(reason: UiMessage) = _state.update { it.copy(message = reason) }
 
 	private fun resolveDocumentPath(uri: Uri, isTree: Boolean): String? {
 		if (uri.authority != EXTERNAL_STORAGE) return null
@@ -497,9 +1197,10 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 	private companion object {
 		const val EXTERNAL_STORAGE = "com.android.externalstorage.documents"
-		const val MIN_PIN_LENGTH = 4
-		const val MAX_PIN_LENGTH = 12
+		const val MIN_PIN = 4
+		const val MAX_PIN = 12
 		const val MAX_UNLOCK_ATTEMPTS = 5
 		const val LOCKOUT_MILLIS = 30_000L
+		const val PICKER_GRACE_MILLIS = 120_000L
 	}
 }

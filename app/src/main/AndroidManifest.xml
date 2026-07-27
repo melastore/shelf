@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
 	xmlns:tools="http://schemas.android.com/tools">
+	<uses-permission android:name="android.permission.USE_BIOMETRIC" />
+	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
 	<!--
 		Optional, and never requested unless the user asks for stronger hiding from inside the vault.
@@ -16,19 +20,44 @@
 		android:allowBackup="false"
 		android:dataExtractionRules="@xml/data_extraction_rules"
 		android:fullBackupContent="false"
-		android:icon="@mipmap/ic_launcher"
-		android:label="@string/app_name"
-		android:roundIcon="@mipmap/ic_launcher_round"
+		android:icon="@mipmap/ic_launcher_shelf"
+		android:label="@string/launcher_shelf"
+		android:roundIcon="@mipmap/ic_launcher_shelf"
 		android:supportsRtl="true"
 		android:theme="@style/Theme.Shelf">
 
+		<!--
+			Not exported: every launcher entry is an alias, and an alias reaches its target activity
+			whatever the target's own export state is. Exporting it as well only offers other apps a
+			component to start directly.
+		-->
 		<activity
 			android:name=".ui.MainActivity"
-			android:exported="true" />
+			android:exported="false" />
+		<receiver android:name=".ui.QuickLockReceiver" android:exported="false" />
+		<service
+			android:name=".ui.QuickLockService"
+			android:exported="false"
+			android:foregroundServiceType="dataSync" />
+
+		<!-- Enabled by default: the app wears no disguise until one is chosen. -->
+		<activity-alias
+			android:name=".ShelfLauncher"
+			android:enabled="true"
+			android:exported="true"
+			android:icon="@mipmap/ic_launcher_shelf"
+			android:label="@string/launcher_shelf"
+			android:roundIcon="@mipmap/ic_launcher_shelf"
+			android:targetActivity=".ui.MainActivity">
+			<intent-filter>
+				<action android:name="android.intent.action.MAIN" />
+				<category android:name="android.intent.category.LAUNCHER" />
+			</intent-filter>
+		</activity-alias>
 
 		<activity-alias
 			android:name=".HabitLauncher"
-			android:enabled="true"
+			android:enabled="false"
 			android:exported="true"
 			android:icon="@mipmap/ic_launcher"
 			android:label="@string/launcher_habits"
