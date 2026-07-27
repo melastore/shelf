@@ -8,6 +8,12 @@ ordinary local apps. Shelf hides folders instantly, whatever their size, without
 sending data off the device — it holds no network permission at all. Root
 improves folder hiding, but is optional.
 
+## Screenshots
+
+| Private space | Momento | Settings | Hiding and recovery |
+| --- | --- | --- | --- |
+| ![The private space listing three hidden folders](fastlane/metadata/android/en-US/images/phoneScreenshots/1.jpg) | ![The Momento habit tracker decoy](fastlane/metadata/android/en-US/images/phoneScreenshots/2.jpg) | ![Settings showing the disguise picker and entry gestures](fastlane/metadata/android/en-US/images/phoneScreenshots/3.jpg) | ![Settings showing the hiding method and recovery options](fastlane/metadata/android/en-US/images/phoneScreenshots/4.jpg) |
+
 ## Installing
 
 Android 11 or newer. Signed APKs are attached to each
