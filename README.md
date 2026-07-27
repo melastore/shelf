@@ -15,12 +15,9 @@ Android 11 or newer. Signed APKs are attached to each
 Play, and because it cannot reach the network it will never update itself;
 new versions have to be installed by hand.
 
-Every release is signed with the same key, so an update that Android accepts is
-an update from the same source. To check a file before the first install:
+Every release is signed with the same key.
 
-    apksigner verify --print-certs shelf-0.4.4.apk
-
-    Signer #1 certificate SHA-256 digest: c0a840767117551defe6282499cf23a10c586a42da67a8bb4f038ef297d6a405
+Signing certificate SHA-256: `c0a840767117551defe6282499cf23a10c586a42da67a8bb4f038ef297d6a405`
 
 ## Using the private space
 
