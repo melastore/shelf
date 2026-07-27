@@ -1,0 +1,6 @@
+Make notification and automatic hiding reliable for large folders.
+
+- Hiding now runs until filename, header, and folder protection finish.
+- Shelf verifies the physical folder state instead of trusting an incomplete journal entry.
+- Interrupted hides are rolled back safely and retried.
+- Failed hides keep a retry action instead of silently dismissing the notification.

@@ -1,0 +1,5 @@
+Replace overlapping lock controls with one Auto hide setting.
+
+- Choose After screen off, Immediately, or Never.
+- Auto hide closes the private space and hides exposed folders together.
+- Hiding finishes safely even if Android destroys Shelf after it leaves the screen.

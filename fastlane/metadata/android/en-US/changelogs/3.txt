@@ -1,0 +1,12 @@
+Redesigned interface, and a decoy PIN that does something useful.
+
+- Rebuilt every screen: new colour scheme per decoy, new keypad, new icons.
+- The decoy PIN now opens a convincing private space instead of backing out,
+  and its use is reported to you on your next real unlock.
+- Five taps in the top-right corner always work, whatever gesture is set.
+- Settings: unhide everything, including folders whose record was lost.
+- The folder picker now opens on your storage instead of an empty Recents list.
+- More reliable restores, with messages that say what actually went wrong.
+- Optional strong-biometric unlock, with the PIN always available as fallback.
+- Private-move folders now use random payload names to be less obvious.
+- Removed file locking to concentrate on folder hiding.
