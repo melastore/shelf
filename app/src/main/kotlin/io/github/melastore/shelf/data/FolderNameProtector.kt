@@ -1,0 +1,459 @@
+package io.github.melastore.shelf.data
+
+import android.content.Context
+import android.net.Uri
+import android.provider.DocumentsContract
+import androidx.documentfile.provider.DocumentFile
+import io.github.melastore.shelf.crypto.PasswordEnvelope
+import io.github.melastore.shelf.root.StoragePaths
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+
+sealed interface NameProtectionResult {
+	data class Done(val changed: Int) : NameProtectionResult
+	data object NoFiles : NameProtectionResult
+	data object AccessUnavailable : NameProtectionResult
+	data object CredentialRequired : NameProtectionResult
+	data object WrongCredential : NameProtectionResult
+	data class Failed(val count: Int = 1) : NameProtectionResult
+}
+
+/**
+ * Replaces filenames with opaque identifiers and keeps the original names in one PIN-encrypted
+ * manifest at the folder root.
+ *
+ * The complete manifest is flushed before the first rename. A killed hide can therefore be resumed
+ * or rolled back, and restore is idempotent: each mapping may be at either its original or opaque
+ * name. Directory names are deliberately left alone; changing them would invalidate paths for every
+ * descendant during a partially completed operation and make provider recovery much less reliable.
+ */
+class FolderNameProtector(
+	context: Context,
+	private val paths: StoragePaths,
+	private val credential: () -> CharArray? = ContentCredential::copy,
+) {
+	private val appContext = context.applicationContext
+	private val resolver get() = appContext.contentResolver
+	private val json = Json { ignoreUnknownKeys = false }
+
+	suspend fun protect(path: String): NameProtectionResult = withContext(Dispatchers.IO) {
+		val direct = File(path)
+		if (direct.isDirectory && direct.canRead() && direct.canWrite()) {
+			return@withContext protectFile(direct)
+		}
+		safRoot(path)?.let(::protectSaf) ?: NameProtectionResult.AccessUnavailable
+	}
+
+	suspend fun restore(path: String): NameProtectionResult = withContext(Dispatchers.IO) {
+		val direct = File(path)
+		if (direct.isDirectory && direct.canRead() && direct.canWrite()) {
+			return@withContext restoreFile(direct)
+		}
+		safRoot(path)?.let(::restoreSaf) ?: NameProtectionResult.AccessUnavailable
+	}
+
+	private fun protectFile(root: File): NameProtectionResult {
+		val manifestFile = File(root, MANIFEST)
+		val mappings = if (manifestFile.isFile) {
+			readManifest(readFile(manifestFile) ?: return NameProtectionResult.Failed())
+				?: return credentialFailure()
+		} else {
+			if (!hasCredential()) return NameProtectionResult.CredentialRequired
+			val files = root.walkTopDown()
+				.filter { it.isFile && !reserved(it.name) }
+				.take(MAX_FILES + 1)
+				.toList()
+			if (files.isEmpty()) return NameProtectionResult.NoFiles
+			if (files.size > MAX_FILES) return NameProtectionResult.Failed()
+			files.map { file ->
+				val original = file.relativeTo(root).invariantSeparatorsPath
+				NameMapping(original, opaqueSibling(original))
+			}.also {
+				if (!writeManifestFile(root, it)) return NameProtectionResult.Failed()
+			}
+		}
+		return applyFileMappings(root, mappings, protect = true)
+	}
+
+	private fun restoreFile(root: File): NameProtectionResult {
+		val manifestFile = File(root, MANIFEST)
+		if (!manifestFile.isFile) return NameProtectionResult.NoFiles
+		val mappings = readManifest(readFile(manifestFile) ?: return NameProtectionResult.Failed())
+			?: return credentialFailure()
+		val result = applyFileMappings(root, mappings, protect = false)
+		if (result is NameProtectionResult.Done || result == NameProtectionResult.NoFiles) {
+			if (!manifestFile.delete()) return NameProtectionResult.Failed()
+		}
+		return result
+	}
+
+	private fun applyFileMappings(root: File, mappings: List<NameMapping>, protect: Boolean,): NameProtectionResult {
+		var changed = 0
+		for (mapping in mappings) {
+			val expectedFrom = File(root, if (protect) mapping.original else mapping.opaque)
+			val from = expectedFrom.takeIf { it.exists() }
+				?: expectedFrom.takeUnless { protect }?.let { compatibleOpaqueFile(it, mapping.opaque) }
+			val to = File(root, if (protect) mapping.opaque else mapping.original)
+			if (protect) {
+				when {
+					from?.isFile == true && !to.exists() -> {
+						if (from.renameTo(to)) changed++ else return NameProtectionResult.Failed()
+					}
+
+					from == null && to.isFile -> Unit
+
+					else -> return NameProtectionResult.Failed()
+				}
+			} else {
+				when {
+					from?.isFile == true && !to.exists() -> {
+						if (from.renameTo(to)) changed++ else return NameProtectionResult.Failed()
+					}
+
+					from?.isFile == true && to.exists() -> {
+						val recovered = recoverySibling(to, mapping.opaque)
+						if (from.renameTo(recovered)) changed++ else return NameProtectionResult.Failed()
+					}
+
+					from == null -> Unit
+
+					// Already restored, or deleted while the folder was hidden.
+					else -> return NameProtectionResult.Failed()
+				}
+			}
+		}
+		return NameProtectionResult.Done(changed)
+	}
+
+	private fun protectSaf(root: DocumentFile): NameProtectionResult {
+		val existing = root.findFile(MANIFEST)
+		val mappings = if (existing?.isFile == true) {
+			readManifest(readSaf(existing.uri) ?: return NameProtectionResult.Failed())
+				?: return credentialFailure()
+		} else {
+			if (!hasCredential()) return NameProtectionResult.CredentialRequired
+			val files = mutableListOf<SafEntry>()
+			if (!collectSaf(root, "", files, 0)) return NameProtectionResult.Failed()
+			if (files.isEmpty()) return NameProtectionResult.NoFiles
+			if (files.size > MAX_FILES) return NameProtectionResult.Failed()
+			files.map { NameMapping(it.path, opaqueSibling(it.path)) }.also {
+				if (!writeManifestSaf(root, it)) return NameProtectionResult.Failed()
+			}
+		}
+		return applySafMappings(root, mappings, protect = true)
+	}
+
+	private fun restoreSaf(root: DocumentFile): NameProtectionResult {
+		val manifest = root.findFile(MANIFEST)?.takeIf { it.isFile } ?: return NameProtectionResult.NoFiles
+		val mappings = readManifest(readSaf(manifest.uri) ?: return NameProtectionResult.Failed())
+			?: return credentialFailure()
+		val result = applySafMappings(root, mappings, protect = false)
+		if (result is NameProtectionResult.Done || result == NameProtectionResult.NoFiles) {
+			if (!DocumentsContract.deleteDocument(resolver, manifest.uri)) return NameProtectionResult.Failed()
+		}
+		return result
+	}
+
+	private fun applySafMappings(
+		root: DocumentFile,
+		mappings: List<NameMapping>,
+		protect: Boolean,
+	): NameProtectionResult {
+		val current = mutableListOf<SafEntry>()
+		if (!collectSaf(root, "", current, 0)) return NameProtectionResult.Failed()
+		val byPath = current.associateByTo(mutableMapOf(), SafEntry::path)
+		var changed = 0
+		for (mapping in mappings) {
+			val fromPath = if (protect) mapping.original else mapping.opaque
+			val toPath = if (protect) mapping.opaque else mapping.original
+			val from = byPath[fromPath] ?: if (protect) {
+				null
+			} else {
+				compatibleOpaqueSaf(byPath, mapping.opaque)
+			}
+			val to = byPath[toPath]
+			if (protect) {
+				when {
+					from != null && to == null -> {
+						val wanted = toPath.substringAfterLast('/')
+						val renamed = renameSaf(from, wanted) ?: return NameProtectionResult.Failed()
+						if (renamed.name != wanted) {
+							renameSaf(renamed.entry, mapping.original.substringAfterLast('/'))
+							return NameProtectionResult.Failed()
+						}
+						byPath.remove(from.path)
+						byPath[toPath] = renamed.entry.copy(path = toPath)
+						changed++
+					}
+
+					from == null && to != null -> Unit
+
+					else -> return NameProtectionResult.Failed()
+				}
+			} else {
+				when {
+					from != null && to == null -> {
+						val renamed = renameSaf(from, toPath.substringAfterLast('/'))
+							?: return NameProtectionResult.Failed()
+						byPath.remove(from.path)
+						byPath[siblingPath(toPath, renamed.name)] = renamed.entry
+						changed++
+					}
+
+					from != null && to != null -> {
+						val wanted = recoveryName(toPath.substringAfterLast('/'), mapping.opaque) { candidate ->
+							byPath.containsKey(siblingPath(toPath, candidate))
+						}
+						val renamed = renameSaf(from, wanted) ?: return NameProtectionResult.Failed()
+						byPath.remove(from.path)
+						byPath[siblingPath(toPath, renamed.name)] = renamed.entry
+						changed++
+					}
+
+					from == null -> Unit // Already restored, deleted, or provider-renamed on an old hide.
+				}
+			}
+		}
+		return NameProtectionResult.Done(changed)
+	}
+
+	private fun renameSaf(entry: SafEntry, wanted: String): SafRename? {
+		val uri = runCatching {
+			DocumentsContract.renameDocument(resolver, entry.document.uri, wanted)
+		}.getOrNull()?.takeUnless { it == Uri.EMPTY } ?: return null
+		val document = DocumentFile.fromSingleUri(appContext, uri) ?: return null
+		val actual = document.name ?: return null
+		return SafRename(SafEntry(siblingPath(entry.path, actual), document), actual)
+	}
+
+	private fun compatibleOpaqueSaf(entries: Map<String, SafEntry>, expected: String): SafEntry? {
+		val token = opaqueToken(expected) ?: return null
+		val parent = expected.substringBeforeLast('/', "")
+		return entries.values.singleOrNull { candidate ->
+			candidate.path.substringBeforeLast('/', "") == parent &&
+				candidate.path.substringAfterLast('/').contains(token)
+		}
+	}
+
+	private fun writeManifestFile(root: File, mappings: List<NameMapping>): Boolean {
+		val encrypted = encryptedManifest(mappings) ?: return false
+		val temporary = File(root, MANIFEST_TEMP)
+		val target = File(root, MANIFEST)
+		return try {
+			if (temporary.exists() && !temporary.delete()) return false
+			FileOutputStream(temporary).use { output ->
+				output.write(encrypted)
+				output.fd.sync()
+			}
+			!target.exists() && temporary.renameTo(target)
+		} finally {
+			encrypted.fill(0)
+			temporary.delete()
+		}
+	}
+
+	private fun writeManifestSaf(root: DocumentFile, mappings: List<NameMapping>): Boolean {
+		val encrypted = encryptedManifest(mappings) ?: return false
+		return try {
+			root.findFile(MANIFEST_TEMP)?.delete()
+			val temporary = root.createFile(MIME, MANIFEST_TEMP) ?: return false
+			val actualName = temporary.name ?: return false
+			if (actualName != MANIFEST_TEMP) return false
+			val written = runCatching {
+				resolver.openFileDescriptor(temporary.uri, "rwt")?.use { descriptor ->
+					FileOutputStream(descriptor.fileDescriptor).use { output ->
+						output.write(encrypted)
+						output.fd.sync()
+					}
+				} != null
+			}.getOrDefault(false)
+			if (!written) return false
+			val renamed = DocumentsContract.renameDocument(resolver, temporary.uri, MANIFEST)
+				?: return false
+			DocumentFile.fromSingleUri(appContext, renamed)?.name == MANIFEST
+		} finally {
+			encrypted.fill(0)
+			root.findFile(MANIFEST_TEMP)?.delete()
+		}
+	}
+
+	private fun encryptedManifest(mappings: List<NameMapping>): ByteArray? {
+		val password = credential() ?: return null
+		var plain = byteArrayOf()
+		return try {
+			plain = json.encodeToString(
+				NameManifest.serializer(),
+				NameManifest(files = mappings),
+			).toByteArray(Charsets.UTF_8)
+			PasswordEnvelope.encrypt(plain, password)
+		} catch (_: Exception) {
+			null
+		} finally {
+			password.fill(' ')
+			plain.fill(0)
+		}
+	}
+
+	private fun readManifest(encrypted: ByteArray): List<NameMapping>? {
+		if (encrypted.size !in 1..PasswordEnvelope.MAX_ENVELOPE_BYTES) return null
+		val password = credential() ?: return null
+		var plain = byteArrayOf()
+		return try {
+			plain = PasswordEnvelope.decrypt(encrypted, password)
+			val manifest = json.decodeFromString(NameManifest.serializer(), plain.toString(Charsets.UTF_8))
+			manifest.files.takeIf { valid(manifest) }
+		} catch (_: Exception) {
+			null
+		} finally {
+			password.fill(' ')
+			plain.fill(0)
+		}
+	}
+
+	private fun valid(manifest: NameManifest): Boolean {
+		if (manifest.version != VERSION || manifest.files.size !in 1..MAX_FILES) return false
+		if (manifest.files.map { it.original }.toSet().size != manifest.files.size) return false
+		if (manifest.files.map { it.opaque }.toSet().size != manifest.files.size) return false
+		return manifest.files.all { mapping ->
+			safeRelative(mapping.original) && safeRelative(mapping.opaque) &&
+				mapping.original.substringBeforeLast('/', "") == mapping.opaque.substringBeforeLast('/', "") &&
+				OPAQUE.matches(mapping.opaque.substringAfterLast('/'))
+		}
+	}
+
+	private fun safeRelative(path: String): Boolean = path.isNotBlank() && path.length <= MAX_PATH &&
+		'\u0000' !in path && path.split('/').none { it.isBlank() || it == "." || it == ".." }
+
+	private fun opaqueSibling(original: String): String {
+		val parent = original.substringBeforeLast('/', "")
+		val name = "$OPAQUE_PREFIX${UUID.randomUUID().toString().replace("-", "")}"
+		return if (parent.isEmpty()) name else "$parent/$name"
+	}
+
+	/** Finds an opaque name that an OEM provider adjusted by adding/removing punctuation or a suffix. */
+	private fun compatibleOpaqueFile(expected: File, mapping: String): File? {
+		val token = opaqueToken(mapping) ?: return null
+		return expected.parentFile?.listFiles()?.singleOrNull { it.isFile && token in it.name }
+	}
+
+	private fun recoverySibling(original: File, opaque: String): File {
+		val parent = requireNotNull(original.parentFile)
+		val name = recoveryName(original.name, opaque) { File(parent, it).exists() }
+		return File(parent, name)
+	}
+
+	private fun recoveryName(original: String, opaque: String, exists: (String) -> Boolean): String {
+		val extension = original.substringAfterLast('.', "").takeIf { it.isNotEmpty() && it != original }
+		val stem = if (extension == null) original else original.removeSuffix(".$extension")
+		val tag = opaqueToken(opaque)?.take(6) ?: "file"
+		for (attempt in 1..MAX_RECOVERY_NAMES) {
+			val suffix = if (attempt == 1) "" else " $attempt"
+			val candidate = "$stem (Shelf recovered $tag$suffix)${extension?.let { ".$it" }.orEmpty()}"
+			if (!exists(candidate)) return candidate
+		}
+		return "shelf_recovered_${UUID.randomUUID()}"
+	}
+
+	private fun opaqueToken(path: String): String? = UUID_TOKEN.find(path.substringAfterLast('/'))?.value
+
+	private fun siblingPath(path: String, name: String): String {
+		val parent = path.substringBeforeLast('/', "")
+		return if (parent.isEmpty()) name else "$parent/$name"
+	}
+
+	private fun collectSaf(folder: DocumentFile, prefix: String, found: MutableList<SafEntry>, depth: Int,): Boolean {
+		if (depth > MAX_DEPTH || found.size > MAX_FILES) return false
+		val children = runCatching { folder.listFiles() }.getOrNull() ?: return false
+		for (child in children) {
+			val name = child.name ?: return false
+			val relative = if (prefix.isEmpty()) name else "$prefix/$name"
+			when {
+				child.isDirectory -> if (!collectSaf(child, relative, found, depth + 1)) return false
+				child.isFile && !reserved(name) -> found += SafEntry(relative, child)
+			}
+			if (found.size > MAX_FILES) return false
+		}
+		return true
+	}
+
+	private fun readSaf(uri: Uri): ByteArray? = runCatching {
+		resolver.openFileDescriptor(uri, "r")?.use { descriptor ->
+			val size = descriptor.statSize
+			if (size !in 1..PasswordEnvelope.MAX_ENVELOPE_BYTES.toLong()) return@use null
+			FileInputStream(descriptor.fileDescriptor).use { it.readBytes() }
+		}
+	}.getOrNull()
+
+	private fun readFile(file: File): ByteArray? {
+		if (file.length() !in 1..PasswordEnvelope.MAX_ENVELOPE_BYTES.toLong()) return null
+		return runCatching { FileInputStream(file).use { it.readBytes() } }.getOrNull()
+	}
+
+	private fun safRoot(path: String): DocumentFile? {
+		val tree = coveringGrant(path) ?: return null
+		val id = SafPaths.documentId(paths.emulatedRoot, path) ?: return null
+		val uri = runCatching { DocumentsContract.buildDocumentUriUsingTree(tree, id) }.getOrNull()
+			?: return null
+		return DocumentFile.fromSingleUri(appContext, uri)?.takeIf { it.isDirectory }
+	}
+
+	private fun coveringGrant(path: String): Uri? = resolver.persistedUriPermissions.asSequence()
+		.filter { it.isReadPermission && it.isWritePermission }
+		.mapNotNull { permission ->
+			val id = runCatching { DocumentsContract.getTreeDocumentId(permission.uri) }.getOrNull()
+				?: return@mapNotNull null
+			val relative = id.removePrefix(PRIMARY)
+			if (relative == id) return@mapNotNull null
+			val root = paths.emulatedRoot + if (relative.isEmpty()) "" else "/$relative"
+			root to permission.uri
+		}
+		.filter { (root, _) -> path == root || path.startsWith("$root/") }
+		.maxByOrNull { (root, _) -> root.length }
+		?.second
+
+	private fun credentialFailure(): NameProtectionResult = if (hasCredential()) {
+		NameProtectionResult.WrongCredential
+	} else {
+		NameProtectionResult.CredentialRequired
+	}
+
+	private fun hasCredential(): Boolean {
+		val password = credential() ?: return false
+		password.fill(' ')
+		return true
+	}
+
+	private fun reserved(name: String): Boolean = name == MANIFEST || name == MANIFEST_TEMP ||
+		name.startsWith(ROOT_RECOVERY_PREFIX)
+
+	@Serializable
+	private data class NameManifest(val version: Int = VERSION, val files: List<NameMapping>)
+
+	@Serializable
+	private data class NameMapping(val original: String, val opaque: String)
+
+	private data class SafEntry(val path: String, val document: DocumentFile)
+	private data class SafRename(val entry: SafEntry, val name: String)
+
+	private companion object {
+		const val VERSION = 1
+		const val MANIFEST = ".shelf-names-v1"
+		const val MANIFEST_TEMP = ".shelf-names-v1.tmp"
+		const val ROOT_RECOVERY_PREFIX = ".shelf-recovery-v1-"
+		const val MIME = "application/octet-stream"
+		const val PRIMARY = "primary:"
+		const val OPAQUE_PREFIX = "sfn_"
+		const val MAX_FILES = ContentLocker.MAX_FILES
+		const val MAX_DEPTH = 8
+		const val MAX_PATH = 4_096
+		const val MAX_RECOVERY_NAMES = 100
+		val OPAQUE = Regex("(?:\\.sfn-|sfn_)[a-f0-9]{32}")
+		val UUID_TOKEN = Regex("[a-f0-9]{32}")
+	}
+}

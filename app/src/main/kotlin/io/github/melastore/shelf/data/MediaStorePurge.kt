@@ -3,8 +3,15 @@ package io.github.melastore.shelf.data
 import android.content.Context
 import android.media.MediaScannerConnection
 import android.provider.MediaStore
+import io.github.melastore.shelf.root.RootCommandRunner
 import io.github.melastore.shelf.root.RootShell
 import java.io.File
+
+interface FolderMediaIndex {
+	fun scan(context: Context, paths: List<String>)
+	suspend fun rescan(context: Context, path: String): HideWarning?
+	suspend fun listFiles(path: String): List<String>
+}
 
 /**
  * Keeps MediaStore in step with a hide or restore.
@@ -19,7 +26,7 @@ import java.io.File
  * to `content` under root. A hide that moves or renames the folder needs none of that: pointing the
  * scanner at a path that no longer holds the file is enough for MediaStore to drop the row itself.
  */
-object MediaStorePurge {
+object MediaStorePurge : FolderMediaIndex {
 
 	private val collections = listOf(
 		MediaStore.Files.getContentUri("external"),
@@ -29,29 +36,32 @@ object MediaStorePurge {
 	)
 
 	/** Deletes the rows under [emulatedFolder]. Root only; used when the files do not move. */
-	suspend fun forFolder(context: Context, emulatedFolder: String): String? {
+	suspend fun forFolder(context: Context, emulatedFolder: String, runner: RootCommandRunner = RootShell,): HideWarning? {
 		val pattern = likePrefix(emulatedFolder)
 		return purge(
 			context,
 			selection = "${MediaStore.MediaColumns.DATA} LIKE ? ESCAPE '\\'",
 			args = arrayOf(pattern),
 			where = "${MediaStore.MediaColumns.DATA} LIKE ${sqlLiteral(pattern)} ESCAPE '\\'",
+			runner = runner,
 		)
 	}
 
 	/** Deletes the row for [emulatedFile]. Root only; used when the file does not move. */
-	suspend fun forFile(context: Context, emulatedFile: String): String? = purge(
-		context,
-		selection = "${MediaStore.MediaColumns.DATA} = ?",
-		args = arrayOf(emulatedFile),
-		where = "${MediaStore.MediaColumns.DATA} = ${sqlLiteral(emulatedFile)}",
-	)
+	suspend fun forFile(context: Context, emulatedFile: String, runner: RootCommandRunner = RootShell,): HideWarning? =
+		purge(
+			context,
+			selection = "${MediaStore.MediaColumns.DATA} = ?",
+			args = arrayOf(emulatedFile),
+			where = "${MediaStore.MediaColumns.DATA} = ${sqlLiteral(emulatedFile)}",
+			runner = runner,
+		)
 
 	/**
 	 * Points the scanner at [paths]. Rows for paths that no longer hold a file are dropped, and rows
 	 * for paths that do are created, which is both halves of a move in one call.
 	 */
-	fun scan(context: Context, paths: List<String>) {
+	override fun scan(context: Context, paths: List<String>) {
 		if (paths.isEmpty()) return
 		MediaScannerConnection.scanFile(context, paths.take(MAX_SCAN).toTypedArray(), null, null)
 	}
@@ -64,35 +74,43 @@ object MediaStorePurge {
 	 *
 	 * @return null on success, or a note about what could not be reached.
 	 */
-	suspend fun rescan(context: Context, path: String): String? {
-		val listed = listFiles(path)
+	suspend fun rescan(context: Context, path: String, runner: RootCommandRunner,): HideWarning? {
+		val listed = listFiles(path, runner)
 		scan(context, listed.ifEmpty { listOf(path) })
-		return "only the first $MAX_SCAN items under $path were rescanned"
-			.takeIf { listed.size > MAX_SCAN }
+		return HideWarning.MediaRescanLimited(path, MAX_SCAN).takeIf { listed.size > MAX_SCAN }
 	}
 
+	override suspend fun rescan(context: Context, path: String): HideWarning? = rescan(context, path, RootShell)
+
 	/** Files under [path], read directly when this build can and through root when it cannot. */
-	suspend fun listFiles(path: String): List<String> {
+	suspend fun listFiles(path: String, runner: RootCommandRunner): List<String> {
 		val target = File(path)
 		if (target.canRead()) {
 			return target.walkTopDown().filter { it.isFile }.take(MAX_SCAN + 1).map { it.path }.toList()
 		}
-		val found = RootShell.run("find ${RootShell.quote(path)} -type f 2>/dev/null | head -n ${MAX_SCAN + 1}")
+		val found = runner.run("find ${RootShell.quote(path)} -type f 2>/dev/null | head -n ${MAX_SCAN + 1}")
 		return if (found.ok) found.stdout else emptyList()
 	}
+
+	override suspend fun listFiles(path: String): List<String> = listFiles(path, RootShell)
 
 	private suspend fun purge(
 		context: Context,
 		selection: String,
 		args: Array<String>,
 		where: String,
-	): String? {
+		runner: RootCommandRunner,
+	): HideWarning? {
 		val failures = mutableListOf<String>()
 		for (uri in collections) {
+			// A delete that reaches no rows does not fail: without a storage permission the provider
+			// quietly narrows the selection to rows this app inserted, of which there are none, and
+			// returns zero. Treating that as success is what left the gallery listing the folder, so
+			// anything short of a deleted row falls through to the privileged path.
 			val direct = runCatching { context.contentResolver.delete(uri, selection, args) }
-			if (direct.isSuccess) continue
+			if (direct.getOrDefault(0) > 0) continue
 
-			val viaRoot = RootShell.run(
+			val viaRoot = runner.run(
 				"content delete --uri ${RootShell.quote(uri.toString())} --where ${RootShell.quote(where)}",
 			)
 			if (!viaRoot.ok) {
@@ -102,9 +120,7 @@ object MediaStorePurge {
 				failures += "${uri.lastPathSegment ?: uri}: $detail"
 			}
 		}
-		return failures.takeIf { it.isNotEmpty() }
-			?.joinToString("; ", prefix = "gallery entries may still be visible (")
-			?.plus(")")
+		return failures.takeIf { it.isNotEmpty() }?.let(HideWarning::MediaEntriesMayRemain)
 	}
 
 	/**

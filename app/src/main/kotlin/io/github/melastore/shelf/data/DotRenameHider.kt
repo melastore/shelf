@@ -3,8 +3,8 @@ package io.github.melastore.shelf.data
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
-import androidx.documentfile.provider.DocumentFile
 import androidx.core.net.toUri
+import androidx.documentfile.provider.DocumentFile
 import io.github.melastore.shelf.root.StoragePaths
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -17,22 +17,21 @@ import kotlinx.coroutines.withContext
  * it is as fast as the other two, and the media scanner skips dot-directories, which takes the
  * folder out of every gallery on the device.
  *
- * It is also the weakest. The files stay where they were and a file manager set to show hidden files
- * will list them; this hides a folder from someone who glances at a phone, not from someone who goes
- * looking.
+ * It remains the easiest folder to locate: a file manager set to show hidden files can list it.
+ * [FolderNameProtector] replaces visible file names, and [FolderContentProtector] prevents ordinary
+ * opening and previews after a primary-PIN hide. The rest of each file remains in place and is not
+ * full-file encryption.
  *
  * The rename has to be made through a grant on a folder *above* the target. Renaming the very folder
  * a tree grant was taken on leaves that grant pointing at a name that no longer exists, and the way
  * back would be gone with it.
  */
-class DotRenameHider(
-	context: Context,
-	private val journal: Journal,
-	private val paths: StoragePaths,
-) : HideStrategy {
+class DotRenameHider(context: Context, private val journal: Journal, private val paths: StoragePaths,) : HideStrategy {
 
 	private val appContext = context.applicationContext
 	private val resolver get() = appContext.contentResolver
+	private val content = FolderContentProtector(appContext, paths)
+	private val names = FolderNameProtector(appContext, paths)
 
 	override val method = HideMethod.DOT_RENAME
 
@@ -42,14 +41,14 @@ class DotRenameHider(
 	override suspend fun hide(target: FolderTarget): HideResult = withContext(Dispatchers.IO) {
 		val name = SafPaths.nameOf(target.emulatedPath)
 		if (name.startsWith(".")) {
-			return@withContext HideResult.Failed("${target.displayName} is already hidden")
+			return@withContext HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
 		}
 
 		val parent = SafPaths.parentOf(target.emulatedPath)
 		val tree = grantCovering(target.emulatedPath)
 			?: return@withContext HideResult.NeedsAccess(
 				parent,
-				"Shelf needs access to the folder holding ${target.displayName} to rename it",
+				target.displayName,
 			)
 
 		val hiddenPath = SafPaths.sibling(target.emulatedPath, SafPaths.hiddenName(name))
@@ -63,31 +62,75 @@ class DotRenameHider(
 			treeUri = tree.toString(),
 		)
 		if (!journal.addNew(entry)) {
-			return@withContext HideResult.Failed("${target.displayName} is already hidden")
+			return@withContext HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
+		}
+		// Capture the public names before filename protection replaces them. These are the stale
+		// MediaStore rows that need invalidating after the folder itself is renamed.
+		val contents = childPaths(tree, target.emulatedPath)
+		val protectionWarning = when (val protected = content.protect(target.emulatedPath)) {
+			is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> null
+
+			ContentProtectionResult.AccessUnavailable,
+			ContentProtectionResult.CredentialRequired -> HideWarning.ContentProtectionUnavailable
+
+			ContentProtectionResult.WrongCredential -> {
+				journal.remove(entry.path)
+				return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
+			}
+
+			is ContentProtectionResult.Failed -> {
+				journal.remove(entry.path)
+				return@withContext HideResult.Failed(HideFailure.ContentProtectionFailed(protected.count))
+			}
+		}
+		val nameWarning = when (val protected = names.protect(target.emulatedPath)) {
+			is NameProtectionResult.Done, NameProtectionResult.NoFiles -> null
+
+			NameProtectionResult.AccessUnavailable,
+			NameProtectionResult.CredentialRequired -> HideWarning.NameProtectionUnavailable
+
+			NameProtectionResult.WrongCredential -> {
+				names.restore(target.emulatedPath)
+				content.restore(target.emulatedPath)
+				journal.remove(entry.path)
+				return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
+			}
+
+			is NameProtectionResult.Failed -> {
+				names.restore(target.emulatedPath)
+				content.restore(target.emulatedPath)
+				journal.remove(entry.path)
+				return@withContext HideResult.Failed(HideFailure.NameProtectionFailed(protected.count))
+			}
 		}
 
-		val document = documentUri(tree, target.emulatedPath)
-			?: return@withContext fail(entry, "${target.emulatedPath} is not on this user's storage")
-
-		// Listed before the rename: afterwards these are the paths MediaStore still believes the files
-		// are at, which is exactly what has to be corrected.
-		val contents = childPaths(tree, target.emulatedPath)
+		val document = documentUri(tree, target.emulatedPath) ?: run {
+			names.restore(target.emulatedPath)
+			content.restore(target.emulatedPath)
+			return@withContext fail(entry, HideFailure.NotPrimaryStorage(target.emulatedPath))
+		}
 
 		val renamed = runCatching {
 			DocumentsContract.renameDocument(resolver, document, SafPaths.hiddenName(name))
-		}.getOrNull() ?: return@withContext fail(entry, "could not rename ${target.displayName}")
+		}.getOrNull() ?: run {
+			names.restore(target.emulatedPath)
+			content.restore(target.emulatedPath)
+			return@withContext fail(entry, HideFailure.RenameFailed(target.displayName))
+		}
 		val finalName = DocumentFile.fromSingleUri(appContext, renamed)?.name
-			?: return@withContext rollbackRename(entry, renamed, name, "could not verify the hidden name")
+			?: return@withContext rollbackRename(entry, renamed, name, HideFailure.HiddenNameUnverified)
 		val finalEntry = entry.copy(hiddenPath = SafPaths.sibling(target.emulatedPath, finalName))
 		if (!journal.replace(finalEntry)) {
-			return@withContext rollbackRename(entry, renamed, name, "could not update the recovery journal")
+			return@withContext rollbackRename(entry, renamed, name, HideFailure.JournalUpdateFailed)
 		}
 
-		markNoMedia(renamed)
 		MediaStorePurge.scan(appContext, contents + target.emulatedPath)
-		val warning = "the document provider renamed it to $finalName"
+		val renameWarning = HideWarning.ProviderRenamed(finalName)
 			.takeIf { finalName != SafPaths.hiddenName(name) }
-		HideResult.Ok(finalEntry, warning)
+		HideResult.Ok(
+			finalEntry,
+			mergeWarnings(mergeWarnings(protectionWarning, nameWarning), renameWarning),
+		)
 	}
 
 	override suspend fun restore(entry: HiddenEntry): HideResult = withContext(Dispatchers.IO) {
@@ -96,24 +139,217 @@ class DotRenameHider(
 		val tree = heldTree(entry.treeUri) ?: grantCovering(entry.hiddenPath)
 			?: return@withContext HideResult.NeedsAccess(
 				SafPaths.parentOf(entry.path),
-				"Shelf needs access to the folder holding ${entry.displayName} to rename it back",
+				entry.displayName,
 			)
 		val document = documentUri(tree, entry.hiddenPath)
-			?: return@withContext HideResult.Failed("${entry.hiddenPath} is not on this user's storage")
+			?: return@withContext HideResult.Failed(HideFailure.NotPrimaryStorage(entry.hiddenPath))
 
+		// Already back under its own name — a rename that succeeded after the journal write failed, or
+		// a restore the user finished in a file manager. Clear the record rather than reporting an
+		// error the user has no way to act on.
+		if (!exists(tree, entry.hiddenPath) && exists(tree, entry.path)) {
+			when (val nameRestore = names.restore(entry.path)) {
+				is NameProtectionResult.Done, NameProtectionResult.NoFiles -> Unit
+
+				NameProtectionResult.CredentialRequired -> return@withContext HideResult.Failed(
+					HideFailure.ContentCredentialRequired,
+				)
+
+				NameProtectionResult.WrongCredential -> return@withContext HideResult.Failed(
+					HideFailure.ContentCredentialIncorrect,
+				)
+
+				is NameProtectionResult.Failed -> return@withContext HideResult.Failed(
+					HideFailure.NameRestoreFailed(nameRestore.count),
+				)
+
+				NameProtectionResult.AccessUnavailable -> return@withContext HideResult.NeedsAccess(
+					SafPaths.parentOf(entry.path),
+					entry.displayName,
+				)
+			}
+			when (val contentRestore = content.restore(entry.path)) {
+				is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> Unit
+
+				ContentProtectionResult.CredentialRequired -> return@withContext HideResult.Failed(
+					HideFailure.ContentCredentialRequired,
+				)
+
+				ContentProtectionResult.WrongCredential -> return@withContext HideResult.Failed(
+					HideFailure.ContentCredentialIncorrect,
+				)
+
+				is ContentProtectionResult.Failed -> return@withContext HideResult.Failed(
+					HideFailure.ContentRestoreFailed(contentRestore.count),
+				)
+
+				ContentProtectionResult.AccessUnavailable -> return@withContext HideResult.NeedsAccess(
+					SafPaths.parentOf(entry.path),
+					entry.displayName,
+				)
+			}
+			journal.remove(entry.path)
+			return@withContext HideResult.Ok(entry)
+		}
+		when (val nameRestore = names.restore(entry.hiddenPath)) {
+			is NameProtectionResult.Done, NameProtectionResult.NoFiles -> Unit
+
+			NameProtectionResult.CredentialRequired -> return@withContext HideResult.Failed(
+				HideFailure.ContentCredentialRequired,
+			)
+
+			NameProtectionResult.WrongCredential -> return@withContext HideResult.Failed(
+				HideFailure.ContentCredentialIncorrect,
+			)
+
+			is NameProtectionResult.Failed -> return@withContext HideResult.Failed(
+				HideFailure.NameRestoreFailed(nameRestore.count),
+			)
+
+			NameProtectionResult.AccessUnavailable -> return@withContext HideResult.NeedsAccess(
+				SafPaths.parentOf(entry.path),
+				entry.displayName,
+			)
+		}
+		when (val contentRestore = content.restore(entry.hiddenPath)) {
+			is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> Unit
+
+			ContentProtectionResult.CredentialRequired -> return@withContext HideResult.Failed(
+				HideFailure.ContentCredentialRequired,
+			)
+
+			ContentProtectionResult.WrongCredential -> return@withContext HideResult.Failed(
+				HideFailure.ContentCredentialIncorrect,
+			)
+
+			is ContentProtectionResult.Failed -> return@withContext HideResult.Failed(
+				HideFailure.ContentRestoreFailed(contentRestore.count),
+			)
+
+			ContentProtectionResult.AccessUnavailable -> return@withContext HideResult.NeedsAccess(
+				SafPaths.parentOf(entry.path),
+				entry.displayName,
+			)
+		}
+
+		val wanted = SafPaths.nameOf(entry.path)
 		val restored = runCatching {
-			DocumentsContract.renameDocument(resolver, document, SafPaths.nameOf(entry.path))
-		}.getOrNull() ?: return@withContext HideResult.Failed("could not rename ${entry.displayName} back")
-		val restoredName = DocumentFile.fromSingleUri(appContext, restored)?.name
-			?: return@withContext HideResult.Failed("could not verify the restored folder name")
+			DocumentsContract.renameDocument(resolver, document, wanted)
+		}.getOrNull() ?: run {
+			content.protect(entry.hiddenPath)
+			names.protect(entry.hiddenPath)
+			return@withContext HideResult.Failed(HideFailure.RenameBackFailed(entry.displayName))
+		}
+		// The rename has already happened. Some providers hand back a uri they will not then describe,
+		// and treating that as a failure would leave a journal entry pointing at the old hidden name —
+		// which no longer exists, so every later attempt would fail too. Assume the name we asked for.
+		val restoredName = DocumentFile.fromSingleUri(appContext, restored)?.name ?: wanted
 		val restoredPath = SafPaths.sibling(entry.path, restoredName)
 
 		journal.remove(entry.path)
 		MediaStorePurge.scan(appContext, childPaths(tree, restoredPath) + restoredPath)
-		val warning = "restored as $restoredName because the original name was unavailable"
+		val warning = HideWarning.RestoredWithDifferentName(restoredName)
 			.takeIf { restoredName != SafPaths.nameOf(entry.path) }
 		HideResult.Ok(entry, warning)
 	}
+
+	override suspend fun health(entry: HiddenEntry): HiddenHealth = withContext(Dispatchers.IO) {
+		val tree = heldTree(entry.treeUri) ?: grantCovering(entry.hiddenPath)
+			?: return@withContext HiddenHealth(
+				HiddenHealthStatus.ACCESS_REQUIRED,
+				HiddenHealthDetail.SAF_ACCESS_REQUIRED,
+			)
+		val hidden = probe(tree, entry.hiddenPath)
+		val original = probe(tree, entry.path)
+		when {
+			hidden == DocumentProbe.PRESENT && original == DocumentProbe.PRESENT -> HiddenHealth(
+				HiddenHealthStatus.CONFLICT,
+				HiddenHealthDetail.RENAME_CONFLICT,
+			)
+
+			hidden == DocumentProbe.PRESENT && original == DocumentProbe.MISSING -> HiddenHealth(
+				HiddenHealthStatus.HEALTHY,
+				HiddenHealthDetail.RENAME_INTACT,
+			)
+
+			hidden == DocumentProbe.MISSING && original == DocumentProbe.PRESENT -> HiddenHealth(
+				HiddenHealthStatus.ALREADY_RESTORED,
+				HiddenHealthDetail.RENAME_ALREADY_RESTORED,
+			)
+
+			hidden == DocumentProbe.MISSING && original == DocumentProbe.MISSING -> HiddenHealth(
+				HiddenHealthStatus.MISSING,
+				HiddenHealthDetail.RENAME_MISSING,
+			)
+
+			else -> HiddenHealth(HiddenHealthStatus.UNKNOWN, HiddenHealthDetail.SAF_UNVERIFIED)
+		}
+	}
+
+	override suspend fun recoveryCandidates(parentTree: Uri): List<SafRecoveryCandidate> = withContext(Dispatchers.IO) {
+		val treeId = runCatching { DocumentsContract.getTreeDocumentId(parentTree) }.getOrNull()
+			?: return@withContext emptyList()
+		val parentPath = treePath(treeId) ?: return@withContext emptyList()
+		val children = runCatching {
+			DocumentsContract.buildChildDocumentsUriUsingTree(parentTree, treeId)
+		}.getOrNull() ?: return@withContext emptyList()
+		val found = mutableListOf<SafRecoveryCandidate>()
+		runCatching {
+			resolver.query(
+				children,
+				arrayOf(
+					DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+					DocumentsContract.Document.COLUMN_MIME_TYPE,
+				),
+				null,
+				null,
+				null,
+			)?.use { cursor ->
+				while (cursor.moveToNext() && found.size < MAX_RECOVERY_CANDIDATES) {
+					val name = cursor.getString(0) ?: continue
+					if (
+						cursor.getString(1) != DocumentsContract.Document.MIME_TYPE_DIR ||
+						!name.startsWith(".") || name.length == 1
+					) {
+						continue
+					}
+					found += SafRecoveryCandidate(
+						treeUri = parentTree.toString(),
+						hiddenPath = "$parentPath/$name",
+						hiddenName = name,
+						suggestedName = name.removePrefix("."),
+					)
+				}
+			}
+		}
+		found
+	}
+
+	override suspend fun recover(candidate: SafRecoveryCandidate, restoredName: String): HideResult =
+		withContext(Dispatchers.IO) {
+			val name = restoredName.trim()
+			if (!SafPaths.isSafeName(name)) {
+				return@withContext HideResult.Failed(HideFailure.InvalidFolderName)
+			}
+			val tree = runCatching { candidate.treeUri.toUri() }.getOrNull()
+				?: return@withContext HideResult.Failed(HideFailure.InvalidRecoveryGrant)
+			val originalPath = SafPaths.sibling(candidate.hiddenPath, name)
+			if (probe(tree, originalPath) != DocumentProbe.MISSING) {
+				return@withContext HideResult.Failed(HideFailure.RecoveryNameConflict(name))
+			}
+			val entry = HiddenEntry(
+				path = originalPath,
+				displayName = name,
+				hiddenAt = System.currentTimeMillis(),
+				method = method,
+				hiddenPath = candidate.hiddenPath,
+				treeUri = tree.toString(),
+			)
+			if (!journal.addNew(entry)) {
+				return@withContext HideResult.Failed(HideFailure.RecoveryRecordExists(name))
+			}
+			restore(entry)
+		}
 
 	/**
 	 * A persisted grant on a folder strictly above [path], if the user has already given one. Grants
@@ -147,20 +383,72 @@ class DotRenameHider(
 		return if (relative.isEmpty()) paths.emulatedRoot else "${paths.emulatedRoot}/$relative"
 	}
 
-	private suspend fun fail(entry: HiddenEntry, reason: String): HideResult {
+	private suspend fun fail(entry: HiddenEntry, failure: HideFailure): HideResult {
 		journal.remove(entry.path)
-		return HideResult.Failed(reason)
+		return HideResult.Failed(failure)
 	}
 
 	private suspend fun rollbackRename(
 		entry: HiddenEntry,
 		renamed: Uri,
 		originalName: String,
-		reason: String,
+		failure: HideFailure,
 	): HideResult {
-		runCatching { DocumentsContract.renameDocument(resolver, renamed, originalName) }
-		journal.remove(entry.path)
-		return HideResult.Failed(reason)
+		val rolledBack = runCatching {
+			DocumentsContract.renameDocument(resolver, renamed, originalName)
+		}.getOrNull()
+		if (rolledBack != null) {
+			names.restore(entry.path)
+			content.restore(entry.path)
+			journal.remove(entry.path)
+			return HideResult.Failed(failure)
+		}
+
+		// The folder may now be hidden under the provider's chosen name. Keep the operation record; an
+		// uncertain rollback must never turn into an untracked folder. Prefer the path encoded in the
+		// returned document URI when the provider exposes it.
+		val hiddenPath = documentPath(renamed) ?: entry.hiddenPath
+		journal.replace(entry.copy(hiddenPath = hiddenPath))
+		return HideResult.Failed(HideFailure.RollbackFailed(failure))
+	}
+
+	private fun mergeWarnings(first: HideWarning?, second: HideWarning?): HideWarning? = when {
+		first == null -> second
+		second == null -> first
+		else -> HideWarning.Multiple(listOf(first, second))
+	}
+
+	private fun documentPath(uri: Uri): String? {
+		val documentId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull() ?: return null
+		if (!documentId.startsWith(PRIMARY_DOCUMENT)) return null
+		val relative = documentId.removePrefix(PRIMARY_DOCUMENT)
+		return paths.emulatedRoot + if (relative.isEmpty()) "" else "/$relative"
+	}
+
+	private fun exists(tree: Uri, path: String): Boolean {
+		val uri = documentUri(tree, path) ?: return false
+		return runCatching { DocumentFile.fromSingleUri(appContext, uri)?.exists() }.getOrNull() == true
+	}
+
+	private fun probe(tree: Uri, path: String): DocumentProbe {
+		val uri = documentUri(tree, path) ?: return DocumentProbe.UNKNOWN
+		return try {
+			resolver.query(
+				uri,
+				arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+				null,
+				null,
+				null,
+			)?.use { cursor ->
+				if (cursor.moveToFirst()) DocumentProbe.PRESENT else DocumentProbe.MISSING
+			} ?: DocumentProbe.UNKNOWN
+		} catch (_: java.io.FileNotFoundException) {
+			DocumentProbe.MISSING
+		} catch (_: SecurityException) {
+			DocumentProbe.UNREACHABLE
+		} catch (_: Exception) {
+			DocumentProbe.UNKNOWN
+		}
 	}
 
 	private fun documentUri(tree: Uri, path: String): Uri? {
@@ -169,14 +457,17 @@ class DotRenameHider(
 	}
 
 	/** Paths of the files under a folder, so the scanner can be told which ones moved. */
-	private fun childPaths(tree: Uri, path: String, depth: Int = 0): List<String> {
-		if (depth > MAX_DEPTH) return emptyList()
-		val id = SafPaths.documentId(paths.emulatedRoot, path) ?: return emptyList()
+	private fun childPaths(tree: Uri, path: String): List<String> = buildList {
+		collectChildPaths(tree, path, depth = 0, found = this)
+	}
+
+	private fun collectChildPaths(tree: Uri, path: String, depth: Int, found: MutableList<String>) {
+		if (depth > MAX_DEPTH || found.size >= MAX_CHILDREN) return
+		val id = SafPaths.documentId(paths.emulatedRoot, path) ?: return
 		val children = runCatching {
 			DocumentsContract.buildChildDocumentsUriUsingTree(tree, id)
-		}.getOrNull() ?: return emptyList()
+		}.getOrNull() ?: return
 
-		val found = mutableListOf<String>()
 		runCatching {
 			resolver.query(
 				children,
@@ -192,32 +483,21 @@ class DotRenameHider(
 					val name = cursor.getString(0) ?: continue
 					val childPath = "$path/$name"
 					if (cursor.getString(1) == DocumentsContract.Document.MIME_TYPE_DIR) {
-						found += childPaths(tree, childPath, depth + 1)
+						collectChildPaths(tree, childPath, depth + 1, found)
 					} else {
 						found += childPath
 					}
 				}
 			}
 		}
-		return found
-	}
-
-	/**
-	 * Belt and braces on top of the dot: some galleries index dot-directories anyway. The provider
-	 * decides the final name and may add an extension to it, in which case the file is no use as a
-	 * marker and is removed again.
-	 */
-	private fun markNoMedia(folder: Uri) {
-		val created = runCatching {
-			DocumentsContract.createDocument(resolver, folder, "application/octet-stream", NO_MEDIA)
-		}.getOrNull() ?: return
-		val name = DocumentFile.fromSingleUri(appContext, created)?.name
-		if (name != NO_MEDIA) runCatching { DocumentsContract.deleteDocument(resolver, created) }
 	}
 
 	private companion object {
-		const val NO_MEDIA = ".nomedia"
+		const val PRIMARY_DOCUMENT = "primary:"
 		const val MAX_DEPTH = 8
 		const val MAX_CHILDREN = 5_000
+		const val MAX_RECOVERY_CANDIDATES = 200
 	}
+
+	private enum class DocumentProbe { PRESENT, MISSING, UNREACHABLE, UNKNOWN }
 }

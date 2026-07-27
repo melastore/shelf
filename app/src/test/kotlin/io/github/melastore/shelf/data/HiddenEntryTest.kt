@@ -46,23 +46,4 @@ class HiddenEntryTest {
 		assertTrue(encoded.contains("\"backingPath\""))
 		assertEquals(entry, json.decodeFromString(HiddenEntry.serializer(), encoded))
 	}
-
-	@Test fun readsAVaultWrittenBeforeThereWereDocumentGrants() {
-		val legacy = """
-			[{
-				"backingPath": "/data/media/0/DCIM/a.jpg",
-				"displayName": "a.jpg",
-				"sliceLen": 1024,
-				"salt": "c2FsdA==",
-				"nonce": "bm9uY2U=",
-				"tag": "dGFn",
-				"lockedAt": 1700000000000
-			}]
-		""".trimIndent()
-
-		val locked = json.decodeFromString(ListSerializer(LockedFile.serializer()), legacy).single()
-
-		assertEquals("/data/media/0/DCIM/a.jpg", locked.path)
-		assertEquals("", locked.documentUri)
-	}
 }

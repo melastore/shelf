@@ -12,20 +12,25 @@ data class ShellResult(val exitCode: Int, val stdout: List<String>, val stderr: 
 	val ok: Boolean get() = exitCode == 0
 }
 
+/** Injectable boundary around privileged process execution. */
+interface RootCommandRunner {
+	suspend fun isAvailable(): Boolean
+	suspend fun run(vararg commands: String): ShellResult
+}
+
 /**
  * Thin wrapper around a `su` invocation. Each call spawns its own root shell and feeds it the
  * commands on stdin; there is no long-lived daemon to leak or to leave holding elevated state.
  */
-object RootShell {
+object RootShell : RootCommandRunner {
 
-	suspend fun isAvailable(): Boolean =
-		run("id -u").let { it.ok && it.stdout.firstOrNull()?.trim() == "0" }
+	override suspend fun isAvailable(): Boolean = run("id -u").let { it.ok && it.stdout.firstOrNull()?.trim() == "0" }
 
 	/**
 	 * Runs [commands] in a single root shell. The commands run under `set -e`, so the first failure
 	 * aborts the rest and surfaces as a non-zero exit code rather than a partially applied change.
 	 */
-	suspend fun run(vararg commands: String): ShellResult = withContext(Dispatchers.IO) {
+	override suspend fun run(vararg commands: String): ShellResult = withContext(Dispatchers.IO) {
 		val process = try {
 			ProcessBuilder("su").redirectErrorStream(false).start()
 		} catch (e: IOException) {
@@ -42,8 +47,8 @@ object RootShell {
 			}
 		}
 
-		// Drain both pipes while the command runs. Header slices can fill stdout, and a denied root
-		// request can otherwise leave the process waiting forever.
+		// Drain both pipes while the command runs. A large command result can fill stdout, and a denied
+		// root request can otherwise leave the process waiting forever.
 		val err = async { process.errorStream.bufferedReader().useLinesTrimmed() }
 		val out = async { process.inputStream.bufferedReader().useLinesTrimmed() }
 		val finished = process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -61,8 +66,7 @@ object RootShell {
 	/** Wraps [value] so the shell treats it as one literal argument, whatever it contains. */
 	fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 
-	private fun BufferedReader.useLinesTrimmed(): List<String> =
-		use { it.readLines() }.filter { it.isNotEmpty() }
+	private fun BufferedReader.useLinesTrimmed(): List<String> = use { it.readLines() }.filter { it.isNotEmpty() }
 
 	private const val EXIT_NO_SU = 127
 	private const val EXIT_TIMEOUT = 124

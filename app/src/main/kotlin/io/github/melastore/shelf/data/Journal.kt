@@ -41,4 +41,23 @@ class Journal(file: File) {
 			current.map { if (it.path == entry.path) entry else it } to true
 		}
 	}
+
+	/**
+	 * Merges an authenticated, validated recovery bundle without overwriting any existing record.
+	 *
+	 * A record that disagrees with one already held is skipped rather than aborting the import: the
+	 * one held is the newer description of the same folder, and refusing the whole file over it would
+	 * leave every other record in the bundle unimported with nothing the user could do about it.
+	 */
+	suspend fun merge(entries: List<HiddenEntry>): RecoveryMergeResult = store.mutate { current ->
+		val additions = entries.filterNot { incoming -> current.any { it.path == incoming.path } }
+		val conflicts = entries.count { incoming ->
+			current.any { it.path == incoming.path && it != incoming }
+		}
+		(current + additions) to RecoveryMergeResult(
+			added = additions.size,
+			duplicates = entries.size - additions.size - conflicts,
+			conflicts = conflicts,
+		)
+	}
 }

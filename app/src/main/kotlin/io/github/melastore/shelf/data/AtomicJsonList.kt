@@ -14,18 +14,19 @@ import kotlinx.serialization.json.Json
 
 /**
  * Raised when the records in [original] can no longer be read and no intact copy was left to fall
- * back to. The damaged bytes are kept at [preserved]: they are the only trace of what was hidden or
- * locked, so they are never overwritten in place.
+ * back to. The damaged bytes are kept at [preserved]: they are the only trace of what was hidden, so
+ * they are never overwritten in place.
  */
-class RecordsCorrupted(val original: File, val preserved: File) : IOException(
-	"${original.name} could not be read; the damaged file was kept as ${preserved.name}",
-)
+class RecordsCorrupted(val original: File, val preserved: File) :
+	IOException(
+		"${original.name} could not be read; the damaged file was kept as ${preserved.name}",
+	)
 
 /**
  * A small list of records persisted as JSON, updated atomically.
  *
- * Both the folder journal and the file-lock vault are the sole record of a reversible change, so a
- * torn write would be as damaging as losing the data itself. Every update goes through a temp file
+ * The folder journal is the sole record of a reversible change, so a torn write would be as
+ * damaging as losing the data itself. Every update goes through a temp file
  * and a rename, the previous generation is kept alongside as a backup, and updates are serialised so
  * a read-modify-write can't race another.
  *
@@ -34,7 +35,10 @@ class RecordsCorrupted(val original: File, val preserved: File) : IOException(
  */
 class AtomicJsonList<T>(private val file: File, private val serializer: KSerializer<List<T>>) {
 
-	private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
+	private val json = Json {
+		prettyPrint = true
+		ignoreUnknownKeys = true
+	}
 	private val mutex = Mutex()
 	private val backup = File(file.parentFile, "${file.name}.bak")
 
@@ -81,17 +85,20 @@ class AtomicJsonList<T>(private val file: File, private val serializer: KSeriali
 			parse(backup)?.let { return it }
 			if (!backup.isFile || backup.length() == 0L) return emptyList()
 
-			val preserved = corruptCopyOf(backup)
-			throw RecordsCorrupted(backup, preserved)
+			throw RecordsCorrupted(backup, corruptCopyOf(backup))
 		}
 
-		val preserved = corruptCopyOf(file)
-		return parse(backup) ?: throw RecordsCorrupted(file, preserved)
+		// Only when the backup cannot stand in for it: a damaged primary that a good backup covers is
+		// read again on every open, and copying it each time would bury app storage in copies of the
+		// one file whose contents are worth the least to leave lying around.
+		return parse(backup) ?: throw RecordsCorrupted(file, corruptCopyOf(file))
 	}
 
+	/** One copy per damaged generation, named for its contents rather than the time it was noticed. */
 	private fun corruptCopyOf(source: File): File {
-		val preserved = File(source.parentFile, "${source.name}.corrupt-${System.currentTimeMillis()}")
-		source.copyTo(preserved, overwrite = true)
+		val stamp = source.lastModified().takeIf { it > 0 } ?: 0L
+		val preserved = File(source.parentFile, "${source.name}.corrupt-$stamp")
+		if (!preserved.isFile) source.copyTo(preserved, overwrite = true)
 		return preserved
 	}
 
