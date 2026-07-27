@@ -32,6 +32,12 @@ attacker who can modify the operating system.
   a non-exportable Android Keystore key in app-private storage. The ciphertext is
   deleted as soon as every tracked folder is hidden. This capability exists only
   while the protected content itself is already exposed.
+- Screenshots, screen recordings, and the recent apps preview. The private space
+  and the credential keypad set `FLAG_SECURE`, so Android renders them as a blank
+  frame to anything trying to capture the screen. **Settings → Screen capture →
+  Allow screenshots** lifts this deliberately, for taking pictures of the folder
+  list; it never applies to the keypad, and it is dropped when the private space
+  closes rather than stored, so it cannot be left on by accident.
 - Someone reading the phone's notification shade or lock screen while the private
   space is open. The optional notification carries the disguise's name and says
   nothing about a private space, and its channel is named the same way in system

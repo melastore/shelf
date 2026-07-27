@@ -86,6 +86,7 @@ fun PrivateArea(
 	viewModel: ShelfViewModel,
 	onBiometricChange: (Boolean) -> Unit,
 	onQuickLockChange: (Boolean) -> Unit,
+	onAllowScreenshotsChange: (Boolean) -> Unit,
 	onSecretEntry: () -> Unit,
 ) {
 	val pickFolder = rememberLauncherForActivityResult(PickFolderToKeep()) { uri ->
@@ -157,6 +158,7 @@ fun PrivateArea(
 			onClearDecoyPin = viewModel::clearDecoyPin,
 			onBiometricChange = onBiometricChange,
 			onQuickLockChange = onQuickLockChange,
+			onAllowScreenshotsChange = onAllowScreenshotsChange,
 			onAutoHideMode = viewModel::setAutoHideMode,
 			onForceUnhide = viewModel::forceUnhideAll,
 			onCheckHealth = viewModel::checkHiddenItems,
@@ -599,6 +601,7 @@ private fun SettingsScreen(
 	onClearDecoyPin: (CharArray) -> Unit,
 	onBiometricChange: (Boolean) -> Unit,
 	onQuickLockChange: (Boolean) -> Unit,
+	onAllowScreenshotsChange: (Boolean) -> Unit,
 	onAutoHideMode: (AutoHideMode) -> Unit,
 	onForceUnhide: () -> Unit,
 	onCheckHealth: () -> Unit,
@@ -699,6 +702,13 @@ private fun SettingsScreen(
 					state = state,
 					onQuickLockChange = { onQuickLockChange(!state.quickLockNotification) },
 					onAutoHideMode = onAutoHideMode,
+				)
+			}
+
+			item {
+				ScreenCaptureSettingsSection(
+					state = state,
+					onAllowScreenshotsChange = { onAllowScreenshotsChange(!state.allowScreenshots) },
 				)
 			}
 

@@ -266,6 +266,11 @@
 	<string name="quick_lock_notification_working">Putting folders out of sight…</string>
 	<string name="quick_lock_notification_retry">Could not finish. Tap Hide to try again.</string>
 	<string name="emergency_hide">Hide</string>
+	<string name="screen_capture">Screen capture</string>
+	<string name="screen_capture_summary">The private space is normally excluded from screenshots, screen recordings, and the recent apps preview.</string>
+	<string name="allow_screenshots">Allow screenshots</string>
+	<string name="allow_screenshots_summary">Turn this on to photograph the folder list. It also lets screen recorders see the private space, so it switches itself off again when the space closes.</string>
+	<string name="screenshots_allowed_notice">Screenshots are allowed until the private space closes.</string>
 	<string name="create_decoy_pin">Set a decoy PIN</string>
 	<string name="change_decoy_pin">Change the decoy PIN</string>
 	<string name="decoy_pin_summary">A separate PIN that only opens the fake private space. Your primary PIN is required before changing it.</string>

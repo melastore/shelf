@@ -102,6 +102,13 @@ data class AppUiState(
 	/** Every folder the user has added, hidden or not, in the order they were added. */
 	val folders: List<VaultFolder> = emptyList(),
 	val safRecoveryCandidates: List<SafRecoveryCandidate> = emptyList(),
+	/**
+	 * Whether the private space may be captured, for this session only. It is deliberately not
+	 * persisted: the setting exists so the folder list can be photographed on purpose, and a hole
+	 * left open by someone who forgot about it is worth more to an attacker than the convenience
+	 * of not asking again.
+	 */
+	val allowScreenshots: Boolean = false,
 	/** True when the decoy PIN opened this space. Nothing shown here touches real storage. */
 	val duress: Boolean = false,
 	val decoyItems: List<DecoyItem> = emptyList(),
@@ -443,6 +450,14 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		_state.update { it.copy(quickLockNotification = enabled) }
 	}
 
+	/** Nothing is written to disk: [lockVault] puts the protection back by dropping this state. */
+	fun setAllowScreenshots(allowed: Boolean) = _state.update {
+		it.copy(
+			allowScreenshots = allowed,
+			message = if (allowed) uiMessage(R.string.screenshots_allowed_notice) else null,
+		)
+	}
+
 	fun refreshBiometricAvailability() = _state.update {
 		it.copy(biometricAvailable = BiometricAuth.isAvailable(getApplication()))
 	}
@@ -612,6 +627,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		_state.update {
 			it.copy(
 				screen = Screen.DECOY,
+				allowScreenshots = false,
 				duress = false,
 				folders = emptyList(),
 				decoyItems = emptyList(),

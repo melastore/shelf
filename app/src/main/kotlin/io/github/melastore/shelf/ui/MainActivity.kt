@@ -156,10 +156,11 @@ class MainActivity : ComponentActivity() {
 					}
 				}
 
-				LaunchedEffect(privateScreen, showCredential) {
-					if (privateScreen) {
-						window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-					} else if (showCredential) {
+				// The credential prompt is never exempt. Allowing screenshots is a decision made inside
+				// the private space, and the keypad is the one screen that is on show before anyone has
+				// proved they are entitled to make it.
+				LaunchedEffect(privateScreen, showCredential, state.allowScreenshots) {
+					if (showCredential || (privateScreen && !state.allowScreenshots)) {
 						window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
 					} else {
 						window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -241,6 +242,7 @@ class MainActivity : ComponentActivity() {
 								viewModel,
 								::changeBiometric,
 								::changeQuickLock,
+								viewModel::setAllowScreenshots,
 								::requestPrivateEntry,
 							)
 						}

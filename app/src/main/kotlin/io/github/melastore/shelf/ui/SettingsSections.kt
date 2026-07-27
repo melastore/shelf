@@ -89,6 +89,22 @@ internal fun AutomaticLockSettingsSection(
 }
 
 @Composable
+internal fun ScreenCaptureSettingsSection(state: AppUiState, onAllowScreenshotsChange: () -> Unit) {
+	SettingsGroup(
+		stringResource(R.string.screen_capture),
+		stringResource(R.string.screen_capture_summary),
+	) {
+		SettingsRow(
+			title = stringResource(R.string.allow_screenshots),
+			summary = stringResource(R.string.allow_screenshots_summary),
+			dangerous = state.allowScreenshots,
+			trailing = { SelectionMark(state.allowScreenshots) },
+			onClick = onAllowScreenshotsChange,
+		)
+	}
+}
+
+@Composable
 internal fun FolderSettingsSection(
 	state: AppUiState,
 	onHidingPreference: (HidingPreference) -> Unit,

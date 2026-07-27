@@ -111,6 +111,38 @@ class ShelfViewModelRobolectricTest {
 		}
 	}
 
+	@Test
+	fun `allowing screenshots lasts only until the private space closes`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setVaultPin("7391".toCharArray())
+			await { viewModel.state.value.screen == Screen.VAULT }
+			assertTrue("protection should start armed", !viewModel.state.value.allowScreenshots)
+
+			viewModel.setAllowScreenshots(true)
+			assertTrue("the toggle should take effect", viewModel.state.value.allowScreenshots)
+
+			viewModel.lockVault()
+
+			assertTrue("locking must re-arm protection", !viewModel.state.value.allowScreenshots)
+
+			viewModel.unlockWithBiometric("7391".toCharArray()) {}
+			await { viewModel.state.value.screen == Screen.VAULT }
+			assertTrue(
+				"reopening must not restore the exemption",
+				!viewModel.state.value.allowScreenshots,
+			)
+		} finally {
+			store.clear()
+			ContentCredential.clear()
+		}
+	}
+
 	private fun await(condition: () -> Boolean) {
 		val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
 		while (!condition() && System.nanoTime() < deadline) {

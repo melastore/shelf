@@ -18,7 +18,7 @@ new versions have to be installed by hand.
 Every release is signed with the same key, so an update that Android accepts is
 an update from the same source. To check a file before the first install:
 
-    apksigner verify --print-certs shelf-0.4.3.apk
+    apksigner verify --print-certs shelf-0.4.4.apk
 
     Signer #1 certificate SHA-256 digest: c0a840767117551defe6282499cf23a10c586a42da67a8bb4f038ef297d6a405
 
@@ -56,6 +56,12 @@ An optional second **decoy PIN** opens a private space that looks and behaves
 like the real one and holds nothing that matters — the one to give up if you are
 ever made to hand a PIN over. Its use is recorded, and the real space reports it
 on your next unlock.
+
+The private space and the PIN keypad are excluded from screenshots, screen
+recordings, and the recent apps preview. **Settings → Screen capture** lifts that
+for the folder list when you want a picture of it. It never covers the keypad,
+and because it is held in memory rather than saved, closing the private space
+puts the protection back.
 
 The selected decoy changes its launcher label and icon. Calendar events and
 habits stay on-device, and the calculator performs ordinary chained arithmetic.

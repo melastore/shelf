@@ -1,0 +1,5 @@
+Let the folder list be photographed, without leaving it exposed.
+
+- Settings gains a Screen capture section with an Allow screenshots switch.
+- The switch never covers the PIN keypad, which stays excluded from capture.
+- It is not saved: closing the private space puts the protection back on.
