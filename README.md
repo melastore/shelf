@@ -102,7 +102,7 @@ manual route for dot-renamed folders, and an encrypted export of your records.
 ./gradlew assembleDebug
 ```
 
-Needs JDK 17 and Android SDK 36. No analytics, ads, or proprietary dependencies.
+Needs JDK 21 and Android SDK 37. No analytics, ads, or proprietary dependencies.
 
 To build a signed release, copy `keystore.properties.example` to
 `keystore.properties`, fill in your keystore details, then:

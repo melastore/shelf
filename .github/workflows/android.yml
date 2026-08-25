@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
       - uses: gradle/actions/setup-gradle@v4
       - name: Format, test, lint, and build release APK
         run: ./gradlew --no-daemon spotlessCheck test lint assembleRelease
