@@ -58,6 +58,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
 import io.github.melastore.shelf.R
+import io.github.melastore.shelf.security.CredentialRules
 import kotlin.math.roundToInt
 
 /**
@@ -149,7 +150,7 @@ fun PinPrompt(
 
 				Keypad(
 					onDigit = {
-						if (entered.size < MAX_PIN_LENGTH) {
+						if (entered.size < CredentialRules.MAX_PIN) {
 							mismatch = false
 							replaceEntered(entered + it)
 							haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -167,7 +168,7 @@ fun PinPrompt(
 				) {
 					TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
 					Spacer(Modifier.size(8.dp))
-					val ready = entered.size >= MIN_PIN_LENGTH
+					val ready = entered.size >= CredentialRules.MIN_PIN
 					TextButton(
 						onClick = {
 							val stored = firstPass
@@ -201,7 +202,7 @@ fun PinPrompt(
 @Composable
 fun PinDots(filled: Int, modifier: Modifier = Modifier) {
 	Row(modifier, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-		repeat(MIN_PIN_LENGTH.coerceAtLeast(filled)) { index ->
+		repeat(CredentialRules.MIN_PIN.coerceAtLeast(filled)) { index ->
 			val on = index < filled
 			val size by animateDpAsState(if (on) 14.dp else 11.dp, label = "dot")
 			Box(
@@ -252,36 +253,6 @@ private fun KeypadKey(label: String, onClick: () -> Unit) {
 			Text(label, style = MaterialTheme.typography.headlineSmall)
 		}
 	}
-}
-
-/** Kept for vaults created before PINs, and for the one-off passphrase change that migrates them. */
-@Composable
-fun PassphraseDialog(title: String, confirmLabel: String, onConfirm: (CharArray) -> Unit, onDismiss: () -> Unit,) {
-	var text by remember { mutableStateOf("") }
-	AlertDialog(
-		onDismissRequest = onDismiss,
-		properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
-		shape = MaterialTheme.shapes.extraLarge,
-		title = { Text(title) },
-		text = {
-			OutlinedTextField(
-				value = text,
-				onValueChange = { text = it },
-				modifier = Modifier.fillMaxWidth(),
-				singleLine = true,
-				shape = MaterialTheme.shapes.medium,
-				label = { Text(stringResource(R.string.passphrase)) },
-				visualTransformation = PasswordVisualTransformation(),
-				keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-			)
-		},
-		confirmButton = {
-			TextButton(onClick = { onConfirm(text.toCharArray()) }, enabled = text.isNotEmpty()) {
-				Text(confirmLabel)
-			}
-		},
-		dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
-	)
 }
 
 @Composable
@@ -496,7 +467,5 @@ fun ChoiceTile(
 
 private val KEY_SIZE = 68.dp
 private val KNOCK_TARGET = 88.dp
-const val MIN_PIN_LENGTH = 4
-const val MAX_PIN_LENGTH = 12
 private const val REQUIRED_KNOCKS = 5
 private const val KNOCK_GAP_MILLIS = 1_200L
