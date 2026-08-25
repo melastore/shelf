@@ -31,20 +31,40 @@
 
 	<!-- Authentication -->
 	<string name="enter_pin">Enter PIN</string>
-	<string name="enter_pin_subtitle">Primary PIN opens your real space. Decoy PIN opens the fake one.</string>
-	<string name="enter_current_passphrase">Enter passphrase</string>
+	<string name="enter_pin_subtitle">Enter the PIN you set for this app.</string>
 	<string name="confirm_pin">Enter it again</string>
+	<string name="confirm_pattern">Draw it again</string>
+	<string name="confirm_password">Type it again</string>
+	<string name="pattern_mismatch">Those did not match. Draw it again.</string>
+	<string name="password_mismatch">Those did not match. Start again.</string>
+	<string name="pattern_area">Lock pattern</string>
+	<string name="password">Password</string>
+	<string name="draw_pattern">Draw your pattern</string>
+	<string name="enter_password">Enter password</string>
+	<string name="enter_password_subtitle">Enter the password you set for this app.</string>
+	<string name="draw_pattern_subtitle">Draw the pattern you set for this app.</string>
+	<string name="pattern_hint">Join at least 4 dots. Longer is harder to guess.</string>
+	<string name="password_hint">At least 6 characters. A phrase you will remember beats a short jumble.</string>
 	<string name="pin_hint">4 to 12 digits. Longer is harder to guess.</string>
+	<string name="pattern_too_short">Join at least 4 dots.</string>
+	<string name="password_length_error">6 to 128 characters.</string>
+	<string name="password_unsupported">Remove any line breaks or control characters.</string>
 	<string name="pin_mismatch">Those did not match. Start again.</string>
 	<string name="delete_digit">Delete</string>
-	<string name="passphrase">Passphrase</string>
 	<string name="current_pin">Current PIN</string>
 	<string name="current_pin_subtitle">Confirm the PIN you use today.</string>
-	<string name="current_passphrase">Current passphrase</string>
 	<string name="confirm_primary_pin">Confirm primary PIN</string>
-	<string name="confirm_primary_pin_summary">This keeps the real and decoy credentials separate.</string>
-	<string name="confirm_primary_passphrase">Confirm primary passphrase</string>
+	<string name="confirm_primary_pin_summary">This keeps your two PINs separate.</string>
 	<string name="new_pin">New PIN</string>
+	<string name="new_pattern">New pattern</string>
+	<string name="new_password">New password</string>
+	<string name="current_pattern">Current pattern</string>
+	<string name="current_password">Current password</string>
+	<string name="credential_kind_pin">PIN</string>
+	<string name="credential_kind_pattern">Pattern</string>
+	<string name="credential_kind_password">Password</string>
+	<string name="credential_kind_summary">A PIN, a password, or a 3×3 pattern. Changing this asks you to set a new one.</string>
+	<string name="unhide_before_credential_change">Unhide every folder before changing how you unlock.</string>
 	<string name="continue_action">Continue</string>
 	<string name="unlock">Unlock</string>
 	<string name="save">Save</string>
@@ -87,7 +107,7 @@
 	<string name="forget">Forget</string>
 	<string name="forget_record">Forget this record</string>
 	<string name="forget_record_confirm">Shelf will stop tracking %1$s. The folder itself is not touched, and Shelf will no longer know how to put it back. Use this only for a folder you have already restored yourself.</string>
-	<string name="duress_alert_title">Decoy PIN was used</string>
+	<string name="duress_alert_title">Your second PIN was used</string>
 
 	<!-- Operation results -->
 	<string name="message_joined">%1$s — %2$s</string>
@@ -136,12 +156,12 @@
 	<string name="private_space_open_failed_detail">The private space could not be opened: %1$s</string>
 	<string name="current_credential_incorrect">Current credential is incorrect.</string>
 	<string name="primary_credential_incorrect">Primary credential is incorrect.</string>
-	<string name="primary_decoy_pin_different">Primary and decoy PINs must be different.</string>
+	<string name="primary_decoy_pin_different">Your two PINs must be different.</string>
 	<string name="primary_pin_changed">Primary PIN changed.</string>
 	<string name="primary_pin_changed_biometric_disabled">Primary PIN changed. Enable biometric unlock again to protect the new PIN.</string>
-	<string name="unhide_before_pin_change">Unhide protected folders before changing the primary PIN.</string>
-	<string name="decoy_pin_saved">Decoy PIN saved.</string>
-	<string name="decoy_pin_removed">Decoy PIN removed.</string>
+	<string name="primary_pin_changed_second_removed">Saved. Your second PIN was removed because it can no longer be entered — set a new one if you want it.</string>
+	<string name="decoy_pin_saved">Second PIN saved.</string>
+	<string name="decoy_pin_removed">Second PIN removed.</string>
 	<string name="too_many_attempts_use_pin">Too many attempts. Use your PIN in a moment.</string>
 	<string name="biometric_disabled_enrolment_changed">Biometric unlock was turned off because the enrolled biometrics changed.</string>
 	<string name="biometric_enable_again">Biometric unlock needs to be enabled again. Use your primary PIN this time.</string>
@@ -158,8 +178,8 @@
 	<string name="folder_restored_named">Restored %1$s.</string>
 	<string name="bulk_hidden">Hid %1$s.</string>
 	<string name="bulk_restored">Unhid %1$s.</string>
-	<string name="duress_used_once">The decoy PIN was used on %1$s.</string>
-	<string name="duress_used_multiple">The decoy PIN was used %1$d times, most recently on %2$s.</string>
+	<string name="duress_used_once">Your second PIN was used on %1$s.</string>
+	<string name="duress_used_multiple">Your second PIN was used %1$d times, most recently on %2$s.</string>
 	<string name="disguise_changed">Disguise changed.</string>
 	<string name="disguise_change_failed">Could not change the launcher disguise.</string>
 	<string name="disguise_change_failed_detail">Could not change the launcher disguise: %1$s</string>
@@ -245,11 +265,9 @@
 	<string name="entry_natural_hold_summary">Hold the progress card, the schedule heading, or the equals key.</string>
 	<string name="credentials">Unlocking</string>
 	<string name="change_vault_pin">Change primary PIN</string>
-	<string name="vault_pin_summary">Replace the primary PIN that opens your real private space.</string>
-	<string name="legacy_passphrase_summary">Replace the old passphrase with a 4–12 digit PIN.</string>
 	<string name="biometric_unlock">Biometric unlock</string>
 	<string name="biometric_available_summary">Use a fingerprint or another strong biometric, with PIN fallback.</string>
-	<string name="biometric_enabled_summary">Enabled. Biometrics open the real space and can restore protected folders; choose Use PIN for primary or decoy PIN.</string>
+	<string name="biometric_enabled_summary">Enabled. Biometrics open your space and can restore protected folders; choose Use PIN to type either PIN instead.</string>
 	<string name="biometric_unavailable_summary">No strong biometric is enrolled on this device.</string>
 	<string name="biometric_unavailable_enabled">Enabled, but no enrolled strong biometric is currently available. PIN will be used.</string>
 	<string name="auto_hide">Auto hide</string>
@@ -271,13 +289,13 @@
 	<string name="allow_screenshots">Allow screenshots</string>
 	<string name="allow_screenshots_summary">Turn this on to photograph the folder list. It also lets screen recorders see the private space, so it switches itself off again when the space closes.</string>
 	<string name="screenshots_allowed_notice">Screenshots are allowed until the private space closes.</string>
-	<string name="create_decoy_pin">Set a decoy PIN</string>
-	<string name="change_decoy_pin">Change the decoy PIN</string>
-	<string name="decoy_pin_summary">A separate PIN that only opens the fake private space. Your primary PIN is required before changing it.</string>
-	<string name="decoy_pin_hint">Make it look like a real PIN. It must differ from your own.</string>
-	<string name="remove_decoy_pin">Remove the decoy PIN</string>
+	<string name="create_decoy_pin">Set a second PIN</string>
+	<string name="change_decoy_pin">Change the second PIN</string>
+	<string name="decoy_pin_summary">Opens a separate space holding nothing of yours. Your own PIN is required to change it.</string>
+	<string name="decoy_pin_hint">Pick one you could hand over. It must differ from your own.</string>
+	<string name="remove_decoy_pin">Remove the second PIN</string>
 	<string name="remove_decoy_pin_summary">Wrong PINs will show an error again.</string>
-	<string name="remove_decoy_pin_confirm">The decoy PIN will stop working immediately.</string>
+	<string name="remove_decoy_pin_confirm">The second PIN will stop working immediately.</string>
 	<string name="hiding_engine">Hiding method</string>
 	<string name="hiding_engine_description">Renaming is the quiet default. Root is only checked if you pick Root or Automatic.</string>
 	<string name="mode_auto">Automatic</string>
@@ -337,7 +355,7 @@
 	<string name="setup_notifications_enable">Allow notifications</string>
 	<string name="setup_notifications_on">Notifications allowed</string>
 	<string name="setup_notifications_optional">Optional. You can turn this on later in Settings.</string>
-	<string name="setup_pin_title">Choose your PIN</string>
-	<string name="setup_pin_body">4 to 12 digits. This opens your real private space.</string>
+	<string name="setup_credential_title">Choose how you unlock</string>
+	<string name="setup_credential_body">A PIN, a password, or a 3×3 pattern. This is also the key your folder contents are protected with, so it cannot be recovered if you forget it.</string>
 	<string name="setup_pin_reminder">There is no way to reset this PIN. Nothing leaves your device, so nobody can recover it for you.</string>
 </resources>

@@ -58,8 +58,9 @@ import io.github.melastore.shelf.data.DecoyType
 import io.github.melastore.shelf.data.EntryMethod
 import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.HidingPreference
+import io.github.melastore.shelf.security.CredentialKind
 
-private enum class SetupStep { WELCOME, DISGUISE, ENTRY, METHOD, STORAGE, NOTIFICATIONS, PIN }
+private enum class SetupStep { WELCOME, DISGUISE, ENTRY, METHOD, STORAGE, NOTIFICATIONS, CREDENTIAL }
 
 /**
  * What a first-time owner sees instead of a decoy.
@@ -79,7 +80,7 @@ fun FirstRunSetup(
 	onCheckMethods: () -> Unit,
 	onRequestAllFiles: () -> Unit,
 	onRequestNotifications: () -> Unit,
-	onCreatePin: (CharArray) -> Unit,
+	onCreateCredential: (CredentialKind, CharArray) -> Unit,
 ) {
 	var index by rememberSaveable { mutableIntStateOf(0) }
 	val steps = SetupStep.entries
@@ -117,7 +118,7 @@ fun FirstRunSetup(
 						SetupStep.METHOD -> MethodStep(state, onHidingPreference, onCheckMethods)
 						SetupStep.STORAGE -> StorageStep(state, onRequestAllFiles)
 						SetupStep.NOTIFICATIONS -> NotificationStep(state.quickLockNotification, onRequestNotifications)
-						SetupStep.PIN -> PinStep(onCreatePin)
+						SetupStep.CREDENTIAL -> CredentialStep(onCreateCredential)
 					}
 					Spacer(Modifier.height(24.dp))
 				}
@@ -125,7 +126,7 @@ fun FirstRunSetup(
 
 			// The PIN step carries its own confirm button, because "Continue" would be wrong for a
 			// keypad that has to be entered twice before it means anything.
-			if (step != SetupStep.PIN) {
+			if (step != SetupStep.CREDENTIAL) {
 				Row(
 					Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
 					horizontalArrangement = Arrangement.End,
@@ -399,68 +400,26 @@ private fun NotificationStep(enabled: Boolean, onRequestNotifications: () -> Uni
 }
 
 @Composable
-private fun PinStep(onCreatePin: (CharArray) -> Unit) {
-	var entered by remember { mutableStateOf(charArrayOf()) }
-	var firstPass by remember { mutableStateOf<CharArray?>(null) }
-	var mismatch by remember { mutableStateOf(false) }
-	val confirming = firstPass != null
-
-	fun replace(next: CharArray) {
-		entered.fill(' ')
-		entered = next
-	}
-
-	DisposableEffect(Unit) {
-		onDispose {
-			entered.fill(' ')
-			firstPass?.fill(' ')
-		}
-	}
+private fun CredentialStep(onCreateCredential: (CredentialKind, CharArray) -> Unit) {
+	var kind by remember { mutableStateOf(CredentialKind.PIN) }
+	var setting by remember { mutableStateOf(false) }
 
 	StepTitle(
-		stringResource(if (confirming) R.string.confirm_pin else R.string.setup_pin_title),
-		stringResource(if (mismatch) R.string.pin_mismatch else R.string.setup_pin_body),
+		stringResource(R.string.setup_credential_title),
+		stringResource(R.string.setup_credential_body),
 	)
 	Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-		PinDots(entered.size)
-		Spacer(Modifier.height(24.dp))
-		Keypad(
-			onDigit = {
-				if (entered.size < MAX_PIN_LENGTH) {
-					mismatch = false
-					replace(entered + it)
-				}
-			},
-			onBackspace = { if (entered.isNotEmpty()) replace(entered.copyOf(entered.size - 1)) },
-		)
-		Spacer(Modifier.height(20.dp))
-		Button(
-			onClick = {
-				val stored = firstPass
-				when {
-					stored == null -> {
-						firstPass = entered.copyOf()
-						replace(charArrayOf())
-						mismatch = false
-					}
-
-					stored.contentEquals(entered) -> onCreatePin(entered.copyOf())
-
-					else -> {
-						stored.fill(' ')
-						firstPass = null
-						replace(charArrayOf())
-						mismatch = true
-					}
-				}
-			},
-			enabled = entered.size >= MIN_PIN_LENGTH,
-			shape = CircleShape,
-		) {
-			Text(
-				stringResource(if (confirming) R.string.setup_finish else R.string.continue_action),
-				modifier = Modifier.padding(horizontal = 12.dp),
+		CredentialKind.entries.forEach { option ->
+			SettingsRow(
+				title = CredentialWords.label(option),
+				summary = CredentialWords.hint(option),
+				trailing = { SelectionMark(kind == option) },
+				onClick = { kind = option },
 			)
+		}
+		Spacer(Modifier.height(20.dp))
+		Button(onClick = { setting = true }, shape = CircleShape) {
+			Text(CredentialWords.newTitle(kind), modifier = Modifier.padding(horizontal = 12.dp))
 		}
 		Spacer(Modifier.height(8.dp))
 		TextButton(onClick = {}, enabled = false) {
@@ -470,6 +429,21 @@ private fun PinStep(onCreatePin: (CharArray) -> Unit) {
 				textAlign = TextAlign.Center,
 			)
 		}
+	}
+
+	if (setting) {
+		CredentialPrompt(
+			kind = kind,
+			title = CredentialWords.newTitle(kind),
+			subtitle = CredentialWords.hint(kind),
+			confirmLabel = stringResource(R.string.setup_finish),
+			confirmEntry = true,
+			onConfirm = {
+				setting = false
+				onCreateCredential(kind, it)
+			},
+			onDismiss = { setting = false },
+		)
 	}
 }
 

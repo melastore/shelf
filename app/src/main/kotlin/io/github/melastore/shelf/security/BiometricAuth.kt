@@ -57,7 +57,7 @@ object BiometricAuth {
 	): CancellationSignal? {
 		val secret = credential.copyOf()
 		credential.fill(' ')
-		if (secret.size !in MIN_PIN_LENGTH..MAX_PIN_LENGTH || secret.any { !it.isDigit() }) {
+		if (!CredentialRules.isStorable(secret)) {
 			secret.fill(' ')
 			onResult(Outcome.FALLBACK)
 			return null
@@ -83,7 +83,7 @@ object BiometricAuth {
 				onResult(Outcome.FALLBACK)
 			},
 		) { authenticated ->
-			val plain = ByteArray(secret.size) { secret[it].code.toByte() }
+			val plain = CredentialBytes.encode(secret)
 			try {
 				val encrypted = authenticated.doFinal(plain)
 				val saved = preferences(activity).edit()
@@ -152,14 +152,12 @@ object BiometricAuth {
 			var plain = byteArrayOf()
 			try {
 				plain = authenticated.doFinal(blob.ciphertext)
-				if (
-					plain.size !in MIN_PIN_LENGTH..MAX_PIN_LENGTH ||
-					plain.any { it.toInt() !in '0'.code..'9'.code }
-				) {
+				val recovered = CredentialBytes.decode(plain)
+				if (recovered == null) {
 					reset(activity)
 					onResult(Outcome.CREDENTIAL_MISSING, null)
 				} else {
-					onResult(Outcome.SUCCEEDED, CharArray(plain.size) { plain[it].toInt().toChar() })
+					onResult(Outcome.SUCCEEDED, recovered)
 				}
 			} catch (_: KeyPermanentlyInvalidatedException) {
 				reset(activity)
@@ -305,9 +303,9 @@ object BiometricAuth {
 		data object Failed : Prepared
 	}
 
-	private const val MIN_PIN_LENGTH = 4
-	private const val MAX_PIN_LENGTH = 12
 	private const val GCM_TAG_BITS = 128
 	private const val GCM_IV_BYTES = 12
-	private const val MAX_CIPHERTEXT_BYTES = MAX_PIN_LENGTH + GCM_TAG_BITS / 8
+
+	/** A credential is at most [CredentialRules.MAX_LENGTH] characters, and UTF-8 is at most four bytes each. */
+	private const val MAX_CIPHERTEXT_BYTES = CredentialRules.MAX_LENGTH * 4 + GCM_TAG_BITS / 8
 }

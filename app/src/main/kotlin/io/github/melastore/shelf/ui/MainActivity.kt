@@ -231,7 +231,7 @@ class MainActivity : ComponentActivity() {
 									)
 								},
 								onRequestNotifications = { changeQuickLock(true) },
-								onCreatePin = viewModel::setVaultPin,
+								onCreateCredential = viewModel::setVaultCredential,
 							)
 
 							state.screen == Screen.DECOY ->
@@ -256,28 +256,17 @@ class MainActivity : ComponentActivity() {
 
 				// Creating a credential is the setup flow's job now, so this only ever asks for one.
 				if (showCredential && state.credentialSet) {
-					when {
-						state.vaultUsesPin -> PinPrompt(
-							title = stringResource(R.string.enter_pin),
-							subtitle = stringResource(R.string.enter_pin_subtitle),
-							confirmLabel = stringResource(R.string.unlock),
-							onConfirm = {
-								viewModel.unlockVault(it)
-								showCredential = false
-							},
-							onDismiss = { showCredential = false },
-						)
-
-						else -> PassphraseDialog(
-							title = stringResource(R.string.enter_current_passphrase),
-							confirmLabel = stringResource(R.string.unlock),
-							onConfirm = {
-								viewModel.unlockVault(it)
-								showCredential = false
-							},
-							onDismiss = { showCredential = false },
-						)
-					}
+					CredentialPrompt(
+						kind = state.credentialKind,
+						title = CredentialWords.enterTitle(state.credentialKind),
+						subtitle = CredentialWords.enterSubtitle(state.credentialKind),
+						confirmLabel = stringResource(R.string.unlock),
+						onConfirm = {
+							viewModel.unlockVault(it)
+							showCredential = false
+						},
+						onDismiss = { showCredential = false },
+					)
 				}
 			}
 		}
