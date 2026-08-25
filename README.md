@@ -2,170 +2,122 @@
 
 [![Android checks](https://github.com/melastore/shelf/actions/workflows/android.yml/badge.svg)](https://github.com/melastore/shelf/actions/workflows/android.yml)
 
-Shelf is an Android private-space utility that can present itself as **Momento**,
-a habit tracker, or as a calendar or a calculator. All three decoys work as
-ordinary local apps. Shelf hides folders instantly, whatever their size, without
-sending data off the device — it holds no network permission at all. Root
-improves folder hiding, but is optional.
+**Hide folders on Android behind an app that looks like something else.**
 
-## Screenshots
+Shelf hides a folder instantly, whatever its size. It has no network permission,
+so nothing can leave your phone. Root makes hiding stronger but is not required.
 
-| Private space | Momento | Settings | Hiding and recovery |
+On your home screen it can be Momento (a habit tracker), a calendar, or a
+calculator. All three are real, working apps.
+
+| Private space | Momento | Settings | Recovery |
 | --- | --- | --- | --- |
-| ![The private space listing three hidden folders](fastlane/metadata/android/en-US/images/phoneScreenshots/1.jpg) | ![The Momento habit tracker decoy](fastlane/metadata/android/en-US/images/phoneScreenshots/2.jpg) | ![Settings showing the disguise picker and entry gestures](fastlane/metadata/android/en-US/images/phoneScreenshots/3.jpg) | ![Settings showing the hiding method and recovery options](fastlane/metadata/android/en-US/images/phoneScreenshots/4.jpg) |
+| ![Private space](fastlane/metadata/android/en-US/images/phoneScreenshots/1.jpg) | ![Momento](fastlane/metadata/android/en-US/images/phoneScreenshots/2.jpg) | ![Settings](fastlane/metadata/android/en-US/images/phoneScreenshots/3.jpg) | ![Recovery](fastlane/metadata/android/en-US/images/phoneScreenshots/4.jpg) |
 
-## Installing
+## Install
 
-Android 11 or newer. Signed APKs are attached to each
-[release](https://github.com/melastore/shelf/releases). Shelf is not on Google
-Play, and because it cannot reach the network it will never update itself;
-new versions have to be installed by hand.
+Android 11 or newer. Grab the APK from
+[Releases](https://github.com/melastore/shelf/releases).
 
-Every release is signed with the same key.
+Shelf is not on Google Play and cannot update itself — it has no network access.
+Install new versions by hand. Every release is signed with the same key:
 
-Signing certificate SHA-256: `c0a840767117551defe6282499cf23a10c586a42da67a8bb4f038ef297d6a405`
+```
+SHA-256  c0a840767117551defe6282499cf23a10c586a42da67a8bb4f038ef297d6a405
+```
 
-## Using the private space
+## Getting in
 
-Five taps in the top-right corner always open the credential prompt. Settings adds
-a second, quieter gesture: a long press on the decoy title (the default), or a
-long press on a natural decoy control. Access uses whichever credential you chose
-at setup: a 4–12 digit **PIN** on an in-app keypad, a **password**, or a 3×3
-**pattern**. **Settings → Credentials** switches between them, which asks for the
-old credential and then a new one in the new form. Strong biometric unlock can be
-enabled once a credential is set; it always opens the real space, while the
-credential prompt accepts either of your two credentials.
+**Tap the top-right corner five times.** That always works, from any screen.
 
-One **Auto hide** setting controls both closing the private UI and putting exposed
-folders back out of sight: **After screen off**, **Immediately** when Shelf leaves
-the foreground, or **Never**. An optional quiet notification, carrying the
-disguise's own name and nothing about a private space, offers the same emergency
-hide on demand. That notification stays up for as long as any folder is unhidden,
-including after the app is closed, and its action works whether or not the app is
-still running. Hiding runs as a foreground operation until filename, header, and
-folder protection finish; interrupted journal entries are verified against the
-real folder state and safely retried.
+There is also a quieter way, set in Settings: a long press on the title, or on
+an ordinary-looking control in the disguise.
 
-From inside the decoy space, the same five taps in the top-right corner open the
-credential prompt again: the primary PIN or a biometric switches straight to the
-real space, with no need to close the decoy first.
+Then enter your credential — a **PIN**, a **password**, or a **3×3 pattern**.
+You pick which at setup and can change it later in Settings. Fingerprint unlock
+can be turned on once a credential is set.
 
-When biometric unlock is enabled, Shelf keeps a copy of the primary credential
-encrypted by a non-exportable Android Keystore key that requires a strong-biometric
-match for every use. This lets a fingerprint-opened session restore protected
-headers and filenames without prompting again. Changing the credential or the
-enrolled biometrics deletes that encrypted copy and turns biometric unlock off.
+## Hiding a folder
 
-**If you forget the credential, the contents are gone.** A recovery file restores
-*records*, so folders come back into view — but every protected file's header
-stays scrambled and its name stays opaque, because the key for those is the
-credential itself and Shelf keeps no copy of it. Recovery covers a lost record,
-a reinstall, or a restore that keeps failing. It does not cover a forgotten
-credential, and nothing does.
+Add a folder and it stays on your list whether it is hidden or not, so putting it
+back out of sight later is one tap. One button at the top hides or unhides
+everything at once.
 
-An optional **second credential** opens a private space that looks and behaves
-like the real one and holds nothing that matters — the one to give up if you are
-ever made to hand a credential over. Nothing in the app names it as such on any
-screen someone could be made to show. Its use is recorded, and the real space
-reports it on your next unlock. Changing how you unlock removes it, because a
-second credential in the old form cannot be typed into the new prompt.
+Shelf picks the strongest method your phone allows, or you can choose in Settings:
 
-The private space and the credential prompt are excluded from screenshots, screen
-recordings, and the recent apps preview. **Settings → Screen capture** lifts that
-for the folder list when you want a picture of it. It never covers the keypad,
-and because it is held in memory rather than saved, closing the private space
-puts the protection back.
+| Method | Needs | What it does |
+| --- | --- | --- |
+| **Root** | Root | Strips the folder's permissions. Nothing on the phone can open it. |
+| **All-files** | All-files access | Moves the folder into a hidden `.shelf` directory. Instant, and survives uninstalling Shelf. |
+| **Rename** | Nothing | Renames the folder with a leading dot. Always available. |
 
-The selected decoy changes its launcher label and icon. Calendar events and
-habits stay on-device, and the calculator performs ordinary chained arithmetic.
+All three also scramble file names and encrypt the first 64 KB of every file, so
+even a file manager that finds the folder shows nothing it can open or preview.
 
-## The folder list
+## Getting out fast
 
-A folder added to the private space stays on the list whether or not it is
-hidden, so putting it back out of sight later is one tap rather than another trip
-through the folder picker. One control at the top of the list moves all of them
-at once: **Unhide all folders** while any are hidden, **Hide all folders** once
-they are all in the open. Each row does the same for itself. The list is
-convenience only — [Journal](app/src/main/kotlin/io/github/melastore/shelf/data/Journal.kt)
-remains the sole record of how a folder was hidden, so losing the list costs a
-list, not a folder.
+**Auto hide** closes the private space and puts folders back on its own — after
+the screen turns off, immediately when you leave the app, or never.
 
-The quiet default is SAF. In Settings, the user can explicitly select root,
-all-files, or automatic strongest-method selection:
+You can also turn on a quiet notification with a one-tap hide. It carries the
+disguise's name and says nothing about a private space. It stays up while any
+folder is unhidden, works even after Shelf is closed, and comes back after a
+restart.
 
-- **Root:** randomizes file names, protects file headers, then clears permission bits on
-  `/data/media/<user>` after recording the original mode and owner.
-- **All-files access:** randomizes file names, protects file headers, then moves the folder under random
-  container and payload names in a persistent `.shelf` directory on the same
-  volume. The move is instant and survives uninstalling the app.
-- **Storage Access Framework:** randomizes file names, protects file headers, then renames the folder
-  with a leading dot. File managers configured to show hidden files can list the
-  folder, but they see only opaque file identifiers; ordinary previews and file
-  opening fail while it is hidden.
+## The second credential
 
-Header protection encrypts the first 64 KiB of every non-empty file with AES-GCM
-and appends authenticated recovery data before overwriting anything. Its cost is
-fixed per file rather than proportional to file size. The primary credential is
-available only while the real private space is open, whether it was recovered by
-a successful biometric match or entered directly.
+Optional. It opens a private space that looks and behaves like the real one and
+holds nothing that matters — the one to hand over if you are ever forced to.
 
-Filename protection replaces every file name with a random `sfn_…` identifier.
-The original relative names are stored only in an AES-GCM authenticated manifest
-encrypted with the primary PIN. The manifest is synced before the first rename,
-and restore can safely resume after interruption. Directory names are not changed.
+Nothing in the app calls it a decoy on any screen you could be made to open.
+Its use is recorded, and your real space tells you about it next time you get in.
+So are wrong credentials that someone else tried.
 
-Every operation is journalled before the folder is changed. Records are written
-through a synced temporary file, and the last valid generation is retained. Root
-and all-files hides also leave a small recovery marker with the folder so Shelf
-can rebuild an empty journal after reinstalling or clearing app data.
+Guessing gets slower each time: 30 seconds, then a minute, five, fifteen, an hour.
 
-**Settings → Recovery → Unhide everything** scans for folders Shelf hid but no
-longer tracks, then restores every folder in one pass. Anything it cannot reach
-is reported and left untouched. A single stuck record can also be dropped from
-the row's menu; that removes the record only, never the folder.
+## Read this before you rely on it
 
-Recovery also includes a read-only health check and a manual SAF route: choose
-the parent of a dot-renamed folder, confirm the original name, and Shelf commits
-a recovery record before renaming it. Recovery records can be exported as an
-AES-GCM authenticated file protected by a separate passphrase of at least 12
-characters. Imports validate paths and merge without replacing existing records.
+**Forget your credential and the contents are gone.** A recovery file brings
+folders back into view, but their contents and names stay scrambled — the key is
+your credential, and Shelf keeps no copy of it. Nothing can undo that.
 
-## What it does not do
+**This is not full encryption.** Only the first 64 KB of each file is protected.
+The rest is still on disk in the clear and forensic tools can recover it.
 
-Shelf does not provide full-file encryption. Data beyond each protected header
-remains plaintext on disk and can be recovered with forensic tools. Original
-file names may also survive in filesystem, media-index, backup, or app caches.
-Random names and protected headers stop ordinary browsing and previews, but
-Shelf is not intended to resist a determined attacker with physical or root access.
+Shelf stops someone picking up your phone and browsing it. It does not stop
+someone determined, with time and the right tools.
 
-A four-digit PIN is convenient but has only 10,000 combinations. Shelf slows
-repeated in-app attempts, but a longer PIN is recommended and app-private
-credential data is not designed to resist an attacker with root access.
+There is more detail, and an honest list of what Shelf does *not* protect
+against, in [THREAT_MODEL.md](THREAT_MODEL.md).
+
+## If something goes wrong
+
+**Settings → Recovery → Unhide everything** finds folders Shelf hid but lost
+track of and restores them all in one pass. It also offers a health check, a
+manual route for dot-renamed folders, and an encrypted export of your records.
 
 ## Building
 
-    ./gradlew assembleDebug
+```sh
+./gradlew assembleDebug
+```
 
-Requires JDK 17 and Android SDK platform 36. The release build has no network,
-analytics, advertising, or proprietary runtime dependency.
+Needs JDK 17 and Android SDK 36. No analytics, ads, or proprietary dependencies.
 
-### Signing a direct release
+To build a signed release, copy `keystore.properties.example` to
+`keystore.properties`, fill in your keystore details, then:
 
-Create a private keystore, copy `keystore.properties.example` to
-`keystore.properties`, and fill in its four values. Both the properties file
-and common keystore formats are ignored by Git. Then run:
+```sh
+./gradlew clean assembleRelease
+```
 
-    ./gradlew clean assembleRelease
+Keep that keystore safe — future updates must be signed with the same key.
 
-The signed APK is written to `app/build/outputs/apk/release/app-release.apk`.
-Keep the keystore and its password backed up: future direct-install updates
-must be signed with the same key.
+## Credits
 
-## Acknowledgements
-
-Shelf's configurable camouflage was inspired by the public ideas in
-[Amarok-Hider](https://github.com/deltazefiro/Amarok-Hider). Shelf's Compose UI,
-credential handling, storage journal, and recovery format are independent.
+The idea of configurable camouflage came from
+[Amarok-Hider](https://github.com/deltazefiro/Amarok-Hider). The UI, credential
+handling, journal, and recovery format here are Shelf's own.
 
 ## License
 
