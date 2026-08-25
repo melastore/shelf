@@ -65,11 +65,16 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 		return hide(target, preference)
 	}
 
-	/** A journal record is not proof of hiding until its strategy confirms the physical state. */
-	suspend fun isExposed(entry: HiddenEntry): Boolean = when (health(entry).status) {
-		HiddenHealthStatus.ALREADY_RESTORED, HiddenHealthStatus.CONFLICT -> true
-		else -> false
-	}
+	/**
+	 * A journal record is not proof of hiding until its strategy confirms the physical state.
+	 *
+	 * A conflict is not exposure. The hidden copy is still where it was put; what is back at the
+	 * original path is something else that has taken the name, and [rehide] refuses to hide over a
+	 * record it cannot roll back first. Calling that exposed would leave the folder counted as visible
+	 * for good — an emergency hide that can never finish, a notification that never clears, and a
+	 * device-bound re-hide credential that is never dropped. The health check reports it instead.
+	 */
+	suspend fun isExposed(entry: HiddenEntry): Boolean = health(entry).status == HiddenHealthStatus.ALREADY_RESTORED
 
 	suspend fun restore(entry: HiddenEntry): HideResult =
 		strategies.firstOrNull { it.method == entry.method }?.restore(entry)

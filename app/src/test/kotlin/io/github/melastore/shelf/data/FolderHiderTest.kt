@@ -82,6 +82,24 @@ class FolderHiderTest {
 		assertEquals(listOf("health", "restore", "hide"), strategy.calls)
 	}
 
+	/**
+	 * A conflict is refused by [FolderHider.rehide], so reporting it as exposed would leave the folder
+	 * counted as visible with no way to act on it: an emergency hide that never finishes and a
+	 * notification that never clears.
+	 */
+	@Test
+	fun `a conflicted record is not treated as exposed`() = runBlocking {
+		val conflicted = FakeStrategy(
+			HideMethod.DOT_RENAME,
+			health = HiddenHealth(HiddenHealthStatus.CONFLICT, HiddenHealthDetail.RENAME_CONFLICT),
+		)
+		val hider = FolderHider(listOf(conflicted))
+		val entry = HiddenEntry("/folder", "folder", 1, HideMethod.DOT_RENAME)
+
+		assertFalse(hider.isExposed(entry))
+		assertTrue(hider.rehide(FolderTarget("/folder", "folder", null), HidingPreference.SAF, entry) is HideResult.Failed)
+	}
+
 	@Test
 	fun `physical state overrides a stale hidden journal record`() = runBlocking {
 		val exposed = FakeStrategy(
