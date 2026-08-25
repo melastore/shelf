@@ -17,8 +17,11 @@ import io.github.melastore.shelf.data.CalendarEventStore
 import io.github.melastore.shelf.data.ContentCredential
 import io.github.melastore.shelf.data.DecoyItem
 import io.github.melastore.shelf.data.DecoyType
+import io.github.melastore.shelf.data.DuressEvent
 import io.github.melastore.shelf.data.DuressLog
 import io.github.melastore.shelf.data.EntryMethod
+import io.github.melastore.shelf.data.FailedUnlock
+import io.github.melastore.shelf.data.FailedUnlockLog
 import io.github.melastore.shelf.data.FolderTarget
 import io.github.melastore.shelf.data.Habit
 import io.github.melastore.shelf.data.HabitStore
@@ -117,6 +120,8 @@ data class AppUiState(
 	val decoyItems: List<DecoyItem> = emptyList(),
 	/** Repeated on real unlocks until the owner explicitly dismisses it. */
 	val duressAlert: UiMessage? = null,
+	/** Wrong credentials since the last time the owner got in, on the same terms. */
+	val failedAttemptAlert: UiMessage? = null,
 	val busy: Boolean = false,
 	val message: UiMessage? = null,
 ) {
@@ -151,6 +156,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	private val decoyVault = ShelfCore.decoyVault
 	private val recoveryCoordinator = RecoveryCoordinator(journal, RecoveryBundleCodec(paths))
 	private val duressLog = DuressLog(File(app.filesDir, "duress.json"))
+	private val failedUnlockLog = FailedUnlockLog(File(app.filesDir, "attempts.json"))
 
 	private val _state = MutableStateFlow(AppUiState())
 	val state: StateFlow<AppUiState> = _state.asStateFlow()
@@ -281,20 +287,19 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		}
 		try {
 			val uptime = SystemClock.elapsedRealtime()
-			val blockedUntil = preferences.blockedUntil(uptime, LOCKOUT_MILLIS)
+			val blockedUntil = withContext(Dispatchers.IO) { preferences.blockedUntil(uptime) }
 			if (uptime < blockedUntil) {
-				val seconds = ((blockedUntil - uptime + 999) / 1_000).coerceAtLeast(1)
-				return@launch fail(uiMessage(R.string.unlock_retry_seconds, seconds))
+				return@launch fail(uiMessage(R.string.unlock_retry, waitFor(blockedUntil - uptime)))
 			}
 			when (auth.match(input)) {
 				CredentialMatch.PRIMARY -> {
-					preferences.clearFailedUnlocks()
+					withContext(Dispatchers.IO) { preferences.clearFailedUnlocks() }
 					ContentCredential.set(input)
 					openVault()
 				}
 
 				CredentialMatch.DECOY -> {
-					preferences.clearFailedUnlocks()
+					withContext(Dispatchers.IO) { preferences.clearFailedUnlocks() }
 					openDecoyVault(System.currentTimeMillis())
 				}
 
@@ -400,24 +405,31 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 * primary-PIN entry; in-process code is not treated as a second authentication boundary.
 	 */
 	fun unlockWithBiometric(credential: CharArray, onRejected: () -> Unit) = viewModelScope.launch {
+		// The same lock the typed path takes. Two ways in that can run at once are two ways in that can
+		// disagree about whether the lockout has expired.
+		if (!authenticationMutex.tryLock()) {
+			credential.fill(' ')
+			return@launch
+		}
 		try {
 			val uptime = SystemClock.elapsedRealtime()
-			if (uptime < preferences.blockedUntil(uptime, LOCKOUT_MILLIS)) {
+			if (uptime < withContext(Dispatchers.IO) { preferences.blockedUntil(uptime) }) {
 				fail(uiMessage(R.string.too_many_attempts_use_pin))
 				onRejected()
 				return@launch
 			}
-			preferences.clearFailedUnlocks()
+			withContext(Dispatchers.IO) { preferences.clearFailedUnlocks() }
 			ContentCredential.set(credential)
 			openVault()
 		} finally {
 			credential.fill(' ')
+			authenticationMutex.unlock()
 		}
 	}
 
 	/** The enrolment behind an enabled key changed, so the key is gone and the PIN is the way in. */
 	fun onBiometricEnrolmentChanged() = viewModelScope.launch {
-		if (!preferences.biometricEnabled()) return@launch
+		if (!withContext(Dispatchers.IO) { preferences.biometricEnabled() }) return@launch
 		disableBiometric(R.string.biometric_disabled_enrolment_changed)
 	}
 
@@ -495,16 +507,29 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			}
 		}
 
-	private fun recordFailedUnlock() {
-		val blocked = preferences.recordFailedUnlock(
-			now = SystemClock.elapsedRealtime(),
-			maximumAttempts = MAX_UNLOCK_ATTEMPTS,
-			lockoutMillis = LOCKOUT_MILLIS,
-		)
+	private suspend fun recordFailedUnlock() {
+		val now = SystemClock.elapsedRealtime()
+		val blocked = withContext(Dispatchers.IO) {
+			preferences.recordFailedUnlock(now, MAX_UNLOCK_ATTEMPTS)
+		}
+		// Recorded whether or not it triggered a lockout: what the owner needs to see is that someone
+		// tried, and the attempts before the fifth are the ones a careful guesser would stop at.
+		runCatching { failedUnlockLog.record(System.currentTimeMillis()) }
 		if (blocked > 0) {
-			fail(uiMessage(R.string.too_many_attempts_retry))
+			fail(uiMessage(R.string.unlock_retry, waitFor(blocked - now)))
 		} else {
 			fail(uiMessage(R.string.wrong_credential))
+		}
+	}
+
+	/** A wait that can now run to an hour, said in whichever unit reads as a number a person uses. */
+	private fun waitFor(remaining: Long): UiMessage {
+		val seconds = ((remaining + 999) / 1_000).coerceAtLeast(1)
+		return if (seconds < 60) {
+			uiPlural(R.plurals.wait_seconds, seconds.toInt(), seconds.toInt())
+		} else {
+			val minutes = ((seconds + 59) / 60).toInt()
+			uiPlural(R.plurals.wait_minutes, minutes, minutes)
 		}
 	}
 
@@ -525,6 +550,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		loaded.getOrNull()?.let { syncEmergencyCredential(it) }
 		val alert = runCatching { duressLog.read() }.getOrNull().orEmpty()
 			.takeIf { it.isNotEmpty() }?.let(::duressSummary)
+		val attempts = runCatching { failedUnlockLog.read() }.getOrNull().orEmpty()
+			.takeIf { it.isNotEmpty() }?.let(::attemptSummary)
 		_state.update {
 			it.copy(
 				screen = Screen.VAULT,
@@ -533,6 +560,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				exposedFolders = loaded.getOrNull()?.count { folder -> !folder.hidden } ?: it.exposedFolders,
 				decoyItems = emptyList(),
 				duressAlert = alert,
+				failedAttemptAlert = attempts,
 				message = loaded.exceptionOrNull()?.let(::listFailure) ?: it.message,
 			)
 		}
@@ -574,10 +602,31 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				folders = emptyList(),
 				decoyItems = items,
 				duressAlert = null,
+				failedAttemptAlert = null,
 				method = HideMethod.DOT_RENAME,
 				safRecoveryCandidates = emptyList(),
 			)
 		}
+	}
+
+	/**
+	 * The decoy list is the owner's to write.
+	 *
+	 * Seeded, it is the same four names on every install of an app whose source anyone can read — and a
+	 * decoy someone recognises is not a decoy. Adding and removing rows from inside the decoy space is
+	 * how it becomes this phone's list rather than Shelf's. Nothing here touches storage: a row is a
+	 * name and a flag, and restoring one strikes it off exactly as the real space would.
+	 */
+	fun addDecoyItem(name: String) = launchBusy {
+		val clean = name.trim()
+		if (clean.isEmpty()) return@launchBusy
+		runCatching { decoyVault.add(clean) }
+		refreshDecoyItems(uiMessage(R.string.folder_hidden_named, clean))
+	}
+
+	fun removeDecoyItem(item: DecoyItem) = launchBusy {
+		runCatching { decoyVault.remove(item.id) }
+		refreshDecoyItems(uiMessage(R.string.folder_record_removed, item.name))
 	}
 
 	fun toggleDecoyItem(item: DecoyItem) = launchBusy {
@@ -612,20 +661,38 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		if (cleared == true) _state.update { it.copy(duressAlert = null) }
 	}
 
-	private fun duressSummary(events: List<io.github.melastore.shelf.data.DuressEvent>): UiMessage {
-		val last = events.maxOf { it.at }
-		val formatted = DateTimeFormatter.ofPattern(
-			DateFormat.getBestDateTimePattern(Locale.getDefault(), "dMMMHHmm"),
-			Locale.getDefault(),
-		)
-			.withZone(ZoneId.systemDefault())
-			.format(Instant.ofEpochMilli(last))
+	fun dismissFailedAttempts() = viewModelScope.launch {
+		val cleared = guard {
+			failedUnlockLog.clear()
+			true
+		}
+		if (cleared == true) _state.update { it.copy(failedAttemptAlert = null) }
+	}
+
+	private fun duressSummary(events: List<DuressEvent>): UiMessage {
+		val formatted = whenItHappened(events.maxOf { it.at })
 		return if (events.size == 1) {
 			uiMessage(R.string.duress_used_once, formatted)
 		} else {
 			uiMessage(R.string.duress_used_multiple, events.size, formatted)
 		}
 	}
+
+	private fun attemptSummary(attempts: List<FailedUnlock>): UiMessage {
+		val formatted = whenItHappened(attempts.maxOf { it.at })
+		return if (attempts.size == 1) {
+			uiMessage(R.string.failed_attempt_once, formatted)
+		} else {
+			uiMessage(R.string.failed_attempts_multiple, attempts.size, formatted)
+		}
+	}
+
+	private fun whenItHappened(at: Long): String = DateTimeFormatter.ofPattern(
+		DateFormat.getBestDateTimePattern(Locale.getDefault(), "dMMMHHmm"),
+		Locale.getDefault(),
+	)
+		.withZone(ZoneId.systemDefault())
+		.format(Instant.ofEpochMilli(at))
 
 	fun openSettings() {
 		val current = _state.value
@@ -659,6 +726,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				folders = emptyList(),
 				decoyItems = emptyList(),
 				duressAlert = null,
+				failedAttemptAlert = null,
 				safRecoveryCandidates = emptyList(),
 				accessNeededFor = null,
 				method = null,
@@ -776,8 +844,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	}
 
 	/** Screen-off applies to both non-never choices; immediate normally fired when onStop ran first. */
-	fun onScreenTurnedOff() {
-		if (preferences.autoHideMode() != AutoHideMode.NEVER) autoHideAndClose()
+	fun onScreenTurnedOff() = viewModelScope.launch {
+		val mode = withContext(Dispatchers.IO) { preferences.autoHideMode() }
+		if (mode != AutoHideMode.NEVER) autoHideAndClose()
 	}
 
 	fun onScreenTurnedOn() = Unit
@@ -1241,7 +1310,6 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	private companion object {
 		const val EXTERNAL_STORAGE = "com.android.externalstorage.documents"
 		const val MAX_UNLOCK_ATTEMPTS = 5
-		const val LOCKOUT_MILLIS = 30_000L
 		const val PICKER_GRACE_MILLIS = 120_000L
 	}
 }

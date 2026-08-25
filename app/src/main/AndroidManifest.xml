@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
 	xmlns:tools="http://schemas.android.com/tools">
+	<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 	<uses-permission android:name="android.permission.USE_BIOMETRIC" />
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -35,6 +36,16 @@
 			android:name=".ui.MainActivity"
 			android:exported="false" />
 		<receiver android:name=".ui.QuickLockReceiver" android:exported="false" />
+
+		<!--
+			Exported because only the system sends BOOT_COMPLETED, and a receiver for it cannot be
+			reached any other way. It reposts the emergency-hide notification and nothing else.
+		-->
+		<receiver android:name=".ui.BootReceiver" android:exported="true">
+			<intent-filter>
+				<action android:name="android.intent.action.BOOT_COMPLETED" />
+			</intent-filter>
+		</receiver>
 		<service
 			android:name=".ui.QuickLockService"
 			android:exported="false"

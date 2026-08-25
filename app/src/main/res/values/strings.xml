@@ -108,6 +108,9 @@
 	<string name="forget_record">Forget this record</string>
 	<string name="forget_record_confirm">Shelf will stop tracking %1$s. The folder itself is not touched, and Shelf will no longer know how to put it back. Use this only for a folder you have already restored yourself.</string>
 	<string name="duress_alert_title">Your second PIN was used</string>
+	<string name="failed_attempts_title">Wrong credentials were tried</string>
+	<string name="failed_attempt_once">One wrong credential was entered on %1$s.</string>
+	<string name="failed_attempts_multiple">%1$d wrong credentials were entered, most recently on %2$s.</string>
 
 	<!-- Operation results -->
 	<string name="message_joined">%1$s — %2$s</string>
@@ -151,7 +154,15 @@
 		<item quantity="one">%d folder</item>
 		<item quantity="other">%d folders</item>
 	</plurals>
-	<string name="unlock_retry_seconds">Try again in %1$d seconds.</string>
+	<plurals name="wait_seconds">
+		<item quantity="one">%1$d second</item>
+		<item quantity="other">%1$d seconds</item>
+	</plurals>
+	<plurals name="wait_minutes">
+		<item quantity="one">%1$d minute</item>
+		<item quantity="other">%1$d minutes</item>
+	</plurals>
+	<string name="unlock_retry">Too many wrong attempts. Try again in %1$s.</string>
 	<string name="private_space_open_failed">The private space could not be opened.</string>
 	<string name="private_space_open_failed_detail">The private space could not be opened: %1$s</string>
 	<string name="current_credential_incorrect">Current credential is incorrect.</string>
@@ -293,6 +304,8 @@
 	<string name="change_decoy_pin">Change the second PIN</string>
 	<string name="decoy_pin_summary">Opens a separate space holding nothing of yours. Your own PIN is required to change it.</string>
 	<string name="decoy_pin_hint">Pick one you could hand over. It must differ from your own.</string>
+	<string name="decoy_item_name">Folder name</string>
+	<string name="decoy_item_hint">Nothing is hidden. This adds a name to the list so it reads as yours.</string>
 	<string name="remove_decoy_pin">Remove the second PIN</string>
 	<string name="remove_decoy_pin_summary">Wrong PINs will show an error again.</string>
 	<string name="remove_decoy_pin_confirm">The second PIN will stop working immediately.</string>
@@ -319,7 +332,7 @@
 	<string name="recover_renamed_explanation">Restore %1$s using the name below. Shelf records the operation before renaming anything.</string>
 	<string name="restored_folder_name">Restored folder name</string>
 	<string name="export_recovery">Export recovery file</string>
-	<string name="export_recovery_summary">Encrypt the folder records with a separate recovery passphrase.</string>
+	<string name="export_recovery_summary">Encrypt the folder records with a separate recovery passphrase. Records only: it brings folders back into view, but it cannot unscramble file contents or names, which need the credential you unlock with.</string>
 	<string name="import_recovery">Import recovery file</string>
 	<string name="import_recovery_summary">Merge authenticated records without overwriting anything already tracked.</string>
 	<string name="recovery_passphrase">Recovery passphrase</string>

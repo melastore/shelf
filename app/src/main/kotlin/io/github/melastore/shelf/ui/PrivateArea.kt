@@ -144,7 +144,10 @@ fun PrivateArea(
 			onHideAgain = viewModel::hideAgain,
 			onForget = viewModel::forgetEntry,
 			onToggleDecoyItem = viewModel::toggleDecoyItem,
+			onAddDecoyItem = viewModel::addDecoyItem,
+			onRemoveDecoyItem = viewModel::removeDecoyItem,
 			onDismissAlert = viewModel::dismissDuressAlert,
+			onDismissAttempts = viewModel::dismissFailedAttempts,
 			onSecretEntry = onSecretEntry,
 		)
 
@@ -222,10 +225,15 @@ private fun VaultScreen(
 	onHideAgain: (VaultFolder) -> Unit,
 	onForget: (VaultFolder) -> Unit,
 	onToggleDecoyItem: (DecoyItem) -> Unit,
+	onAddDecoyItem: (String) -> Unit,
+	onRemoveDecoyItem: (DecoyItem) -> Unit,
 	onDismissAlert: () -> Unit,
+	onDismissAttempts: () -> Unit,
 	onSecretEntry: () -> Unit,
 ) {
 	var forgetting by remember { mutableStateOf<VaultFolder?>(null) }
+	var discarding by remember { mutableStateOf<DecoyItem?>(null) }
+	var naming by remember { mutableStateOf(false) }
 	val count = if (state.duress) state.decoyItems.size else state.folders.size
 	val resources = LocalContext.current.resources
 
@@ -255,14 +263,16 @@ private fun VaultScreen(
 				)
 			},
 			floatingActionButton = {
-				if (!state.duress) {
-					ExtendedFloatingActionButton(
-						onClick = onAddFolder,
-						expanded = true,
-						icon = { Icon(Icons.Filled.Add, null) },
-						text = { Text(stringResource(R.string.hide_folder)) },
-					)
-				}
+				ExtendedFloatingActionButton(
+					onClick = if (state.duress) {
+						{ naming = true }
+					} else {
+						onAddFolder
+					},
+					expanded = true,
+					icon = { Icon(Icons.Filled.Add, null) },
+					text = { Text(stringResource(R.string.hide_folder)) },
+				)
 			},
 		) { padding ->
 			val rows = if (state.duress) {
@@ -273,7 +283,7 @@ private fun VaultScreen(
 						subtitle = stringResource(R.string.hidden_folder_label),
 						hidden = item.hidden,
 						onToggle = { onToggleDecoyItem(item) },
-						onForget = null,
+						onForget = { discarding = item },
 					)
 				}
 			} else {
@@ -303,7 +313,22 @@ private fun VaultScreen(
 				verticalArrangement = Arrangement.spacedBy(10.dp),
 			) {
 				if (state.duressAlert != null) {
-					item { DuressAlert(state.duressAlert.resolve(resources), onDismissAlert) }
+					item {
+						SecurityAlert(
+							stringResource(R.string.duress_alert_title),
+							state.duressAlert.resolve(resources),
+							onDismissAlert,
+						)
+					}
+				}
+				if (state.failedAttemptAlert != null) {
+					item {
+						SecurityAlert(
+							stringResource(R.string.failed_attempts_title),
+							state.failedAttemptAlert.resolve(resources),
+							onDismissAttempts,
+						)
+					}
 				}
 				item { VaultStatus(count, state) }
 				if (!state.duress && state.method == HideMethod.DOT_RENAME) {
@@ -344,6 +369,31 @@ private fun VaultScreen(
 		}
 	}
 
+	if (naming) {
+		TextEntryDialog(
+			title = stringResource(R.string.hide_folder),
+			label = stringResource(R.string.decoy_item_name),
+			subtitle = stringResource(R.string.decoy_item_hint),
+			onAdd = {
+				onAddDecoyItem(it)
+				naming = false
+			},
+			onDismiss = { naming = false },
+		)
+	}
+	discarding?.let { item ->
+		ConfirmDialog(
+			title = stringResource(R.string.forget_record),
+			body = stringResource(R.string.forget_record_confirm, item.name),
+			confirmLabel = stringResource(R.string.forget),
+			dangerous = true,
+			onConfirm = {
+				onRemoveDecoyItem(item)
+				discarding = null
+			},
+			onDismiss = { discarding = null },
+		)
+	}
 	forgetting?.let { entry ->
 		ConfirmDialog(
 			title = stringResource(R.string.forget_record),
@@ -383,7 +433,7 @@ private fun RenameVisibilityNotice() {
 }
 
 @Composable
-private fun DuressAlert(text: String, onDismiss: () -> Unit) {
+private fun SecurityAlert(title: String, text: String, onDismiss: () -> Unit) {
 	Surface(
 		modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
 		shape = MaterialTheme.shapes.large,
@@ -393,7 +443,7 @@ private fun DuressAlert(text: String, onDismiss: () -> Unit) {
 			Icon(Icons.Filled.Warning, null, tint = MaterialTheme.colorScheme.onErrorContainer)
 			Column(Modifier.padding(horizontal = 14.dp).weight(1f)) {
 				Text(
-					stringResource(R.string.duress_alert_title),
+					title,
 					style = MaterialTheme.typography.titleSmall,
 					color = MaterialTheme.colorScheme.onErrorContainer,
 				)

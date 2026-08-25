@@ -56,6 +56,13 @@ match for every use. This lets a fingerprint-opened session restore protected
 headers and filenames without prompting again. Changing the credential or the
 enrolled biometrics deletes that encrypted copy and turns biometric unlock off.
 
+**If you forget the credential, the contents are gone.** A recovery file restores
+*records*, so folders come back into view — but every protected file's header
+stays scrambled and its name stays opaque, because the key for those is the
+credential itself and Shelf keeps no copy of it. Recovery covers a lost record,
+a reinstall, or a restore that keeps failing. It does not cover a forgotten
+credential, and nothing does.
+
 An optional **second credential** opens a private space that looks and behaves
 like the real one and holds nothing that matters — the one to give up if you are
 ever made to hand a credential over. Nothing in the app names it as such on any

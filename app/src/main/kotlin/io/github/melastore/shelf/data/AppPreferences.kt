@@ -18,6 +18,12 @@ enum class HidingPreference { AUTO, ROOT, ALL_FILES, SAF }
 /** One clear policy for both closing the private UI and putting exposed folders back out of sight. */
 enum class AutoHideMode { SCREEN_OFF, IMMEDIATE, NEVER }
 
+/**
+ * What each successive lockout costs: half a minute, a minute, five, fifteen, then an hour for as
+ * long as the guessing goes on.
+ */
+internal val LOCKOUT_LADDER = listOf(30_000L, 60_000L, 300_000L, 900_000L, 3_600_000L)
+
 data class AppSettings(
 	val decoy: DecoyType,
 	val entryMethod: EntryMethod,
@@ -93,6 +99,8 @@ class AppPreferences(context: Context) {
 		values.edit(commit = true) { putBoolean(KEY_QUICK_LOCK_NOTIFICATION, value) }
 	}
 
+	fun quickLockNotification(): Boolean = values.getBoolean(KEY_QUICK_LOCK_NOTIFICATION, false)
+
 	fun autoHideMode(): AutoHideMode {
 		if (values.contains(KEY_AUTO_HIDE)) return enumValue(KEY_AUTO_HIDE, AutoHideMode.IMMEDIATE)
 		// Migration from the two older controls: an immediate background lock remains immediate;
@@ -117,17 +125,36 @@ class AppPreferences(context: Context) {
 	/**
 	 * Measured against [android.os.SystemClock.elapsedRealtime], not the wall clock, so winding the
 	 * device's date forward does not clear a lockout. A reboot restarts that counter, which can only
-	 * leave a stale value in the future; anything further away than one full lockout is treated as
-	 * expired rather than blocking on an uptime the device no longer has.
+	 * leave a stale value in the future; anything further away than the longest delay the current
+	 * streak could have earned is treated as expired rather than blocking on an uptime the device no
+	 * longer has.
 	 */
-	fun blockedUntil(now: Long, lockoutMillis: Long): Long =
-		values.getLong(KEY_BLOCKED_UNTIL, 0L).takeIf { it - now <= lockoutMillis } ?: 0L
+	fun blockedUntil(now: Long): Long {
+		val until = values.getLong(KEY_BLOCKED_UNTIL, 0L)
+		if (until <= now) return 0L
+		return until.takeIf { it - now <= lockoutMillis(values.getInt(KEY_LOCKOUTS, 0)) } ?: 0L
+	}
 
-	fun recordFailedUnlock(now: Long, maximumAttempts: Int, lockoutMillis: Long): Long {
+	/**
+	 * Counts one wrong credential and returns when the next attempt is allowed, or zero.
+	 *
+	 * The delay grows with each lockout instead of staying flat. A fixed thirty seconds per five
+	 * attempts is a rate — roughly three hours to walk every four-dot pattern, under a day for a
+	 * four-digit PIN — and a rate is not a defence. Climbing to an hour turns the same work into
+	 * months. The streak is cleared only by getting in, so backing off and returning later resumes
+	 * where the attacker left off.
+	 */
+	fun recordFailedUnlock(now: Long, maximumAttempts: Int): Long {
 		val attempts = values.getInt(KEY_FAILED_UNLOCKS, 0) + 1
-		val blockedUntil = if (attempts >= maximumAttempts) now + lockoutMillis else 0L
+		if (attempts < maximumAttempts) {
+			values.edit(commit = true) { putInt(KEY_FAILED_UNLOCKS, attempts) }
+			return 0L
+		}
+		val lockouts = values.getInt(KEY_LOCKOUTS, 0) + 1
+		val blockedUntil = now + lockoutMillis(lockouts)
 		values.edit(commit = true) {
-			putInt(KEY_FAILED_UNLOCKS, if (blockedUntil > 0) 0 else attempts)
+			putInt(KEY_FAILED_UNLOCKS, 0)
+			putInt(KEY_LOCKOUTS, lockouts)
 			putLong(KEY_BLOCKED_UNTIL, blockedUntil)
 		}
 		return blockedUntil
@@ -136,9 +163,12 @@ class AppPreferences(context: Context) {
 	fun clearFailedUnlocks() {
 		values.edit(commit = true) {
 			remove(KEY_FAILED_UNLOCKS)
+			remove(KEY_LOCKOUTS)
 			remove(KEY_BLOCKED_UNTIL)
 		}
 	}
+
+	private fun lockoutMillis(lockouts: Int): Long = LOCKOUT_LADDER[(lockouts - 1).coerceIn(0, LOCKOUT_LADDER.lastIndex)]
 
 	private inline fun <reified T : Enum<T>> enumValue(key: String, fallback: T): T =
 		runCatching { enumValueOf<T>(values.getString(key, null).orEmpty()) }.getOrDefault(fallback)
@@ -161,6 +191,7 @@ class AppPreferences(context: Context) {
 		const val KEY_LOCK_TRIGGER = "lock_trigger"
 		const val KEY_QUICK_LOCK_NOTIFICATION = "quick_lock_notification"
 		const val KEY_FAILED_UNLOCKS = "failed_unlocks"
+		const val KEY_LOCKOUTS = "lockouts"
 		const val KEY_BLOCKED_UNTIL = "blocked_until"
 	}
 }
