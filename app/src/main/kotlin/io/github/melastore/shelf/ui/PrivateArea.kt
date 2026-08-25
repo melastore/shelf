@@ -79,6 +79,7 @@ import io.github.melastore.shelf.data.HiddenEntry
 import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.HidingPreference
 import io.github.melastore.shelf.data.SafRecoveryCandidate
+import io.github.melastore.shelf.security.CredentialKind
 
 @Composable
 fun PrivateArea(
@@ -153,8 +154,8 @@ fun PrivateArea(
 			onDecoy = viewModel::setDecoy,
 			onEntryMethod = viewModel::setEntryMethod,
 			onHidingPreference = viewModel::setHidingPreference,
-			onChangePin = viewModel::changeVaultPin,
-			onSetDecoyPin = viewModel::setDecoyPin,
+			onChangeCredential = viewModel::changeVaultCredential,
+			onSetDecoyCredential = viewModel::setDecoyCredential,
 			onClearDecoyPin = viewModel::clearDecoyPin,
 			onBiometricChange = onBiometricChange,
 			onQuickLockChange = onQuickLockChange,
@@ -596,8 +597,8 @@ private fun SettingsScreen(
 	onDecoy: (DecoyType) -> Unit,
 	onEntryMethod: (EntryMethod) -> Unit,
 	onHidingPreference: (HidingPreference) -> Unit,
-	onChangePin: (CharArray, CharArray) -> Unit,
-	onSetDecoyPin: (CharArray, CharArray) -> Unit,
+	onChangeCredential: (CredentialKind, CharArray, CharArray) -> Unit,
+	onSetDecoyCredential: (CharArray, CharArray) -> Unit,
 	onClearDecoyPin: (CharArray) -> Unit,
 	onBiometricChange: (Boolean) -> Unit,
 	onQuickLockChange: (Boolean) -> Unit,
@@ -613,6 +614,8 @@ private fun SettingsScreen(
 ) {
 	var changeCurrent by remember { mutableStateOf<CharArray?>(null) }
 	var askCurrent by remember { mutableStateOf(false) }
+	// The kind the owner is moving to, which is the current one unless they picked a different row.
+	var changingTo by remember { mutableStateOf<CredentialKind?>(null) }
 	var decoyCurrent by remember { mutableStateOf<CharArray?>(null) }
 	var decoyAction by remember { mutableStateOf<DecoyPinAction?>(null) }
 	var removeDecoyPin by remember { mutableStateOf(false) }
@@ -690,7 +693,14 @@ private fun SettingsScreen(
 			item {
 				AuthenticationSettingsSection(
 					state = state,
-					onChangePin = { askCurrent = true },
+					onChangePin = {
+						changingTo = null
+						askCurrent = true
+					},
+					onCredentialKind = { kind ->
+						changingTo = kind
+						askCurrent = true
+					},
 					onBiometricChange = { onBiometricChange(!state.biometricEnabled) },
 					onSetDecoyPin = { decoyAction = DecoyPinAction.SET },
 					onRemoveDecoyPin = { removeDecoyPin = true },
@@ -731,42 +741,40 @@ private fun SettingsScreen(
 	}
 
 	if (askCurrent) {
-		if (state.vaultUsesPin) {
-			PinPrompt(
-				title = stringResource(R.string.current_pin),
-				subtitle = stringResource(R.string.current_pin_subtitle),
-				confirmLabel = stringResource(R.string.continue_action),
-				onConfirm = {
-					askCurrent = false
-					changeCurrent = it
-				},
-				onDismiss = { askCurrent = false },
-			)
-		} else {
-			PassphraseDialog(
-				title = stringResource(R.string.current_passphrase),
-				confirmLabel = stringResource(R.string.continue_action),
-				onConfirm = {
-					askCurrent = false
-					changeCurrent = it
-				},
-				onDismiss = { askCurrent = false },
-			)
-		}
+		// Proving the old credential uses the kind the vault has today; setting the new one uses the
+		// kind being moved to, which is the same one unless this is a change of kind.
+		CredentialPrompt(
+			kind = state.credentialKind,
+			title = CredentialWords.currentTitle(state.credentialKind),
+			subtitle = stringResource(R.string.current_pin_subtitle),
+			confirmLabel = stringResource(R.string.continue_action),
+			onConfirm = {
+				askCurrent = false
+				changeCurrent = it
+			},
+			onDismiss = {
+				askCurrent = false
+				changingTo = null
+			},
+		)
 	}
 	changeCurrent?.let { current ->
-		PinPrompt(
-			title = stringResource(R.string.new_pin),
-			subtitle = stringResource(R.string.pin_hint),
+		val wanted = changingTo ?: state.credentialKind
+		CredentialPrompt(
+			kind = wanted,
+			title = CredentialWords.newTitle(wanted),
+			subtitle = CredentialWords.hint(wanted),
 			confirmLabel = stringResource(R.string.save),
 			confirmEntry = true,
 			onConfirm = {
-				onChangePin(current, it)
+				onChangeCredential(wanted, current, it)
 				changeCurrent = null
+				changingTo = null
 			},
 			onDismiss = {
 				current.fill(' ')
 				changeCurrent = null
+				changingTo = null
 			},
 		)
 	}
@@ -780,26 +788,19 @@ private fun SettingsScreen(
 					decoyAction = null
 				}
 			}
-			if (state.vaultUsesPin) {
-				PinPrompt(
-					title = stringResource(R.string.confirm_primary_pin),
-					subtitle = stringResource(R.string.confirm_primary_pin_summary),
-					confirmLabel = stringResource(R.string.continue_action),
-					onConfirm = acceptCurrent,
-					onDismiss = { decoyAction = null },
-				)
-			} else {
-				PassphraseDialog(
-					title = stringResource(R.string.confirm_primary_passphrase),
-					confirmLabel = stringResource(R.string.continue_action),
-					onConfirm = acceptCurrent,
-					onDismiss = { decoyAction = null },
-				)
-			}
+			CredentialPrompt(
+				kind = state.credentialKind,
+				title = stringResource(R.string.confirm_primary_pin),
+				subtitle = stringResource(R.string.confirm_primary_pin_summary),
+				confirmLabel = stringResource(R.string.continue_action),
+				onConfirm = acceptCurrent,
+				onDismiss = { decoyAction = null },
+			)
 		}
 	}
 	decoyCurrent?.let { current ->
-		PinPrompt(
+		CredentialPrompt(
+			kind = state.credentialKind,
 			title = stringResource(
 				if (state.decoyPinSet) R.string.change_decoy_pin else R.string.create_decoy_pin,
 			),
@@ -807,7 +808,7 @@ private fun SettingsScreen(
 			confirmLabel = stringResource(R.string.save),
 			confirmEntry = true,
 			onConfirm = { pin ->
-				onSetDecoyPin(current, pin)
+				onSetDecoyCredential(current, pin)
 				decoyCurrent = null
 				decoyAction = null
 			},

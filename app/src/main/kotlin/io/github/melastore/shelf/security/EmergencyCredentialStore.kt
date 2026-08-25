@@ -22,10 +22,8 @@ object EmergencyCredentialStore {
 
 	@Synchronized
 	fun arm(context: Context, credential: CharArray): Boolean {
-		if (credential.size !in MIN_PIN_LENGTH..MAX_PIN_LENGTH || credential.any { !it.isDigit() }) {
-			return false
-		}
-		val plain = ByteArray(credential.size) { credential[it].code.toByte() }
+		if (!CredentialRules.isStorable(credential)) return false
+		val plain = CredentialBytes.encode(credential)
 		return try {
 			val cipher = prepareEncrypt() ?: return false
 			val encrypted = cipher.doFinal(plain)
@@ -58,13 +56,7 @@ object EmergencyCredentialStore {
 				init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
 				doFinal(encrypted)
 			}
-			if (
-				plain.size !in MIN_PIN_LENGTH..MAX_PIN_LENGTH ||
-				plain.any { it.toInt() !in '0'.code..'9'.code }
-			) {
-				return null
-			}
-			CharArray(plain.size) { plain[it].toInt().toChar() }
+			CredentialBytes.decode(plain)
 		} catch (_: Exception) {
 			null
 		} finally {
@@ -122,9 +114,9 @@ object EmergencyCredentialStore {
 	private const val IV = "iv"
 	private const val TRANSFORMATION = "${KeyProperties.KEY_ALGORITHM_AES}/" +
 		"${KeyProperties.BLOCK_MODE_GCM}/${KeyProperties.ENCRYPTION_PADDING_NONE}"
-	private const val MIN_PIN_LENGTH = 4
-	private const val MAX_PIN_LENGTH = 12
 	private const val GCM_TAG_BITS = 128
 	private const val GCM_IV_BYTES = 12
-	private const val MAX_CIPHERTEXT_BYTES = MAX_PIN_LENGTH + GCM_TAG_BITS / 8
+
+	/** A credential is at most [CredentialRules.MAX_LENGTH] characters, and UTF-8 is at most four bytes each. */
+	private const val MAX_CIPHERTEXT_BYTES = CredentialRules.MAX_LENGTH * 4 + GCM_TAG_BITS / 8
 }

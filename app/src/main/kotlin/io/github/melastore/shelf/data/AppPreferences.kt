@@ -2,6 +2,7 @@ package io.github.melastore.shelf.data
 
 import android.content.Context
 import androidx.core.content.edit
+import io.github.melastore.shelf.security.CredentialKind
 
 /**
  * The face the app wears. [NONE] is the default: Shelf presents itself honestly and opens straight
@@ -21,7 +22,7 @@ data class AppSettings(
 	val decoy: DecoyType,
 	val entryMethod: EntryMethod,
 	val hidingPreference: HidingPreference,
-	val vaultUsesPin: Boolean,
+	val credentialKind: CredentialKind,
 	val biometricEnabled: Boolean,
 	val autoHideMode: AutoHideMode,
 	val quickLockNotification: Boolean,
@@ -32,16 +33,12 @@ class AppPreferences(context: Context) {
 
 	private val values = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
-	/** Existing installs used a passphrase, so a missing PIN flag preserves that input mode. */
+	/** Existing installs used a passphrase, so a missing kind preserves whichever input mode they had. */
 	fun read(vaultCredentialExists: Boolean): AppSettings = AppSettings(
 		decoy = enumValue(KEY_DECOY, DecoyType.NONE),
 		entryMethod = enumValue(KEY_ENTRY, EntryMethod.TITLE_HOLD),
 		hidingPreference = enumValue(KEY_HIDING, HidingPreference.AUTO),
-		vaultUsesPin = if (values.contains(KEY_USES_PIN)) {
-			values.getBoolean(KEY_USES_PIN, true)
-		} else {
-			!vaultCredentialExists
-		},
+		credentialKind = credentialKind(vaultCredentialExists),
 		biometricEnabled = values.getBoolean(KEY_BIOMETRIC, false),
 		autoHideMode = autoHideMode(),
 		quickLockNotification = values.getBoolean(KEY_QUICK_LOCK_NOTIFICATION, false),
@@ -57,8 +54,31 @@ class AppPreferences(context: Context) {
 
 	fun hidingPreference(): HidingPreference = enumValue(KEY_HIDING, HidingPreference.AUTO)
 
-	fun setVaultUsesPin(value: Boolean) {
-		values.edit(commit = true) { putBoolean(KEY_USES_PIN, value) }
+	/**
+	 * How the owner's credential is entered. Two older keys still decide it on installs that predate the
+	 * setting: an explicit PIN flag, and failing that the fact that a credential exists at all, which on
+	 * those builds could only have been a passphrase.
+	 */
+	fun credentialKind(vaultCredentialExists: Boolean): CredentialKind = when {
+		values.contains(KEY_CREDENTIAL_KIND) -> enumValue(KEY_CREDENTIAL_KIND, CredentialKind.PIN)
+
+		values.contains(KEY_USES_PIN) -> if (values.getBoolean(KEY_USES_PIN, true)) {
+			CredentialKind.PIN
+		} else {
+			CredentialKind.PASSWORD
+		}
+
+		vaultCredentialExists -> CredentialKind.PASSWORD
+
+		else -> CredentialKind.PIN
+	}
+
+	fun setCredentialKind(value: CredentialKind) {
+		values.edit(commit = true) {
+			putString(KEY_CREDENTIAL_KIND, value.name)
+			// Kept in step so a downgrade to a build that only knows the flag still reads the right one.
+			putBoolean(KEY_USES_PIN, value != CredentialKind.PASSWORD)
+		}
 	}
 
 	fun setBiometricEnabled(value: Boolean) {
@@ -133,6 +153,7 @@ class AppPreferences(context: Context) {
 		const val KEY_ENTRY = "entry_method"
 		const val KEY_HIDING = "hiding_preference"
 		const val KEY_USES_PIN = "vault_uses_pin"
+		const val KEY_CREDENTIAL_KIND = "credential_kind"
 		const val KEY_BIOMETRIC = "biometric_enabled"
 		const val KEY_AUTO_HIDE = "auto_hide_mode"
 		const val KEY_LOCK_TIMEOUT = "lock_timeout"

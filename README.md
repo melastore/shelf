@@ -29,11 +29,12 @@ Signing certificate SHA-256: `c0a840767117551defe6282499cf23a10c586a42da67a8bb4f
 
 Five taps in the top-right corner always open the credential prompt. Settings adds
 a second, quieter gesture: a long press on the decoy title (the default), or a
-long press on a natural decoy control. Access uses a 4–12 digit PIN entered on
-an in-app keypad. Strong biometric unlock can be enabled after the PIN is set;
-it always opens the real space, while the PIN screen accepts either the primary
-or decoy PIN. Older installs can use their existing passphrase once, then
-migrate to a PIN from Settings.
+long press on a natural decoy control. Access uses whichever credential you chose
+at setup: a 4–12 digit **PIN** on an in-app keypad, a **password**, or a 3×3
+**pattern**. **Settings → Credentials** switches between them, which asks for the
+old credential and then a new one in the new form. Strong biometric unlock can be
+enabled once a credential is set; it always opens the real space, while the
+credential prompt accepts either of your two credentials.
 
 One **Auto hide** setting controls both closing the private UI and putting exposed
 folders back out of sight: **After screen off**, **Immediately** when Shelf leaves
@@ -49,18 +50,20 @@ From inside the decoy space, the same five taps in the top-right corner open the
 credential prompt again: the primary PIN or a biometric switches straight to the
 real space, with no need to close the decoy first.
 
-When biometric unlock is enabled, Shelf keeps a copy of the primary PIN encrypted
-by a non-exportable Android Keystore key that requires a strong-biometric match
-for every use. This lets a fingerprint-opened session restore protected headers
-and filenames without prompting for the PIN again. Changing the PIN or enrolled
-biometrics deletes that encrypted copy and turns biometric unlock off.
+When biometric unlock is enabled, Shelf keeps a copy of the primary credential
+encrypted by a non-exportable Android Keystore key that requires a strong-biometric
+match for every use. This lets a fingerprint-opened session restore protected
+headers and filenames without prompting again. Changing the credential or the
+enrolled biometrics deletes that encrypted copy and turns biometric unlock off.
 
-An optional second **decoy PIN** opens a private space that looks and behaves
+An optional **second credential** opens a private space that looks and behaves
 like the real one and holds nothing that matters — the one to give up if you are
-ever made to hand a PIN over. Its use is recorded, and the real space reports it
-on your next unlock.
+ever made to hand a credential over. Nothing in the app names it as such on any
+screen someone could be made to show. Its use is recorded, and the real space
+reports it on your next unlock. Changing how you unlock removes it, because a
+second credential in the old form cannot be typed into the new prompt.
 
-The private space and the PIN keypad are excluded from screenshots, screen
+The private space and the credential prompt are excluded from screenshots, screen
 recordings, and the recent apps preview. **Settings → Screen capture** lifts that
 for the folder list when you want a picture of it. It never covers the keypad,
 and because it is held in memory rather than saved, closing the private space

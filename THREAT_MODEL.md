@@ -14,7 +14,7 @@ attacker who can modify the operating system.
   encrypted with a separate recovery passphrase; they do not contain file data.
 - Shelf being reinstalled or having its app data cleared after a folder was
   hidden with root or all-files access.
-- Being made to open the private space under pressure. The decoy PIN opens a
+- Being made to open the private space under pressure. The second credential opens a
   space stocked with unremarkable entries, and logs that it was used. It behaves
   like the real one throughout, including hiding and unhiding its rows.
 - Opportunistic PIN observation when strong biometric unlock is enabled. A
@@ -54,19 +54,22 @@ attacker who can modify the operating system.
 - Root or physical attacks. Data beyond each protected header remains plaintext
   on disk.
 - Concealing that Shelf itself is installed from someone inspecting the device.
-- Offline guessing of a short PIN by an attacker who can read app-private files.
-  A four-digit PIN has only 10,000 combinations; the persisted attempt delay
-  only limits guesses made through Shelf's own interface. That delay is measured
-  against uptime rather than the wall clock, so changing the device's date does
-  not clear it.
+- Offline guessing of a short credential by an attacker who can read app-private
+  files. A four-digit PIN has only 10,000 combinations and a four-dot pattern
+  fewer; a password is the only one of the three that can be made long enough to
+  resist this. The persisted attempt delay only limits guesses made through
+  Shelf's own interface. That delay is measured against uptime rather than the
+  wall clock, so changing the device's date does not clear it.
 - A compromised operating system or root process observing the PIN after a
   successful biometric match. Keystore protects the encrypted PIN at rest, not
   a process that can inspect Shelf while it is legitimately using the plaintext.
 - The list of folders Shelf tracks. It outlives a restore so folders can be
   hidden again in one tap, which means app-private storage names every folder the
   user has ever added, whether or not any of them are hidden right now.
-- The decoy PIN against an adversary who already knows Shelf has one. It buys a
-  plausible answer, not proof that nothing else exists.
+- The second credential against an adversary who already knows Shelf has one. It
+  buys a plausible answer, not proof that nothing else exists. No screen an
+  adversary could make the owner open names the feature as a decoy, but the app
+  is open source and the mechanism is public.
 
 ## Storage methods
 

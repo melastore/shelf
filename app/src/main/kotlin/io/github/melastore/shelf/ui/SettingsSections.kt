@@ -14,23 +14,31 @@ import io.github.melastore.shelf.data.AutoHideMode
 import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.HidingPreference
 import io.github.melastore.shelf.data.SafRecoveryCandidate
+import io.github.melastore.shelf.security.CredentialKind
 
 @Composable
 internal fun AuthenticationSettingsSection(
 	state: AppUiState,
 	onChangePin: () -> Unit,
+	onCredentialKind: (CredentialKind) -> Unit,
 	onBiometricChange: () -> Unit,
 	onSetDecoyPin: () -> Unit,
 	onRemoveDecoyPin: () -> Unit,
 ) {
-	SettingsGroup(stringResource(R.string.credentials)) {
+	SettingsGroup(stringResource(R.string.credentials), stringResource(R.string.credential_kind_summary)) {
 		SettingsRow(
 			title = stringResource(R.string.change_vault_pin),
-			summary = stringResource(
-				if (state.vaultUsesPin) R.string.vault_pin_summary else R.string.legacy_passphrase_summary,
-			),
+			summary = CredentialWords.label(state.credentialKind),
 			onClick = onChangePin,
 		)
+		CredentialKind.entries.forEach { kind ->
+			SettingsRow(
+				title = CredentialWords.label(kind),
+				summary = CredentialWords.hint(kind),
+				trailing = { SelectionMark(state.credentialKind == kind) },
+				onClick = { onCredentialKind(kind) },
+			)
+		}
 		SettingsRow(
 			title = stringResource(R.string.biometric_unlock),
 			summary = stringResource(

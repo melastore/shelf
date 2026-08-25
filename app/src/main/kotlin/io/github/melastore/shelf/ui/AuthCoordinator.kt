@@ -1,6 +1,7 @@
 package io.github.melastore.shelf.ui
 
 import io.github.melastore.shelf.data.AppPreferences
+import io.github.melastore.shelf.security.CredentialKind
 import io.github.melastore.shelf.security.PassphraseGate
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -28,9 +29,9 @@ internal class AuthCoordinator(filesDir: File, private val preferences: AppPrefe
 
 	suspend fun decoyMatches(input: CharArray): Boolean = withContext(Dispatchers.Default) { decoyGate.matches(input) }
 
-	suspend fun setPrimary(input: CharArray) = withContext(Dispatchers.Default) {
+	suspend fun setPrimary(input: CharArray, kind: CredentialKind) = withContext(Dispatchers.Default) {
 		primaryGate.set(input)
-		preferences.setVaultUsesPin(true)
+		preferences.setCredentialKind(kind)
 	}
 
 	suspend fun setDecoy(input: CharArray) = withContext(Dispatchers.Default) { decoyGate.set(input) }

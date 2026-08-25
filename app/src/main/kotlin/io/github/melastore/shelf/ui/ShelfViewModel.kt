@@ -36,6 +36,9 @@ import io.github.melastore.shelf.data.SafRecoveryCandidate
 import io.github.melastore.shelf.data.ShelfCore
 import io.github.melastore.shelf.data.TrackedFolder
 import io.github.melastore.shelf.security.BiometricAuth
+import io.github.melastore.shelf.security.CredentialFault
+import io.github.melastore.shelf.security.CredentialKind
+import io.github.melastore.shelf.security.CredentialRules
 import io.github.melastore.shelf.security.EmergencyCredentialStore
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -79,7 +82,7 @@ data class AppUiState(
 	val ready: Boolean = false,
 	val screen: Screen = Screen.DECOY,
 	val credentialSet: Boolean = false,
-	val vaultUsesPin: Boolean = true,
+	val credentialKind: CredentialKind = CredentialKind.PIN,
 	val biometricEnabled: Boolean = false,
 	val biometricAvailable: Boolean = false,
 	val autoHideMode: AutoHideMode = AutoHideMode.SCREEN_OFF,
@@ -195,7 +198,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				it.copy(
 					ready = true,
 					credentialSet = credentialSet,
-					vaultUsesPin = settings.vaultUsesPin,
+					credentialKind = settings.credentialKind,
 					biometricEnabled = biometricEnabled,
 					biometricAvailable = BiometricAuth.isAvailable(app),
 					autoHideMode = settings.autoHideMode,
@@ -258,16 +261,16 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 	// Authentication
 
-	fun setVaultPin(pin: CharArray) = viewModelScope.launch {
+	fun setVaultCredential(kind: CredentialKind, credential: CharArray) = viewModelScope.launch {
 		try {
-			validatePin(pin)?.let { return@launch fail(it) }
+			validate(kind, credential)?.let { return@launch fail(it) }
 			withContext(Dispatchers.IO) { EmergencyCredentialStore.clear(getApplication()) }
-			auth.setPrimary(pin)
-			ContentCredential.set(pin)
-			_state.update { it.copy(credentialSet = true, vaultUsesPin = true) }
+			auth.setPrimary(credential, kind)
+			ContentCredential.set(credential)
+			_state.update { it.copy(credentialSet = true, credentialKind = kind) }
 			openVault()
 		} finally {
-			pin.fill(' ')
+			credential.fill(' ')
 		}
 	}
 
@@ -309,15 +312,20 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		}
 	}
 
-	fun changeVaultPin(current: CharArray, newPin: CharArray) = launchBusy {
+	/**
+	 * Changing the credential re-keys every file header a hide would encrypt, so it is refused while
+	 * anything is hidden. That applies just as much to changing only its *kind*: a pattern and a PIN
+	 * that happen to be the same digits are the same secret, and a password never is.
+	 */
+	fun changeVaultCredential(kind: CredentialKind, current: CharArray, next: CharArray) = launchBusy {
 		try {
-			validatePin(newPin)?.let { return@launchBusy fail(it) }
+			validate(kind, next)?.let { return@launchBusy fail(it) }
 			if (_state.value.folders.any { it.hidden } || journal.read().isNotEmpty()) {
-				return@launchBusy fail(uiMessage(R.string.unhide_before_pin_change))
+				return@launchBusy fail(uiMessage(R.string.unhide_before_credential_change))
 			}
 			val valid = auth.primaryMatches(current)
 			if (!valid) return@launchBusy fail(uiMessage(R.string.current_credential_incorrect))
-			if (auth.decoyMatches(newPin)) {
+			if (auth.decoyMatches(next)) {
 				return@launchBusy fail(uiMessage(R.string.primary_decoy_pin_different))
 			}
 			val biometricWasEnabled = _state.value.biometricEnabled
@@ -327,42 +335,50 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					BiometricAuth.reset(getApplication())
 				}
 			}
+			// A second credential set in the old shape cannot be entered through the new one's prompt: a
+			// PIN has digits a pattern has no dots for, and a password has characters neither accepts.
+			// Leaving it in place would be a credential the owner believes in and can no longer use.
+			val kindChanged = kind != _state.value.credentialKind
+			val decoyDropped = kindChanged && _state.value.decoyPinSet
+			if (decoyDropped) auth.clearDecoy()
+
 			withContext(Dispatchers.IO) { EmergencyCredentialStore.clear(getApplication()) }
-			auth.setPrimary(newPin)
-			ContentCredential.set(newPin)
+			auth.setPrimary(next, kind)
+			ContentCredential.set(next)
 			_state.update {
 				it.copy(
-					vaultUsesPin = true,
+					credentialKind = kind,
+					decoyPinSet = it.decoyPinSet && !decoyDropped,
 					biometricEnabled = if (biometricWasEnabled) false else it.biometricEnabled,
 					message = uiMessage(
-						if (biometricWasEnabled) {
-							R.string.primary_pin_changed_biometric_disabled
-						} else {
-							R.string.primary_pin_changed
+						when {
+							decoyDropped -> R.string.primary_pin_changed_second_removed
+							biometricWasEnabled -> R.string.primary_pin_changed_biometric_disabled
+							else -> R.string.primary_pin_changed
 						},
 					),
 				)
 			}
 		} finally {
 			current.fill(' ')
-			newPin.fill(' ')
+			next.fill(' ')
 		}
 	}
 
-	fun setDecoyPin(current: CharArray, pin: CharArray) = launchBusy {
+	fun setDecoyCredential(current: CharArray, credential: CharArray) = launchBusy {
 		try {
-			validatePin(pin)?.let { return@launchBusy fail(it) }
+			validate(_state.value.credentialKind, credential)?.let { return@launchBusy fail(it) }
 			if (!auth.primaryMatches(current)) {
 				return@launchBusy fail(uiMessage(R.string.primary_credential_incorrect))
 			}
-			if (auth.primaryMatches(pin)) {
+			if (auth.primaryMatches(credential)) {
 				return@launchBusy fail(uiMessage(R.string.primary_decoy_pin_different))
 			}
-			auth.setDecoy(pin)
+			auth.setDecoy(credential)
 			_state.update { it.copy(decoyPinSet = true, message = uiMessage(R.string.decoy_pin_saved)) }
 		} finally {
 			current.fill(' ')
-			pin.fill(' ')
+			credential.fill(' ')
 		}
 	}
 
@@ -462,11 +478,22 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		it.copy(biometricAvailable = BiometricAuth.isAvailable(getApplication()))
 	}
 
-	private fun validatePin(pin: CharArray): UiMessage? = when {
-		pin.size !in MIN_PIN..MAX_PIN -> uiMessage(R.string.pin_length_error)
-		pin.any { !it.isDigit() } -> uiMessage(R.string.pin_digits_only)
-		else -> null
-	}
+	private fun validate(kind: CredentialKind, credential: CharArray): UiMessage? =
+		when (CredentialRules.validate(kind, credential)) {
+			null -> null
+
+			CredentialFault.PIN_NOT_DIGITS -> uiMessage(R.string.pin_digits_only)
+
+			CredentialFault.PATTERN_TOO_SHORT -> uiMessage(R.string.pattern_too_short)
+
+			CredentialFault.PASSWORD_UNSUPPORTED -> uiMessage(R.string.password_unsupported)
+
+			CredentialFault.TOO_SHORT, CredentialFault.TOO_LONG -> when (kind) {
+				CredentialKind.PIN -> uiMessage(R.string.pin_length_error)
+				CredentialKind.PATTERN -> uiMessage(R.string.pattern_too_short)
+				CredentialKind.PASSWORD -> uiMessage(R.string.password_length_error)
+			}
+		}
 
 	private fun recordFailedUnlock() {
 		val blocked = preferences.recordFailedUnlock(
@@ -1213,8 +1240,6 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 	private companion object {
 		const val EXTERNAL_STORAGE = "com.android.externalstorage.documents"
-		const val MIN_PIN = 4
-		const val MAX_PIN = 12
 		const val MAX_UNLOCK_ATTEMPTS = 5
 		const val LOCKOUT_MILLIS = 30_000L
 		const val PICKER_GRACE_MILLIS = 120_000L

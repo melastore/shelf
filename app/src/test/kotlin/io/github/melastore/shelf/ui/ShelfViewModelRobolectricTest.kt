@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
 import io.github.melastore.shelf.data.AutoHideMode
 import io.github.melastore.shelf.data.ContentCredential
+import io.github.melastore.shelf.security.CredentialKind
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -45,7 +46,7 @@ class ShelfViewModelRobolectricTest {
 		)[ShelfViewModel::class.java]
 		try {
 			await { viewModel.state.value.ready }
-			viewModel.setVaultPin("4826".toCharArray())
+			viewModel.setVaultCredential(CredentialKind.PIN, "4826".toCharArray())
 			await { viewModel.state.value.screen == Screen.VAULT }
 			viewModel.lockVault()
 			var rejected = false
@@ -73,7 +74,7 @@ class ShelfViewModelRobolectricTest {
 		)[ShelfViewModel::class.java]
 		try {
 			await { viewModel.state.value.ready }
-			viewModel.setVaultPin("4826".toCharArray())
+			viewModel.setVaultCredential(CredentialKind.PIN, "4826".toCharArray())
 			await { viewModel.state.value.screen == Screen.VAULT }
 			viewModel.lockVault()
 
@@ -96,7 +97,7 @@ class ShelfViewModelRobolectricTest {
 		)[ShelfViewModel::class.java]
 		try {
 			await { viewModel.state.value.ready }
-			viewModel.setVaultPin("4826".toCharArray())
+			viewModel.setVaultCredential(CredentialKind.PIN, "4826".toCharArray())
 			await { viewModel.state.value.screen == Screen.VAULT }
 			viewModel.setAutoHideMode(AutoHideMode.IMMEDIATE)
 			await { viewModel.state.value.autoHideMode == AutoHideMode.IMMEDIATE }
@@ -120,7 +121,7 @@ class ShelfViewModelRobolectricTest {
 		)[ShelfViewModel::class.java]
 		try {
 			await { viewModel.state.value.ready }
-			viewModel.setVaultPin("7391".toCharArray())
+			viewModel.setVaultCredential(CredentialKind.PIN, "7391".toCharArray())
 			await { viewModel.state.value.screen == Screen.VAULT }
 			assertTrue("protection should start armed", !viewModel.state.value.allowScreenshots)
 
@@ -137,6 +138,109 @@ class ShelfViewModelRobolectricTest {
 				"reopening must not restore the exemption",
 				!viewModel.state.value.allowScreenshots,
 			)
+		} finally {
+			store.clear()
+			ContentCredential.clear()
+		}
+	}
+
+	/**
+	 * A pattern and a password have to open the space and reach the folder machinery exactly as a PIN
+	 * does: the credential is also the key file headers are protected with, so a kind that unlocked the
+	 * UI but arrived at the folder layer in some other shape would leave every protected folder shut.
+	 */
+	@Test
+	fun `a pattern opens the space and reaches the folder machinery`() {
+		assertCredentialOpensVault(CredentialKind.PATTERN, "0481")
+	}
+
+	@Test
+	fun `a password opens the space and reaches the folder machinery`() {
+		assertCredentialOpensVault(CredentialKind.PASSWORD, "correct horse battery")
+	}
+
+	@Test
+	fun `a password outside the ascii range survives being set and re-entered`() {
+		assertCredentialOpensVault(CredentialKind.PASSWORD, "ሚስጥር ቁልፍ")
+	}
+
+	private fun assertCredentialOpensVault(kind: CredentialKind, secret: String) {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setVaultCredential(kind, secret.toCharArray())
+			await { viewModel.state.value.screen == Screen.VAULT }
+			assertEquals(kind, viewModel.state.value.credentialKind)
+
+			viewModel.lockVault()
+			assertEquals(Screen.DECOY, viewModel.state.value.screen)
+
+			viewModel.unlockVault(secret.toCharArray())
+			await { viewModel.state.value.screen == Screen.VAULT }
+
+			val credential = requireNotNull(ContentCredential.copy())
+			assertArrayEquals(secret.toCharArray(), credential)
+			credential.fill(' ')
+		} finally {
+			store.clear()
+			ContentCredential.clear()
+		}
+	}
+
+	/**
+	 * The second credential is entered through the same prompt as the first. Changing the kind leaves
+	 * one that prompt cannot express, so it goes rather than staying as a credential that never works.
+	 */
+	@Test
+	fun `changing the credential kind drops a second credential it could not enter`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setVaultCredential(CredentialKind.PIN, "4826".toCharArray())
+			await { viewModel.state.value.screen == Screen.VAULT }
+
+			viewModel.setDecoyCredential("4826".toCharArray(), "9999".toCharArray())
+			await { viewModel.state.value.decoyPinSet }
+
+			viewModel.changeVaultCredential(
+				CredentialKind.PATTERN,
+				"4826".toCharArray(),
+				"0481".toCharArray(),
+			)
+			await { viewModel.state.value.credentialKind == CredentialKind.PATTERN }
+
+			assertTrue("the unusable second credential should be gone", !viewModel.state.value.decoyPinSet)
+		} finally {
+			store.clear()
+			ContentCredential.clear()
+		}
+	}
+
+	@Test
+	fun `a credential of the wrong kind does not open the space`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setVaultCredential(CredentialKind.PATTERN, "0481".toCharArray())
+			await { viewModel.state.value.screen == Screen.VAULT }
+			viewModel.lockVault()
+
+			viewModel.unlockVault("1840".toCharArray())
+			await { viewModel.state.value.message != null }
+
+			assertEquals(Screen.DECOY, viewModel.state.value.screen)
 		} finally {
 			store.clear()
 			ContentCredential.clear()
