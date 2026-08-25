@@ -3,7 +3,8 @@ package io.github.melastore.shelf.ui
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.keyframes
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -248,14 +249,21 @@ private fun PatternGrid(drawn: SnapshotStateList<Int>, onDotAdded: () -> Unit, m
 		modifier = modifier.fillMaxWidth().aspectRatio(1f).testTag("pattern")
 			.semantics { contentDescription = description }
 			.onSizeChanged { side = minOf(it.width, it.height).toFloat() }
+			// Not detectDragGestures: it reports the position after touch slop has been consumed, which
+			// on a quick swipe is already past the dot the finger went down on. That dot is then missing
+			// from the pattern, and the owner draws the shape they always draw and is refused.
 			.pointerInput(spacing) {
-				detectDragGestures(
-					onDragStart = { start ->
-						drawn.clear()
-						extendTo(start)
-					},
-					onDrag = { change, _ -> extendTo(change.position) },
-				)
+				awaitEachGesture {
+					val down = awaitFirstDown(requireUnconsumed = false)
+					drawn.clear()
+					extendTo(down.position)
+					do {
+						val event = awaitPointerEvent()
+						event.changes.forEach { change ->
+							if (change.pressed) extendTo(change.position)
+						}
+					} while (event.changes.any { it.pressed })
+				}
 			},
 	) {
 		val stroke = spacing / 12f
