@@ -233,7 +233,12 @@ class QuickLockService : Service() {
 		ShelfCore.install(this)
 		val identity = intent?.let { QuickLockNotification.identity(this, it) }
 			?: QuickLockNotification.identity(this)
-		startForeground(QuickLockNotification.ID, QuickLockNotification.showWorking(this, identity))
+		// Recent releases refuse a foreground start in states this one can legitimately be reached
+		// from. Losing the foreground guarantee is worth far less than the hide itself, so a refusal
+		// leaves the work running in an ordinary service rather than taking the app down with it.
+		val foreground = runCatching {
+			startForeground(QuickLockNotification.ID, QuickLockNotification.showWorking(this, identity))
+		}.isSuccess
 		if (operation?.isActive == true) return START_NOT_STICKY
 
 		credentialLease = retainRehideCredential(this)
@@ -246,12 +251,13 @@ class QuickLockService : Service() {
 			}
 			QuickLockNotification.finish(this@QuickLockService, identity, remaining)
 			QuickLockSignal.completed()
-			if (remaining == 0) {
-				stopForeground(STOP_FOREGROUND_REMOVE)
-			} else {
-				stopForeground(STOP_FOREGROUND_DETACH)
+			if (foreground) {
+				stopForeground(if (remaining == 0) STOP_FOREGROUND_REMOVE else STOP_FOREGROUND_DETACH)
 			}
-			stopSelf(startId)
+			// Not stopSelf(startId): a second tap that arrived while this was running left a newer id
+			// behind, and stopping against the older one does nothing — leaving a foreground service
+			// and its notification up for good.
+			stopSelf()
 		}
 		return START_NOT_STICKY
 	}
