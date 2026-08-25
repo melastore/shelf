@@ -29,8 +29,8 @@ android {
 		applicationId = "io.github.melastore.shelf"
 		minSdk = 30
 		targetSdk = 36
-		versionName = "0.4.4"
-		versionCode = 8
+		versionName = "0.5.0"
+		versionCode = 9
 		testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 	}
 
@@ -77,6 +77,11 @@ android {
 		named("test") {
 			kotlin.srcDir("src/test/kotlin")
 		}
+		// The Compose prompt tests need the activity that ui-test-manifest injects, which only the
+		// debug variant has. Kept here rather than shipped into a release build to satisfy them.
+		named("testDebug") {
+			kotlin.srcDir("src/testDebug/kotlin")
+		}
 	}
 
 	dependenciesInfo {
@@ -108,6 +113,10 @@ dependencies {
 	testImplementation(libs.androidx.test.core)
 	testImplementation(libs.robolectric)
 	testImplementation(libs.robolectric.android)
+	// The credential prompts are the one part of the UI a mistake locks the owner out of, so their
+	// tests run with the rest rather than only on a device that happens to be plugged in.
+	testDebugImplementation(platform(libs.androidx.compose.bom))
+	testDebugImplementation(libs.androidx.compose.ui.test.junit4)
 	androidTestImplementation(platform(libs.androidx.compose.bom))
 	androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 	androidTestImplementation(libs.androidx.test.ext.junit)

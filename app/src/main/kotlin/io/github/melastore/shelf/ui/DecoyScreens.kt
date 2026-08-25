@@ -601,48 +601,6 @@ private fun CalendarEventCard(event: CalendarEvent, onDelete: () -> Unit) {
 	}
 }
 
-@Composable
-private fun TextEntryDialog(
-	title: String,
-	label: String,
-	subtitle: String? = null,
-	onAdd: (String) -> Unit,
-	onDismiss: () -> Unit,
-) {
-	var text by remember { mutableStateOf("") }
-	AlertDialog(
-		onDismissRequest = onDismiss,
-		shape = MaterialTheme.shapes.extraLarge,
-		title = { Text(title) },
-		text = {
-			Column {
-				if (subtitle != null) {
-					Text(
-						subtitle,
-						style = MaterialTheme.typography.bodyMedium,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-					)
-					Spacer(Modifier.height(12.dp))
-				}
-				OutlinedTextField(
-					value = text,
-					onValueChange = { text = it },
-					modifier = Modifier.fillMaxWidth(),
-					shape = MaterialTheme.shapes.medium,
-					label = { Text(label) },
-					singleLine = true,
-				)
-			}
-		},
-		confirmButton = {
-			TextButton(onClick = { onAdd(text) }, enabled = text.isNotBlank()) {
-				Text(stringResource(R.string.add))
-			}
-		},
-		dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
-	)
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CalculatorDecoy(entryMethod: EntryMethod, onSecretEntry: () -> Unit) {
