@@ -30,21 +30,29 @@ object RootShell : RootCommandRunner {
 	 * Runs [commands] in a single root shell. The commands run under `set -e`, so the first failure
 	 * aborts the rest and surfaces as a non-zero exit code rather than a partially applied change.
 	 */
-	override suspend fun run(vararg commands: String): ShellResult = withContext(Dispatchers.IO) {
+	override suspend fun run(vararg commands: String): ShellResult = execute(SU, commands)
+
+	/** [run] against an arbitrary shell, so the failure paths can be exercised without a rooted host. */
+	internal suspend fun execute(shell: String, commands: Array<out String>): ShellResult = withContext(Dispatchers.IO) {
 		val process = try {
-			ProcessBuilder("su").redirectErrorStream(false).start()
+			ProcessBuilder(shell).redirectErrorStream(false).start()
 		} catch (e: IOException) {
 			return@withContext ShellResult(EXIT_NO_SU, emptyList(), listOf(e.message.orEmpty()))
 		}
 
+		// A denied root request closes the shell's stdin, and the write that follows fails. That is one
+		// more thing to report through the result; letting it fail the coroutine would cancel the reads
+		// alongside it and turn an ordinary refusal into an exception every caller has to guess at.
 		val writer = async {
-			process.outputStream.bufferedWriter().use { stdin ->
-				stdin.write("set -e\n")
-				commands.forEach {
-					stdin.write(it)
-					stdin.write("\n")
+			runCatching {
+				process.outputStream.bufferedWriter().use { stdin ->
+					stdin.write("set -e\n")
+					commands.forEach {
+						stdin.write(it)
+						stdin.write("\n")
+					}
 				}
-			}
+			}.exceptionOrNull()?.message
 		}
 
 		// Drain both pipes while the command runs. A large command result can fill stdout, and a denied
@@ -54,8 +62,7 @@ object RootShell : RootCommandRunner {
 		val finished = process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
 		if (!finished) process.destroyForcibly()
 		process.waitFor()
-		val writeError = runCatching { writer.await() }.exceptionOrNull()?.message
-		val errors = err.await() + listOfNotNull(writeError)
+		val errors = err.await() + listOfNotNull(writer.await())
 		ShellResult(if (finished) process.exitValue() else EXIT_TIMEOUT, out.await(), errors)
 	}
 
@@ -68,6 +75,7 @@ object RootShell : RootCommandRunner {
 
 	private fun BufferedReader.useLinesTrimmed(): List<String> = use { it.readLines() }.filter { it.isNotEmpty() }
 
+	private const val SU = "su"
 	private const val EXIT_NO_SU = 127
 	private const val EXIT_TIMEOUT = 124
 	private const val COMMAND_TIMEOUT_SECONDS = 30L

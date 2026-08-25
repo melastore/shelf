@@ -24,9 +24,15 @@ object ContentCredential {
 
 	@Synchronized fun isAvailable(): Boolean = value != null || retained.isNotEmpty()
 
-	/** Keeps a short-lived copy alive while an emergency hide closes the UI immediately. */
+	/**
+	 * Keeps a short-lived copy alive while an emergency hide closes the UI immediately.
+	 *
+	 * This snapshots whatever [copy] would hand out, not the live session alone: a second hide that
+	 * starts while the first still holds a lease would otherwise take an empty one, and lose the
+	 * credential the moment that first lease closed — halfway through its own folder.
+	 */
 	@Synchronized fun retain(): AutoCloseable {
-		val snapshot = value?.copyOf() ?: return AutoCloseable { }
+		val snapshot = (value ?: retained.lastOrNull())?.copyOf() ?: return AutoCloseable { }
 		retained += snapshot
 		return AutoCloseable {
 			synchronized(this) {
