@@ -55,6 +55,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -351,12 +352,22 @@ private fun HabitCard(habit: Habit, today: LocalDate, viewModel: ShelfViewModel)
 	}
 }
 
+/**
+ * The device locale, read so Compose notices when it changes.
+ *
+ * `Locale.getDefault()` is a plain static read: a calendar laid out for one locale would keep its
+ * weekday order and names after the user picked another, until something unrelated happened to
+ * recompose it.
+ */
+@Composable
+private fun currentLocale(): Locale = LocalConfiguration.current.locales[0]
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DayBubble(date: LocalDate, checked: Boolean, onClick: () -> Unit) {
 	Column(horizontalAlignment = Alignment.CenterHorizontally) {
 		Text(
-			date.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()),
+			date.dayOfWeek.getDisplayName(TextStyle.NARROW, currentLocale()),
 			style = MaterialTheme.typography.labelSmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
@@ -497,7 +508,7 @@ private fun CalendarDecoy(state: AppUiState, viewModel: ShelfViewModel, onSecret
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MonthGrid(month: YearMonth, selected: LocalDate, busyDays: Set<String>, onSelected: (LocalDate) -> Unit,) {
-	val locale = Locale.getDefault()
+	val locale = currentLocale()
 	val firstWeekday = WeekFields.of(locale).firstDayOfWeek
 	val weekdays = remember(locale) { (0L..6L).map { firstWeekday.plus(it) } }
 	val first = month.atDay(1)

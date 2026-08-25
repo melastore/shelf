@@ -5,7 +5,7 @@ should preserve the invariants documented in [THREAT_MODEL.md](THREAT_MODEL.md).
 
 ## Development setup
 
-1. Install JDK 17 and the Android SDK required by `compileSdk` in `app/build.gradle.kts`.
+1. Install JDK 21 and the Android SDK required by `compileSdk` in `app/build.gradle.kts`.
 2. Clone the repository and run `./gradlew testDebugUnitTest`.
 3. Use `keystore.properties.example` only as a template for local release signing. Never commit keys,
    passwords, recovery files, or real folder paths.

@@ -10,25 +10,24 @@ val keystoreProperties = Properties().apply {
 
 plugins {
 	alias(libs.plugins.android.application)
-	alias(libs.plugins.kotlin.android)
 	alias(libs.plugins.kotlin.compose)
 	alias(libs.plugins.kotlin.serialization)
 }
 
 kotlin {
 	compilerOptions {
-		jvmTarget = JvmTarget.JVM_17
+		jvmTarget = JvmTarget.JVM_21
 	}
 }
 
 android {
 	namespace = "io.github.melastore.shelf"
-	compileSdk = 36
+	compileSdk = 37
 
 	defaultConfig {
 		applicationId = "io.github.melastore.shelf"
 		minSdk = 30
-		targetSdk = 36
+		targetSdk = 37
 		versionName = "0.5.0"
 		versionCode = 9
 		testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -66,8 +65,8 @@ android {
 	}
 
 	compileOptions {
-		sourceCompatibility = JavaVersion.VERSION_17
-		targetCompatibility = JavaVersion.VERSION_17
+		sourceCompatibility = JavaVersion.VERSION_21
+		targetCompatibility = JavaVersion.VERSION_21
 	}
 
 	sourceSets {
