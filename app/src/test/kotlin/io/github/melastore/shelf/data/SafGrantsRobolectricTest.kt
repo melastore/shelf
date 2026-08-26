@@ -45,6 +45,9 @@ class SafGrantsRobolectricTest {
 	private lateinit var paths: StoragePaths
 	private lateinit var folder: File
 
+	/** What the provider serves. The same tree as [folder] unless a test points it elsewhere. */
+	private lateinit var providerRoot: String
+
 	@Before
 	fun setUp() {
 		val base = temporaryFolder.newFolder()
@@ -58,6 +61,7 @@ class SafGrantsRobolectricTest {
 		folder.resolve("nested").mkdirs()
 		folder.resolve("nested/three.jpg").writeText("third")
 
+		providerRoot = paths.emulatedRoot
 		registerProvider()
 		grant("primary:Pictures")
 	}
@@ -83,7 +87,7 @@ class SafGrantsRobolectricTest {
 			ComponentName(context.packageName, name),
 			IntentFilter(DOCUMENTS_PROVIDER),
 		)
-		ShadowContentResolver.registerProviderInternal(AUTHORITY, FakeDocuments(paths.emulatedRoot))
+		ShadowContentResolver.registerProviderInternal(AUTHORITY, FakeDocuments { providerRoot })
 	}
 
 	@Test
@@ -118,6 +122,30 @@ class SafGrantsRobolectricTest {
 		assertEquals(NameProtectionResult.CredentialRequired, protector.protect(folder.path))
 	}
 
+	/**
+	 * The failure that shipped in 0.5.1, and the reason the reviewer saw a folder that was only
+	 * renamed. On a restricted storage mount the folder answers yes to isDirectory, canRead and
+	 * canWrite, and lists as empty however many files are in it, so the File walk found nothing and
+	 * the protector called that an empty folder. Here the provider serves the files the File API
+	 * cannot see; a protector that trusts the empty walk reports NoFiles and touches nothing.
+	 */
+	@Test
+	fun `an empty File view does not decide the folder is empty`() = runBlocking {
+		val hidden = temporaryFolder.newFolder()
+		File(hidden, "Pictures/Secret").mkdirs()
+		File(hidden, "Pictures/Secret/one.jpg").writeText("first")
+		providerRoot = hidden.path
+		// What this process can see of the same folder: present, writable, and empty.
+		folder.listFiles()?.forEach { it.deleteRecursively() }
+		check(folder.isDirectory && folder.canRead() && folder.canWrite())
+		check(folder.listFiles()!!.isEmpty())
+
+		val protector = FolderContentProtector(context, paths, credential = { null })
+
+		// CredentialRequired rather than NoFiles: it got past the walk with files in hand.
+		assertEquals(ContentProtectionResult.CredentialRequired, protector.protect(folder.path))
+	}
+
 	@Test
 	fun `a folder outside every grant is refused`() {
 		val outside = File(paths.emulatedRoot, "Documents/Other").apply { mkdirs() }
@@ -134,7 +162,7 @@ class SafGrantsRobolectricTest {
 	}
 
 	/** Just enough of the storage provider to describe a real directory tree under [root]. */
-	private class FakeDocuments(private val root: String) : ContentProvider() {
+	private class FakeDocuments(private val root: () -> String) : ContentProvider() {
 
 		override fun onCreate() = true
 
@@ -180,7 +208,7 @@ class SafGrantsRobolectricTest {
 
 		private fun file(documentId: String): File {
 			val relative = documentId.removePrefix("primary:")
-			return if (relative.isEmpty()) File(root) else File(root, relative)
+			return if (relative.isEmpty()) File(root()) else File(root(), relative)
 		}
 
 		override fun getType(uri: Uri): String? = null

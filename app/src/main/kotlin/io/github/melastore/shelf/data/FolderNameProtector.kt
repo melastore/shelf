@@ -42,19 +42,24 @@ class FolderNameProtector(
 	private val resolver get() = appContext.contentResolver
 	private val json = Json { ignoreUnknownKeys = false }
 
+	/**
+	 * The File walk is only believed when it actually sees files.
+	 *
+	 * A folder this process may not enumerate still answers yes to isDirectory, canRead and
+	 * canWrite, and lists as empty; on some builds isExternalStorageManager agrees. Renaming nothing
+	 * and calling it done is the failure this guards against, so an empty File view defers to the
+	 * provider, which answers from the grant rather than from the mount.
+	 */
+	private fun walkable(path: String): File? =
+		File(path).takeIf { canWalkAsFile(it) && it.listFiles().orEmpty().isNotEmpty() }
+
 	suspend fun protect(path: String): NameProtectionResult = withContext(Dispatchers.IO) {
-		val direct = File(path)
-		if (direct.isDirectory && direct.canRead() && direct.canWrite()) {
-			return@withContext protectFile(direct)
-		}
+		walkable(path)?.let { return@withContext protectFile(it) }
 		safRoot(path)?.let(::protectSaf) ?: NameProtectionResult.AccessUnavailable
 	}
 
 	suspend fun restore(path: String): NameProtectionResult = withContext(Dispatchers.IO) {
-		val direct = File(path)
-		if (direct.isDirectory && direct.canRead() && direct.canWrite()) {
-			return@withContext restoreFile(direct)
-		}
+		walkable(path)?.let { return@withContext restoreFile(it) }
 		safRoot(path)?.let(::restoreSaf) ?: NameProtectionResult.AccessUnavailable
 	}
 
