@@ -4,7 +4,7 @@ name, icon, and colour scheme.
 
 Five taps in the top-right corner open the credential prompt. Settings adds a
 second, quieter gesture: a long press on the decoy title, or on a natural
-control inside the decoy. Access uses a PIN, a password, or a 3x3 pattern,
+control inside the decoy. Access uses a PIN, a password, or a 3×3 pattern,
 chosen at setup and changeable in Settings. Optional strong-biometric unlock
 always opens the real space, with the credential as fallback.
 

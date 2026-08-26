@@ -1,6 +1,6 @@
 Unlock with a password or a pattern, not only a PIN.
 
-- Choose a PIN, a password, or a 3x3 pattern at setup, and change it in Settings.
+- Choose a PIN, a password, or a 3×3 pattern at setup, and change it in Settings.
 - The unlock screen no longer mentions that a second credential exists.
 - Wrong credentials are logged and reported on your next real unlock.
 - Each lockout now lasts longer than the last, up to an hour.
