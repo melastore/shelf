@@ -58,9 +58,21 @@ class FolderNameProtector(
 		safRoot(path)?.let(::protectSaf) ?: NameProtectionResult.AccessUnavailable
 	}
 
+	/**
+	 * Restore is not held to the same test as [protect], and must not be.
+	 *
+	 * Protecting a folder that lists as empty risks reporting success over files that were never
+	 * touched, so an empty File view is refused there. Putting names back is the opposite: with no
+	 * manifest there is nothing to put back, and refusing would strand a folder its owner is trying
+	 * to open. A root hide on a restricted mount reaches exactly that state, and a caller that treats
+	 * the refusal as failure hides the folder again.
+	 */
 	suspend fun restore(path: String): NameProtectionResult = withContext(Dispatchers.IO) {
-		walkable(path)?.let { return@withContext restoreFile(it) }
-		safRoot(path)?.let(::restoreSaf) ?: NameProtectionResult.AccessUnavailable
+		val direct = File(path).takeIf { canWalkAsFile(it) }
+		// A manifest in the File view is proof that view is the one that wrote it.
+		if (direct != null && File(direct, MANIFEST).isFile) return@withContext restoreFile(direct)
+		safRoot(path)?.let { return@withContext restoreSaf(it) }
+		direct?.let { restoreFile(it) } ?: NameProtectionResult.AccessUnavailable
 	}
 
 	private fun protectFile(root: File): NameProtectionResult {

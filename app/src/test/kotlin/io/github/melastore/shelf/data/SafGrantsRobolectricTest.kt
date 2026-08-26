@@ -146,6 +146,22 @@ class SafGrantsRobolectricTest {
 		assertEquals(ContentProtectionResult.CredentialRequired, protector.protect(folder.path))
 	}
 
+	/**
+	 * A root hide on a restricted mount protects nothing, so there is no manifest to undo. Refusing
+	 * the restore made the caller chmod the folder shut again, which is a folder its owner cannot
+	 * open by any route the app offers.
+	 */
+	@Test
+	fun `restoring a folder with no manifest is not a refusal`() = runBlocking {
+		val plain = File(paths.emulatedRoot, "Documents/Plain").apply { mkdirs() }
+		plain.resolve("kept.txt").writeText("as it was")
+
+		val protector = FolderNameProtector(context, paths, credential = { null })
+
+		// Outside every grant, so only the File view can answer, and it has nothing to put back.
+		assertEquals(NameProtectionResult.NoFiles, protector.restore(plain.path))
+	}
+
 	@Test
 	fun `a folder outside every grant is refused`() {
 		val outside = File(paths.emulatedRoot, "Documents/Other").apply { mkdirs() }
