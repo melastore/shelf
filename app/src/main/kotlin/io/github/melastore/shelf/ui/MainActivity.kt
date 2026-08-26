@@ -269,17 +269,6 @@ class MainActivity : ComponentActivity() {
 							showFakeCrash = false
 							beginPrivateEntry()
 						},
-						onAppInfo = {
-							showFakeCrash = false
-							runCatching {
-								startActivity(
-									Intent(
-										Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-										Uri.fromParts("package", packageName, null),
-									),
-								)
-							}
-						},
 						onClose = {
 							showFakeCrash = false
 							finishAndRemoveTask()
