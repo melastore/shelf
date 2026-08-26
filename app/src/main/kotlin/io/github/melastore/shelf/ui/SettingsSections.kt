@@ -123,11 +123,17 @@ internal fun FolderSettingsSection(
 		stringResource(R.string.hiding_engine_description),
 	) {
 		HidingPreference.entries.forEach { preference ->
+			// Private move cannot do anything without all-files access, and a device can report that it
+			// holds access it does not. Selecting it while it is unavailable would set a method every
+			// hide then refuses, so the row asks for the permission instead and is only selectable once
+			// the method is really there.
+			val needsGrant = preference == HidingPreference.ALL_FILES &&
+				HideMethod.PRIVATE_MOVE !in state.availableMethods
 			SettingsRow(
 				title = preference.settingsTitle(),
 				summary = preference.settingsSummary(state.availableMethods),
-				trailing = { SelectionMark(state.hidingPreference == preference) },
-				onClick = { onHidingPreference(preference) },
+				trailing = { if (!needsGrant) SelectionMark(state.hidingPreference == preference) },
+				onClick = { if (needsGrant) onRequestAllFiles() else onHidingPreference(preference) },
 			)
 		}
 		if (state.canRequestAllFiles) {
