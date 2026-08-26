@@ -63,12 +63,12 @@
 	<string name="credential_kind_pin">PIN</string>
 	<string name="credential_kind_knock">Knock code</string>
 	<string name="enter_knock">Tap your knock code</string>
-	<string name="enter_knock_subtitle">Tap the quarters in the order you set.</string>
+	<string name="enter_knock_subtitle">Tap the quarters in the order you set, then hold anywhere to enter.</string>
 	<string name="new_knock">New knock code</string>
 	<string name="current_knock">Current knock code</string>
 	<string name="confirm_knock">Tap it again</string>
 	<string name="knock_mismatch">Those did not match. Tap it again.</string>
-	<string name="knock_hint">At least 4 taps on the four quarters. Repeats are allowed.</string>
+	<string name="knock_hint">At least 4 taps on the four quarters, repeats allowed. Unlocking shows a blank screen: tap your code, then hold anywhere to enter.</string>
 	<string name="knock_too_short">Tap at least 4 times.</string>
 	<string name="knock_area">Knock code pad</string>
 	<string name="clear">Clear</string>
@@ -205,6 +205,8 @@
 	<string name="fake_crash_message">%1$s keeps stopping</string>
 	<string name="fake_crash_app_info">App info</string>
 	<string name="fake_crash_close">Close app</string>
+	<string name="fake_crash_details">Show details</string>
+	<string name="fake_crash_trace">java.lang.IllegalStateException: %1$s could not restore its state\n\tat android.app.ActivityThread.performLaunchActivity(ActivityThread.java:3782)\n\tat android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:3971)\n\tat android.app.servertransaction.LaunchActivityItem.execute(LaunchActivityItem.java:104)\n\tat android.app.ActivityThread.main(ActivityThread.java:8663)\n\tat java.lang.reflect.Method.invoke(Native Method)</string>
 	<string name="fake_crash">Fake crash</string>
 	<string name="fake_crash_summary">The entry gesture shows an app-has-stopped dialog instead of the unlock screen. Press and hold the message to carry on. Both buttons do what they say.</string>
 	<string name="fake_crash_on">Fake crash on. Hold the message to unlock.</string>
