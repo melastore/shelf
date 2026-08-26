@@ -52,6 +52,21 @@ class AppPreferences(context: Context) {
 
 	fun setDecoy(value: DecoyType) = putString(KEY_DECOY, value.name)
 
+	/**
+	 * How far first-run setup got. The wizard hands the launcher a new icon at the end, which ends the
+	 * task it is running in, and it is also the one screen an owner is most likely to be pulled away
+	 * from. Either way the next launch resumes rather than starting over.
+	 */
+	fun setSetupStep(value: Int) {
+		values.edit(commit = true) { putInt(KEY_SETUP_STEP, value) }
+	}
+
+	fun setupStep(): Int = values.getInt(KEY_SETUP_STEP, 0)
+
+	fun clearSetupStep() {
+		values.edit(commit = true) { remove(KEY_SETUP_STEP) }
+	}
+
 	fun decoy(): DecoyType = enumValue(KEY_DECOY, DecoyType.NONE)
 
 	fun setEntryMethod(value: EntryMethod) = putString(KEY_ENTRY, value.name)
@@ -180,6 +195,7 @@ class AppPreferences(context: Context) {
 	private companion object {
 		const val FILE_NAME = "settings"
 		const val KEY_DECOY = "decoy"
+		const val KEY_SETUP_STEP = "setup_step"
 		const val KEY_ENTRY = "entry_method"
 		const val KEY_HIDING = "hiding_preference"
 		const val KEY_USES_PIN = "vault_uses_pin"

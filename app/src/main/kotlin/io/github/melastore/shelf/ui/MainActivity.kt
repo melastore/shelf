@@ -217,7 +217,7 @@ class MainActivity : ComponentActivity() {
 						when {
 							firstRun -> FirstRunSetup(
 								state = state,
-								onDecoy = viewModel::setDecoy,
+								onDecoy = viewModel::chooseDecoy,
 								onEntryMethod = viewModel::setEntryMethod,
 								onHidingPreference = viewModel::setHidingPreference,
 								onCheckMethods = viewModel::refreshCapabilities,
@@ -232,6 +232,7 @@ class MainActivity : ComponentActivity() {
 								},
 								onRequestNotifications = { changeQuickLock(true) },
 								onCreateCredential = viewModel::setVaultCredential,
+								onStep = viewModel::setSetupStep,
 							)
 
 							state.screen == Screen.DECOY ->

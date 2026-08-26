@@ -96,6 +96,8 @@ data class AppUiState(
 	val decoy: DecoyType = DecoyType.HABITS,
 	val entryMethod: EntryMethod = EntryMethod.TITLE_HOLD,
 	val hidingPreference: HidingPreference = HidingPreference.AUTO,
+	/** Which first-run step to resume on. Meaningless once a credential exists. */
+	val setupStep: Int = 0,
 	val habits: List<Habit> = emptyList(),
 	val calendarEvents: List<CalendarEvent> = emptyList(),
 	val method: HideMethod? = null,
@@ -197,7 +199,10 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					settings.biometricEnabled
 				}
 			}
-			withContext(Dispatchers.IO) { launcherAliases.apply(settings.decoy) }
+			// Not while setup is unfinished: disabling the alias the wizard is running under ends its
+			// task, and the owner is dropped back to the home screen mid-way through. The disguise goes
+			// on once there is a credential behind it.
+			if (credentialSet) withContext(Dispatchers.IO) { launcherAliases.apply(settings.decoy) }
 			val habits = guard { habitStore.read() }.orEmpty()
 			val events = guard { calendarStore.read() }.orEmpty()
 			_state.update {
@@ -213,6 +218,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					decoy = settings.decoy,
 					entryMethod = settings.entryMethod,
 					hidingPreference = settings.hidingPreference,
+					setupStep = if (credentialSet) 0 else preferences.setupStep(),
 					habits = habits,
 					calendarEvents = events,
 				)
@@ -273,7 +279,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			withContext(Dispatchers.IO) { EmergencyCredentialStore.clear(getApplication()) }
 			auth.setPrimary(credential, kind)
 			ContentCredential.set(credential)
-			_state.update { it.copy(credentialSet = true, credentialKind = kind) }
+			withContext(Dispatchers.IO) { preferences.clearSetupStep() }
+			_state.update { it.copy(credentialSet = true, credentialKind = kind, setupStep = 0) }
 			openVault()
 		} finally {
 			credential.fill(' ')
@@ -754,12 +761,12 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		_state.update { it.copy(exposedFolders = exposed) }
 	}
 
+	/**
+	 * Records the disguise. The launcher entry itself is swapped later, by [applyPendingDisguise].
+	 */
 	fun setDecoy(decoy: DecoyType) = viewModelScope.launch {
 		try {
-			withContext(Dispatchers.IO) {
-				preferences.setDecoy(decoy)
-				launcherAliases.apply(decoy)
-			}
+			withContext(Dispatchers.IO) { preferences.setDecoy(decoy) }
 			_state.update { it.copy(decoy = decoy, message = uiMessage(R.string.disguise_changed)) }
 		} catch (e: Exception) {
 			fail(
@@ -767,6 +774,17 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					?: uiMessage(R.string.disguise_change_failed)
 			)
 		}
+	}
+
+	/** The setup form of [setDecoy]: same choice, without a message over a wizard step. */
+	fun chooseDecoy(decoy: DecoyType) = viewModelScope.launch {
+		withContext(Dispatchers.IO) { preferences.setDecoy(decoy) }
+		_state.update { it.copy(decoy = decoy) }
+	}
+
+	fun setSetupStep(step: Int) = viewModelScope.launch {
+		withContext(Dispatchers.IO) { preferences.setSetupStep(step) }
+		_state.update { it.copy(setupStep = step) }
 	}
 
 	fun setEntryMethod(method: EntryMethod) = viewModelScope.launch {
@@ -825,6 +843,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		val awaitingPicker = SystemClock.elapsedRealtime() < awaitingPickerUntil
 		awaitingPickerUntil = 0L
 		backgroundLock?.cancel()
+		if (!awaitingPicker) applyPendingDisguise()
 		if (_state.value.autoHideMode != AutoHideMode.IMMEDIATE) return
 		// A picker can briefly interrupt an immediate hide, or no folder could ever be selected. If the
 		// picker is abandoned, the grace period still ends by closing and hiding everything.
@@ -835,6 +854,22 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			}
 		} else {
 			autoHideAndClose()
+		}
+	}
+
+	/**
+	 * Puts the chosen launcher entry in place while nothing is on screen to lose.
+	 *
+	 * Disabling the alias an activity is running under ends its task, so doing this the moment the
+	 * disguise is picked drops the owner on the home screen — during setup, before there is even a
+	 * credential. Setting a component to the state it already has does nothing, so on every launch
+	 * after the one that changed it this costs nothing.
+	 */
+	private fun applyPendingDisguise() {
+		if (!_state.value.credentialSet) return
+		val decoy = _state.value.decoy
+		viewModelScope.launch {
+			runCatching { withContext(Dispatchers.IO) { launcherAliases.apply(decoy) } }
 		}
 	}
 

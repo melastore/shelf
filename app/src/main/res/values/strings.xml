@@ -191,7 +191,7 @@
 	<string name="bulk_restored">Unhid %1$s.</string>
 	<string name="duress_used_once">Your second PIN was used on %1$s.</string>
 	<string name="duress_used_multiple">Your second PIN was used %1$d times, most recently on %2$s.</string>
-	<string name="disguise_changed">Disguise changed.</string>
+	<string name="disguise_changed">Disguise changed. The launcher icon updates once you leave Shelf.</string>
 	<string name="disguise_change_failed">Could not change the launcher disguise.</string>
 	<string name="disguise_change_failed_detail">Could not change the launcher disguise: %1$s</string>
 	<string name="entry_gesture_changed">Entry gesture changed.</string>
