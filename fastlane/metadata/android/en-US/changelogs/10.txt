@@ -1,0 +1,7 @@
+Fixes hiding through the folder picker, which was only renaming the folder.
+
+- File names and headers are now protected on the rename method as well.
+- A folder that cannot be read is reported instead of counted as empty.
+- Picking a disguise no longer closes setup and drops you on the home screen.
+- The launcher icon changes once you leave Shelf, not while you are in it.
+- Setup resumes at the step you reached rather than starting again.
