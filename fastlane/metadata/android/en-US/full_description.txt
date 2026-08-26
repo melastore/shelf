@@ -4,9 +4,16 @@ name, icon, and colour scheme.
 
 Five taps in the top-right corner open the credential prompt. Settings adds a
 second, quieter gesture: a long press on the decoy title, or on a natural
-control inside the decoy. Access uses a PIN, a password, or a 3×3 pattern,
-chosen at setup and changeable in Settings. Optional strong-biometric unlock
-always opens the real space, with the credential as fallback.
+control inside the decoy. Access uses a PIN, a password, a 3×3 pattern, or a
+knock code on four unmarked quarters, chosen at setup and changeable in
+Settings. The knock pad shows a blank screen while it is entered, so a watcher
+learns neither the length of the code nor how far through it you are. Optional
+strong-biometric unlock always opens the real space, with the credential as
+fallback.
+
+The entry gesture can put up an app-has-stopped dialog instead of the unlock
+screen. It is laid out like the one Android shows, and closing it really closes
+the app; a long press on the message is what carries on to the credential.
 
 Auto hide has three clear choices: after screen off, immediately when Shelf
 leaves the foreground, or never. It closes the private space and puts exposed
