@@ -63,12 +63,12 @@
 	<string name="credential_kind_pin">PIN</string>
 	<string name="credential_kind_knock">Knock code</string>
 	<string name="enter_knock">Tap your knock code</string>
-	<string name="enter_knock_subtitle">Tap the quarters in the order you set, then hold anywhere to enter.</string>
+	<string name="enter_knock_subtitle">Tap the quarters in the order you set, hold anywhere to enter, swipe to start over.</string>
 	<string name="new_knock">New knock code</string>
 	<string name="current_knock">Current knock code</string>
 	<string name="confirm_knock">Tap it again</string>
 	<string name="knock_mismatch">Those did not match. Tap it again.</string>
-	<string name="knock_hint">At least 4 taps on the four quarters, repeats allowed. Unlocking shows a blank screen: tap your code, then hold anywhere to enter.</string>
+	<string name="knock_hint">At least 4 taps on the four quarters, repeats allowed. Unlocking shows a blank screen: tap your code, hold anywhere to enter, swipe to start over.</string>
 	<string name="knock_too_short">Tap at least 4 times.</string>
 	<string name="knock_area">Knock code pad</string>
 	<string name="clear">Clear</string>

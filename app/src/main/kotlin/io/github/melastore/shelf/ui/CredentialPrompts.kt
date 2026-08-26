@@ -6,6 +6,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -300,7 +301,17 @@ fun KnockPrompt(
 					haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
 				}
 			},
-			onSubmit = { if (KnockCode.isValid(tapped.toList())) finish() else tapped.clear() },
+			onSubmit = {
+				// A hold that lands a fraction short counts as a tap and quietly adds a quarter, and a
+				// blank pad gives nothing to notice that by. So the hold answers with a weight of its
+				// own, distinct from the tick a tap makes.
+				haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+				if (KnockCode.isValid(tapped.toList())) finish() else tapped.clear()
+			},
+			onReset = {
+				haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+				tapped.clear()
+			},
 			onDismiss = onDismiss,
 		)
 		return
@@ -351,10 +362,11 @@ fun KnockPrompt(
  *
  * No title, no tap count, no buttons. Someone watching sees a finger land on an empty screen and
  * learns neither how long the code is nor how far through it the owner got. A long press anywhere
- * enters it, which is the same hold the crash dialog uses, and back gives up.
+ * enters it, which is the same hold the crash dialog uses; a swipe starts the code over, for when
+ * the count is lost and there is nothing on screen to check it against; and back gives up.
  */
 @Composable
-private fun BareKnockPad(onQuarter: (Int) -> Unit, onSubmit: () -> Unit, onDismiss: () -> Unit) {
+private fun BareKnockPad(onQuarter: (Int) -> Unit, onSubmit: () -> Unit, onReset: () -> Unit, onDismiss: () -> Unit,) {
 	val description = stringResource(R.string.knock_area)
 	val line = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
 	Dialog(
@@ -377,6 +389,10 @@ private fun BareKnockPad(onQuarter: (Int) -> Unit, onSubmit: () -> Unit, onDismi
 								onQuarter(row * KnockCode.SIDE + column)
 							},
 						)
+					}
+					// Past touch slop, so a tap that drifts is still a tap.
+					.pointerInput(Unit) {
+						detectDragGestures(onDragStart = { onReset() }) { change, _ -> change.consume() }
 					},
 			) {
 				// Just enough to show where the quarters divide, and not enough to read as a keypad.
