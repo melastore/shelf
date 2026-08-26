@@ -14,10 +14,17 @@ import java.nio.charset.StandardCharsets
  * which one was used, so the choice can be changed without touching a single hidden folder — as long
  * as the credential itself does not change with it.
  */
-enum class CredentialKind { PIN, PASSWORD, PATTERN }
+enum class CredentialKind { PIN, PASSWORD, PATTERN, KNOCK }
 
 /** Why a credential was rejected before anything was stored. */
-enum class CredentialFault { TOO_SHORT, TOO_LONG, PIN_NOT_DIGITS, PATTERN_TOO_SHORT, PASSWORD_UNSUPPORTED }
+enum class CredentialFault {
+	TOO_SHORT,
+	TOO_LONG,
+	PIN_NOT_DIGITS,
+	PATTERN_TOO_SHORT,
+	KNOCK_TOO_SHORT,
+	PASSWORD_UNSUPPORTED,
+}
 
 /**
  * The 3×3 lock pattern, as the digits of the dots it joins.
@@ -61,6 +68,35 @@ object PatternCode {
 }
 
 /**
+ * A knock code, as the digits of the quarters it taps.
+ *
+ * Four unmarked quarters and an order. Nothing on screen says where the divisions are or how long
+ * the code is, so it can be entered without looking at the phone at all, and someone watching sees
+ * taps landing on a blank square rather than a keypad. Repeats are allowed, which is what separates
+ * it from a pattern and why four taps still cover 256 codes rather than a handful of paths.
+ *
+ * Encoded as digits for the same reason a pattern is: the gate, the key derivation and the Keystore
+ * wrappers then treat it as the same kind of secret as a PIN.
+ */
+object KnockCode {
+
+	const val SIDE = 2
+	const val QUARTERS = SIDE * SIDE
+	const val MIN_TAPS = 4
+	const val MAX_TAPS = 12
+
+	fun isValid(taps: List<Int>): Boolean = taps.size in MIN_TAPS..MAX_TAPS && taps.all { it in 0 until QUARTERS }
+
+	fun encode(taps: List<Int>): CharArray = CharArray(taps.size) { '0' + taps[it] }
+
+	/** Whether [encoded] could have come from [encode], which is the only shape a gate ever sees. */
+	fun isEncoded(encoded: CharArray): Boolean {
+		if (encoded.any { it < '0' || it > '0' + QUARTERS - 1 }) return false
+		return isValid(encoded.map { it - '0' })
+	}
+}
+
+/**
  * The rules every credential is held to, wherever it is checked.
  *
  * They live in one place because two of the checks are not in the UI at all: the biometric wrapper and
@@ -89,6 +125,15 @@ object CredentialRules {
 			credential.size < PatternCode.MIN_DOTS -> CredentialFault.PATTERN_TOO_SHORT
 			credential.size > PatternCode.DOTS -> CredentialFault.TOO_LONG
 			!PatternCode.isEncoded(credential) -> CredentialFault.PATTERN_TOO_SHORT
+			else -> null
+		}
+
+		// Four quarters tapped in order, repeats allowed. The pad already guarantees the shape; this is
+		// what stops anything else reaching the gate.
+		CredentialKind.KNOCK -> when {
+			credential.size < KnockCode.MIN_TAPS -> CredentialFault.KNOCK_TOO_SHORT
+			credential.size > KnockCode.MAX_TAPS -> CredentialFault.TOO_LONG
+			!KnockCode.isEncoded(credential) -> CredentialFault.KNOCK_TOO_SHORT
 			else -> null
 		}
 

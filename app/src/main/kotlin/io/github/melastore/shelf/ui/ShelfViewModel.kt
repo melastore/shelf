@@ -507,11 +507,14 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 			CredentialFault.PATTERN_TOO_SHORT -> uiMessage(R.string.pattern_too_short)
 
+			CredentialFault.KNOCK_TOO_SHORT -> uiMessage(R.string.knock_too_short)
+
 			CredentialFault.PASSWORD_UNSUPPORTED -> uiMessage(R.string.password_unsupported)
 
 			CredentialFault.TOO_SHORT, CredentialFault.TOO_LONG -> when (kind) {
 				CredentialKind.PIN -> uiMessage(R.string.pin_length_error)
 				CredentialKind.PATTERN -> uiMessage(R.string.pattern_too_short)
+				CredentialKind.KNOCK -> uiMessage(R.string.knock_too_short)
 				CredentialKind.PASSWORD -> uiMessage(R.string.password_length_error)
 			}
 		}
