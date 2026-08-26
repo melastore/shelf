@@ -1,0 +1,5 @@
+Fixes Private move failing on devices that report storage access they do not have.
+
+- Private move now refuses a folder it cannot really reach, before touching it.
+- It no longer protects a folder and then undoes it all when the move fails.
+- No vault directory is left behind by a move that never happened.
