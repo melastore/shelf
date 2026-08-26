@@ -35,10 +35,8 @@ object SafGrants {
 	 * [path] as a directory that can be walked and written to.
 	 *
 	 * It has to be built with [DocumentFile.fromTreeUri]. `fromSingleUri` answers `isDirectory` from
-	 * the provider and so looks correct, but every operation that needs the folder's children —
-	 * `listFiles`, `findFile`, `createFile` — throws `UnsupportedOperationException` on it. Callers
-	 * that caught that turned a folder they never touched into a folder with nothing in it, and
-	 * reported success.
+	 * the provider and so looks correct, but anything needing the children — `listFiles`, `findFile`,
+	 * `createFile` — throws `UnsupportedOperationException` on it.
 	 */
 	fun folder(context: Context, paths: StoragePaths, path: String): DocumentFile? {
 		val tree = covering(context.contentResolver, paths.emulatedRoot, path) ?: return null

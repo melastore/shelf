@@ -20,9 +20,9 @@ Android 11 or newer. Grab the APK from
 [Releases](https://github.com/melastore/shelf/releases), or install it from a
 store that carries it.
 
-Shelf has no network access, so it cannot check for or fetch its own updates.
-Installed by hand, new versions have to be installed the same way. Every release
-is signed with the same key:
+Shelf has no network access, so it never checks for updates. A store that
+carries it will offer them; a hand-installed copy has to be updated by hand.
+Every release is signed with the same key:
 
 ```
 SHA-256  c0a840767117551defe6282499cf23a10c586a42da67a8bb4f038ef297d6a405

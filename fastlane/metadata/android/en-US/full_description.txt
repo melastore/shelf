@@ -30,10 +30,10 @@ all-files access it protects headers and moves the folder under random names in
 a persistent hidden directory. With neither permission it protects headers and
 uses the system folder picker to rename the folder with a leading dot. All three
 methods replace file names with opaque identifiers and keep the originals in a
-recovery manifest encrypted with your credential. Header protection touches a fixed 64 KiB per
-non-empty file rather than copying whole files, so a folder of large videos still
-hides quickly. A hidden-file browser may list a dot-renamed folder, but it sees
-random file names and ordinary previews and opening fail.
+recovery manifest encrypted with your credential. Header protection touches a
+fixed 64 KiB per non-empty file rather than copying whole files, so a folder of
+large videos still hides quickly. A hidden-file browser may list a dot-renamed
+folder, but it sees random file names and ordinary previews and opening fail.
 
 Each folder operation is journalled before anything changes. The journal uses
 synced atomic writes and retains its previous valid generation. Root and
