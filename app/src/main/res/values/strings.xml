@@ -318,7 +318,7 @@
 	<string name="root_mode_unavailable">Unavailable. A root manager must grant Shelf access.</string>
 	<string name="all_files_mode">Private move</string>
 	<string name="all_files_available">Recommended without root. Moves folders under random names in hidden storage.</string>
-	<string name="all_files_unavailable">Needs Android\'s all-files access permission.</string>
+	<string name="all_files_unavailable">Tap to grant Android\'s all-files access, which this method needs.</string>
 	<string name="saf_mode">Folder rename</string>
 	<string name="saf_mode_summary">Adds a leading dot, randomizes file names, and protects headers after primary-PIN unlock. Hidden-file browsers may still list the folder.</string>
 	<string name="grant_all_files">Open all-files access settings</string>
