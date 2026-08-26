@@ -4,9 +4,9 @@ name, icon, and colour scheme.
 
 Five taps in the top-right corner open the credential prompt. Settings adds a
 second, quieter gesture: a long press on the decoy title, or on a natural
-control inside the decoy. Access uses a 4–12 digit PIN entered on an in-app
-keypad. Optional strong-biometric unlock always opens the real space, with PIN
-fallback. Existing passphrase users can migrate from Settings.
+control inside the decoy. Access uses a PIN, a password, or a 3x3 pattern,
+chosen at setup and changeable in Settings. Optional strong-biometric unlock
+always opens the real space, with the credential as fallback.
 
 Auto hide has three clear choices: after screen off, immediately when Shelf
 leaves the foreground, or never. It closes the private space and puts exposed
@@ -18,10 +18,11 @@ Folders you add stay on the list whether or not they are hidden, so putting them
 away again is one tap rather than another trip through the picker. A single
 control at the top hides or unhides all of them at once.
 
-An optional second decoy PIN opens a private space that looks and behaves like
-the real one and contains nothing that matters — the PIN to give up if you are
-ever made to hand one over. Shelf records that it was used and tells you on your
-next real unlock.
+An optional second credential opens a private space that looks and behaves like
+the real one and contains nothing that matters, the one to give up if you are
+ever made to hand one over. Nothing on screen names it. Shelf records that it
+was used and tells you on your next real unlock, along with any wrong
+credentials someone else tried.
 
 Folders can be hidden in three ways. On rooted devices Shelf protects file
 headers and clears permission bits on the backing filesystem. With optional
@@ -29,7 +30,7 @@ all-files access it protects headers and moves the folder under random names in
 a persistent hidden directory. With neither permission it protects headers and
 uses the system folder picker to rename the folder with a leading dot. All three
 methods replace file names with opaque identifiers and keep the originals in a
-PIN-encrypted recovery manifest. Header protection touches a fixed 64 KiB per
+recovery manifest encrypted with your credential. Header protection touches a fixed 64 KiB per
 non-empty file rather than copying whole files, so a folder of large videos still
 hides quickly. A hidden-file browser may list a dot-renamed folder, but it sees
 random file names and ordinary previews and opening fail.

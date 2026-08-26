@@ -17,10 +17,12 @@ calculator. All three are real, working apps.
 ## Install
 
 Android 11 or newer. Grab the APK from
-[Releases](https://github.com/melastore/shelf/releases).
+[Releases](https://github.com/melastore/shelf/releases), or install it from a
+store that carries it.
 
-Shelf is not on Google Play and cannot update itself — it has no network access.
-Install new versions by hand. Every release is signed with the same key:
+Shelf has no network access, so it cannot check for or fetch its own updates.
+Installed by hand, new versions have to be installed the same way. Every release
+is signed with the same key:
 
 ```
 SHA-256  c0a840767117551defe6282499cf23a10c586a42da67a8bb4f038ef297d6a405
