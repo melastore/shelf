@@ -102,14 +102,24 @@ class FolderContentProtector(
 		}
 	}
 
-	/** Null means the folder could not be reached or walked, which is never the same as holding no files. */
+	/**
+	 * Every file under [path], or null when neither way of reading the folder could see it.
+	 *
+	 * Both are tried and the one that finds files wins, because neither can be trusted to report an
+	 * empty folder on its own. A File walk comes back empty for a folder this process is not allowed
+	 * to enumerate, with isDirectory, canRead, canWrite and even isExternalStorageManager all still
+	 * answering yes; a SAF walk comes back empty when the grant does not really reach the folder.
+	 * Empty is only the answer when the reader that produced it could genuinely see the folder, and
+	 * treating it as the answer otherwise reports success over every file that was never touched.
+	 */
 	private fun targets(path: String): List<LockTarget>? {
-		val direct = File(path)
-		if (direct.isDirectory && direct.canRead() && direct.canWrite()) {
-			return ContentLocker.targetsUnder(direct)
-		}
+		val direct = File(path).takeIf(::canWalkAsFile)?.let(ContentLocker::targetsUnder)
+		if (!direct.isNullOrEmpty()) return direct
 
-		val folder = SafGrants.folder(appContext, paths, path) ?: return null
-		return SafLockTarget.targetsUnder(resolver, folder)
+		val saf = SafGrants.folder(appContext, paths, path)
+			?.let { SafLockTarget.targetsUnder(resolver, it) }
+		if (!saf.isNullOrEmpty()) return saf
+
+		return saf ?: direct
 	}
 }
