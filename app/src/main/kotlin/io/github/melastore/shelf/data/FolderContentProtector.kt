@@ -1,9 +1,6 @@
 package io.github.melastore.shelf.data
 
 import android.content.Context
-import android.net.Uri
-import android.provider.DocumentsContract
-import androidx.documentfile.provider.DocumentFile
 import io.github.melastore.shelf.root.StoragePaths
 import java.io.File
 
@@ -105,35 +102,14 @@ class FolderContentProtector(
 		}
 	}
 
+	/** Null means the folder could not be reached or walked, which is never the same as holding no files. */
 	private fun targets(path: String): List<LockTarget>? {
 		val direct = File(path)
 		if (direct.isDirectory && direct.canRead() && direct.canWrite()) {
 			return ContentLocker.targetsUnder(direct)
 		}
 
-		val tree = coveringGrant(path) ?: return null
-		val id = SafPaths.documentId(paths.emulatedRoot, path) ?: return null
-		val uri = runCatching { DocumentsContract.buildDocumentUriUsingTree(tree, id) }.getOrNull()
-			?: return null
-		val folder = DocumentFile.fromSingleUri(appContext, uri)?.takeIf { it.isDirectory } ?: return null
+		val folder = SafGrants.folder(appContext, paths, path) ?: return null
 		return SafLockTarget.targetsUnder(resolver, folder)
-	}
-
-	private fun coveringGrant(path: String): Uri? = resolver.persistedUriPermissions.asSequence()
-		.filter { it.isReadPermission && it.isWritePermission }
-		.mapNotNull { permission ->
-			val id = runCatching { DocumentsContract.getTreeDocumentId(permission.uri) }.getOrNull()
-				?: return@mapNotNull null
-			val relative = id.removePrefix(PRIMARY)
-			if (relative == id) return@mapNotNull null
-			val root = paths.emulatedRoot + if (relative.isEmpty()) "" else "/$relative"
-			root to permission.uri
-		}
-		.filter { (root, _) -> path == root || path.startsWith("$root/") }
-		.maxByOrNull { (root, _) -> root.length }
-		?.second
-
-	private companion object {
-		const val PRIMARY = "primary:"
 	}
 }

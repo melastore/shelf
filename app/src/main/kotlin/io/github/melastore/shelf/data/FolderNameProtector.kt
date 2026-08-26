@@ -395,27 +395,7 @@ class FolderNameProtector(
 		return runCatching { FileInputStream(file).use { it.readBytes() } }.getOrNull()
 	}
 
-	private fun safRoot(path: String): DocumentFile? {
-		val tree = coveringGrant(path) ?: return null
-		val id = SafPaths.documentId(paths.emulatedRoot, path) ?: return null
-		val uri = runCatching { DocumentsContract.buildDocumentUriUsingTree(tree, id) }.getOrNull()
-			?: return null
-		return DocumentFile.fromSingleUri(appContext, uri)?.takeIf { it.isDirectory }
-	}
-
-	private fun coveringGrant(path: String): Uri? = resolver.persistedUriPermissions.asSequence()
-		.filter { it.isReadPermission && it.isWritePermission }
-		.mapNotNull { permission ->
-			val id = runCatching { DocumentsContract.getTreeDocumentId(permission.uri) }.getOrNull()
-				?: return@mapNotNull null
-			val relative = id.removePrefix(PRIMARY)
-			if (relative == id) return@mapNotNull null
-			val root = paths.emulatedRoot + if (relative.isEmpty()) "" else "/$relative"
-			root to permission.uri
-		}
-		.filter { (root, _) -> path == root || path.startsWith("$root/") }
-		.maxByOrNull { (root, _) -> root.length }
-		?.second
+	private fun safRoot(path: String): DocumentFile? = SafGrants.folder(appContext, paths, path)
 
 	private fun credentialFailure(): NameProtectionResult = if (hasCredential()) {
 		NameProtectionResult.WrongCredential
@@ -447,7 +427,6 @@ class FolderNameProtector(
 		const val MANIFEST_TEMP = ".shelf-names-v1.tmp"
 		const val ROOT_RECOVERY_PREFIX = ".shelf-recovery-v1-"
 		const val MIME = "application/octet-stream"
-		const val PRIMARY = "primary:"
 		const val OPAQUE_PREFIX = "sfn_"
 		const val MAX_FILES = ContentLocker.MAX_FILES
 		const val MAX_DEPTH = 8
