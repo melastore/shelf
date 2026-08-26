@@ -3,8 +3,10 @@ package io.github.melastore.shelf.ui
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.keyframes
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,8 +18,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -35,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -56,6 +62,7 @@ import androidx.compose.ui.window.SecureFlagPolicy
 import io.github.melastore.shelf.R
 import io.github.melastore.shelf.security.CredentialKind
 import io.github.melastore.shelf.security.CredentialRules
+import io.github.melastore.shelf.security.KnockCode
 import io.github.melastore.shelf.security.PatternCode
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -88,6 +95,15 @@ fun CredentialPrompt(
 		)
 
 		CredentialKind.PATTERN -> PatternPrompt(
+			title = title,
+			subtitle = subtitle,
+			confirmLabel = confirmLabel,
+			confirmEntry = confirmEntry,
+			onConfirm = onConfirm,
+			onDismiss = onDismiss,
+		)
+
+		CredentialKind.KNOCK -> KnockPrompt(
 			title = title,
 			subtitle = subtitle,
 			confirmLabel = confirmLabel,
@@ -202,6 +218,158 @@ fun PatternPrompt(
 					},
 				)
 			}
+		}
+	}
+}
+
+/**
+ * Four unmarked quarters, tapped in order.
+ *
+ * Nothing on the pad says where the divisions fall or how long the code is, so it can be entered
+ * without looking and a watcher sees taps landing on a blank square. Only the count is echoed back,
+ * never the quarter: a row of filled dots tells the owner how far along they are and tells anyone
+ * over their shoulder nothing they could repeat.
+ */
+@Composable
+fun KnockPrompt(
+	title: String,
+	subtitle: String,
+	confirmLabel: String,
+	confirmEntry: Boolean = false,
+	onConfirm: (CharArray) -> Unit,
+	onDismiss: () -> Unit,
+) {
+	val tapped = remember { mutableStateListOf<Int>() }
+	var firstPass by remember { mutableStateOf<CharArray?>(null) }
+	var mismatch by remember { mutableStateOf(false) }
+	val shake = remember { Animatable(0f) }
+	val haptics = LocalHapticFeedback.current
+	val confirming = confirmEntry && firstPass != null
+
+	DisposableEffect(Unit) {
+		onDispose { firstPass?.fill(' ') }
+	}
+
+	LaunchedEffect(mismatch) {
+		if (!mismatch) return@LaunchedEffect
+		haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+		shake.animateTo(
+			0f,
+			keyframes {
+				durationMillis = 300
+				(-1f) at 60
+				1f at 120
+				(-0.6f) at 180
+				0.6f at 240
+			},
+		)
+	}
+
+	fun finish() {
+		val entered = KnockCode.encode(tapped.toList())
+		val stored = firstPass
+		when {
+			!confirmEntry -> onConfirm(entered)
+
+			stored == null -> {
+				firstPass = entered
+				tapped.clear()
+				mismatch = false
+			}
+
+			stored.contentEquals(entered) -> onConfirm(entered)
+
+			else -> {
+				stored.fill(' ')
+				firstPass = null
+				entered.fill(' ')
+				tapped.clear()
+				mismatch = true
+			}
+		}
+	}
+
+	CredentialScaffold(
+		title = if (confirming) stringResource(R.string.confirm_knock) else title,
+		subtitle = if (mismatch) stringResource(R.string.knock_mismatch) else subtitle,
+		error = mismatch,
+		onDismiss = onDismiss,
+	) {
+		KnockCount(tapped.size)
+		Spacer(Modifier.height(16.dp))
+		KnockPad(
+			modifier = Modifier.widthIn(max = 320.dp)
+				.offset { IntOffset((shake.value * 10.dp.toPx()).roundToInt(), 0) },
+			onQuarter = { quarter ->
+				if (tapped.size < KnockCode.MAX_TAPS) {
+					mismatch = false
+					tapped += quarter
+					haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+				}
+			},
+		)
+		Spacer(Modifier.height(20.dp))
+		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+			TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+			Spacer(Modifier.width(8.dp))
+			TextButton(onClick = { tapped.clear() }, enabled = tapped.isNotEmpty()) {
+				Text(stringResource(R.string.clear))
+			}
+			Spacer(Modifier.width(8.dp))
+			TextButton(onClick = ::finish, enabled = KnockCode.isValid(tapped.toList())) {
+				Text(
+					if (confirmEntry && firstPass == null) {
+						stringResource(R.string.continue_action)
+					} else {
+						confirmLabel
+					},
+				)
+			}
+		}
+	}
+}
+
+/** How many taps are in, and nothing about which ones. */
+@Composable
+private fun KnockCount(taps: Int) {
+	Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+		repeat(KnockCode.MIN_TAPS.coerceAtLeast(taps)) { index ->
+			Box(
+				Modifier.padding(horizontal = 5.dp).size(if (index < taps) 11.dp else 8.dp)
+					.background(
+						if (index < taps) {
+							MaterialTheme.colorScheme.primary
+						} else {
+							MaterialTheme.colorScheme.outlineVariant
+						},
+						CircleShape,
+					),
+			)
+		}
+	}
+}
+
+@Composable
+private fun KnockPad(onQuarter: (Int) -> Unit, modifier: Modifier = Modifier) {
+	val description = stringResource(R.string.knock_area)
+	val line = MaterialTheme.colorScheme.outlineVariant
+	Box(
+		modifier.fillMaxWidth().aspectRatio(1f)
+			.clip(RoundedCornerShape(28.dp))
+			.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+			.semantics { contentDescription = description }
+			.pointerInput(Unit) {
+				detectTapGestures { position ->
+					val column = if (position.x < size.width / 2f) 0 else 1
+					val row = if (position.y < size.height / 2f) 0 else 1
+					onQuarter(row * KnockCode.SIDE + column)
+				}
+			},
+	) {
+		// Faint enough to be a shape rather than a keypad, and to leave no wear marks worth reading.
+		Canvas(Modifier.matchParentSize()) {
+			drawLine(line, Offset(size.width / 2f, 0f), Offset(size.width / 2f, size.height), 1.dp.toPx())
+			drawLine(line, Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), 1.dp.toPx())
 		}
 	}
 }
@@ -407,6 +575,7 @@ object CredentialWords {
 		when (kind) {
 			CredentialKind.PIN -> R.string.enter_pin
 			CredentialKind.PATTERN -> R.string.draw_pattern
+			CredentialKind.KNOCK -> R.string.enter_knock
 			CredentialKind.PASSWORD -> R.string.enter_password
 		},
 	)
@@ -416,6 +585,7 @@ object CredentialWords {
 		when (kind) {
 			CredentialKind.PIN -> R.string.enter_pin_subtitle
 			CredentialKind.PATTERN -> R.string.draw_pattern_subtitle
+			CredentialKind.KNOCK -> R.string.enter_knock_subtitle
 			CredentialKind.PASSWORD -> R.string.enter_password_subtitle
 		},
 	)
@@ -425,6 +595,7 @@ object CredentialWords {
 		when (kind) {
 			CredentialKind.PIN -> R.string.current_pin
 			CredentialKind.PATTERN -> R.string.current_pattern
+			CredentialKind.KNOCK -> R.string.current_knock
 			CredentialKind.PASSWORD -> R.string.current_password
 		},
 	)
@@ -434,6 +605,7 @@ object CredentialWords {
 		when (kind) {
 			CredentialKind.PIN -> R.string.new_pin
 			CredentialKind.PATTERN -> R.string.new_pattern
+			CredentialKind.KNOCK -> R.string.new_knock
 			CredentialKind.PASSWORD -> R.string.new_password
 		},
 	)
@@ -444,6 +616,7 @@ object CredentialWords {
 		when (kind) {
 			CredentialKind.PIN -> R.string.pin_hint
 			CredentialKind.PATTERN -> R.string.pattern_hint
+			CredentialKind.KNOCK -> R.string.knock_hint
 			CredentialKind.PASSWORD -> R.string.password_hint
 		},
 	)
@@ -453,6 +626,7 @@ object CredentialWords {
 		when (kind) {
 			CredentialKind.PIN -> R.string.credential_kind_pin
 			CredentialKind.PATTERN -> R.string.credential_kind_pattern
+			CredentialKind.KNOCK -> R.string.credential_kind_knock
 			CredentialKind.PASSWORD -> R.string.credential_kind_password
 		},
 	)

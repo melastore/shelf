@@ -61,9 +61,20 @@
 	<string name="current_pattern">Current pattern</string>
 	<string name="current_password">Current password</string>
 	<string name="credential_kind_pin">PIN</string>
+	<string name="credential_kind_knock">Knock code</string>
+	<string name="enter_knock">Tap your knock code</string>
+	<string name="enter_knock_subtitle">Tap the quarters in the order you set.</string>
+	<string name="new_knock">New knock code</string>
+	<string name="current_knock">Current knock code</string>
+	<string name="confirm_knock">Tap it again</string>
+	<string name="knock_mismatch">Those did not match. Tap it again.</string>
+	<string name="knock_hint">At least 4 taps on the four quarters. Repeats are allowed.</string>
+	<string name="knock_too_short">Tap at least 4 times.</string>
+	<string name="knock_area">Knock code pad</string>
+	<string name="clear">Clear</string>
 	<string name="credential_kind_pattern">Pattern</string>
 	<string name="credential_kind_password">Password</string>
-	<string name="credential_kind_summary">A PIN, a password, or a 3×3 pattern. Changing this asks you to set a new one.</string>
+	<string name="credential_kind_summary">A PIN, a password, a 3×3 pattern, or a knock code. Changing this asks you to set a new one.</string>
 	<string name="unhide_before_credential_change">Unhide every folder before changing how you unlock.</string>
 	<string name="continue_action">Continue</string>
 	<string name="unlock">Unlock</string>
@@ -376,6 +387,6 @@
 	<string name="setup_notifications_on">Notifications allowed</string>
 	<string name="setup_notifications_optional">Optional. You can turn this on later in Settings.</string>
 	<string name="setup_credential_title">Choose how you unlock</string>
-	<string name="setup_credential_body">A PIN, a password, or a 3×3 pattern. This is also the key your folder contents are protected with, so it cannot be recovered if you forget it.</string>
+	<string name="setup_credential_body">A PIN, a password, a 3×3 pattern, or a knock code on four unmarked quarters. This is also the key your folder contents are protected with, so it cannot be recovered if you forget it.</string>
 	<string name="setup_pin_reminder">There is no way to reset this PIN. Nothing leaves your device, so nobody can recover it for you.</string>
 </resources>
