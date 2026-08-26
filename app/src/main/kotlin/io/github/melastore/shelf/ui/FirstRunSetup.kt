@@ -81,17 +81,24 @@ fun FirstRunSetup(
 	onRequestAllFiles: () -> Unit,
 	onRequestNotifications: () -> Unit,
 	onCreateCredential: (CredentialKind, CharArray) -> Unit,
+	onStep: (Int) -> Unit,
 ) {
-	var index by rememberSaveable { mutableIntStateOf(0) }
 	val steps = SetupStep.entries
+	// Seeded from the stored step, so a launch that starts a fresh process picks up where the last one
+	// stopped. rememberSaveable alone only covers a configuration change.
+	var index by rememberSaveable { mutableIntStateOf(state.setupStep.coerceIn(0, steps.lastIndex)) }
 	val step = steps[index.coerceIn(0, steps.lastIndex)]
+	val goTo: (Int) -> Unit = {
+		index = it.coerceIn(0, steps.lastIndex)
+		onStep(index)
+	}
 
 	Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
 		Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
 			SetupHeader(
 				step = index + 1,
 				total = steps.size,
-				onBack = { if (index > 0) index-- },
+				onBack = { if (index > 0) goTo(index - 1) },
 			)
 
 			AnimatedContent(
@@ -132,7 +139,7 @@ fun FirstRunSetup(
 					horizontalArrangement = Arrangement.End,
 					verticalAlignment = Alignment.CenterVertically,
 				) {
-					Button(onClick = { index++ }, shape = CircleShape) {
+					Button(onClick = { goTo(index + 1) }, shape = CircleShape) {
 						Text(
 							stringResource(
 								if (step == SetupStep.WELCOME) R.string.setup_start else R.string.continue_action,
