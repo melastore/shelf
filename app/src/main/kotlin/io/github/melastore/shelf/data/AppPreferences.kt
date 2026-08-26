@@ -32,6 +32,7 @@ data class AppSettings(
 	val biometricEnabled: Boolean,
 	val autoHideMode: AutoHideMode,
 	val quickLockNotification: Boolean,
+	val fakeCrash: Boolean,
 )
 
 /** Small, non-sensitive preferences. Secrets are kept in [io.github.melastore.shelf.security.PassphraseGate]. */
@@ -48,6 +49,7 @@ class AppPreferences(context: Context) {
 		biometricEnabled = values.getBoolean(KEY_BIOMETRIC, false),
 		autoHideMode = autoHideMode(),
 		quickLockNotification = values.getBoolean(KEY_QUICK_LOCK_NOTIFICATION, false),
+		fakeCrash = values.getBoolean(KEY_FAKE_CRASH, false),
 	)
 
 	fun setDecoy(value: DecoyType) = putString(KEY_DECOY, value.name)
@@ -115,6 +117,10 @@ class AppPreferences(context: Context) {
 	}
 
 	fun quickLockNotification(): Boolean = values.getBoolean(KEY_QUICK_LOCK_NOTIFICATION, false)
+
+	fun setFakeCrash(value: Boolean) {
+		values.edit(commit = true) { putBoolean(KEY_FAKE_CRASH, value) }
+	}
 
 	fun autoHideMode(): AutoHideMode {
 		if (values.contains(KEY_AUTO_HIDE)) return enumValue(KEY_AUTO_HIDE, AutoHideMode.IMMEDIATE)
@@ -206,6 +212,7 @@ class AppPreferences(context: Context) {
 		const val KEY_LOCK_ON_SCREEN_OFF = "lock_on_screen_off"
 		const val KEY_LOCK_TRIGGER = "lock_trigger"
 		const val KEY_QUICK_LOCK_NOTIFICATION = "quick_lock_notification"
+		const val KEY_FAKE_CRASH = "fake_crash"
 		const val KEY_FAILED_UNLOCKS = "failed_unlocks"
 		const val KEY_LOCKOUTS = "lockouts"
 		const val KEY_BLOCKED_UNTIL = "blocked_until"

@@ -156,6 +156,7 @@ fun PrivateArea(
 			onBack = viewModel::closeSettings,
 			onDecoy = viewModel::setDecoy,
 			onEntryMethod = viewModel::setEntryMethod,
+			onFakeCrash = viewModel::setFakeCrash,
 			onHidingPreference = viewModel::setHidingPreference,
 			onChangeCredential = viewModel::changeVaultCredential,
 			onSetDecoyCredential = viewModel::setDecoyCredential,
@@ -646,6 +647,7 @@ private fun SettingsScreen(
 	onBack: () -> Unit,
 	onDecoy: (DecoyType) -> Unit,
 	onEntryMethod: (EntryMethod) -> Unit,
+	onFakeCrash: (Boolean) -> Unit,
 	onHidingPreference: (HidingPreference) -> Unit,
 	onChangeCredential: (CredentialKind, CharArray, CharArray) -> Unit,
 	onSetDecoyCredential: (CharArray, CharArray) -> Unit,
@@ -737,6 +739,13 @@ private fun SettingsScreen(
 							onClick = { onEntryMethod(method) },
 						)
 					}
+					// Sits with the gesture because it changes what the gesture does, not what it is.
+					SettingsRow(
+						title = stringResource(R.string.fake_crash),
+						summary = stringResource(R.string.fake_crash_summary),
+						trailing = { SelectionMark(state.fakeCrash) },
+						onClick = { onFakeCrash(!state.fakeCrash) },
+					)
 				}
 			}
 
