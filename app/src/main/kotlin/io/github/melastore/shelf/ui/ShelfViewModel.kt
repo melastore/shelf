@@ -103,6 +103,7 @@ data class AppUiState(
 	val method: HideMethod? = null,
 	val availableMethods: Set<HideMethod> = emptySet(),
 	val canRequestAllFiles: Boolean = false,
+	val fakeCrash: Boolean = false,
 	/** Set when an operation stopped to ask for access to a folder above the target. */
 	val accessNeededFor: Uri? = null,
 	/** Where the folder picker opens, so the first hide does not start at an empty Recents list. */
@@ -218,6 +219,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					decoy = settings.decoy,
 					entryMethod = settings.entryMethod,
 					hidingPreference = settings.hidingPreference,
+					fakeCrash = settings.fakeCrash,
 					setupStep = if (credentialSet) 0 else preferences.setupStep(),
 					habits = habits,
 					calendarEvents = events,
@@ -785,6 +787,16 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	fun setSetupStep(step: Int) = viewModelScope.launch {
 		withContext(Dispatchers.IO) { preferences.setSetupStep(step) }
 		_state.update { it.copy(setupStep = step) }
+	}
+
+	fun setFakeCrash(enabled: Boolean) = viewModelScope.launch {
+		withContext(Dispatchers.IO) { preferences.setFakeCrash(enabled) }
+		_state.update {
+			it.copy(
+				fakeCrash = enabled,
+				message = uiMessage(if (enabled) R.string.fake_crash_on else R.string.fake_crash_off),
+			)
+		}
 	}
 
 	fun setEntryMethod(method: EntryMethod) = viewModelScope.launch {

@@ -45,6 +45,7 @@ class MainActivity : ComponentActivity() {
 	private val viewModel: ShelfViewModel by viewModels()
 	private var biometricPrompt: CancellationSignal? = null
 	private var showCredential by mutableStateOf(false)
+	private var showFakeCrash by mutableStateOf(false)
 	private val screenReceiver = object : BroadcastReceiver() {
 		override fun onReceive(context: Context, intent: Intent) {
 			when (intent.action) {
@@ -88,7 +89,7 @@ class MainActivity : ComponentActivity() {
 					viewModel.refreshCapabilities()
 				}
 
-				fun requestPrivateEntry() {
+				fun beginPrivateEntry() {
 					if (!state.biometricEnabled || !BiometricAuth.isAvailable(this@MainActivity)) {
 						showCredential = true
 						return
@@ -174,6 +175,12 @@ class MainActivity : ComponentActivity() {
 				}
 				// Titled as the disguise, because this is on screen at exactly the moment someone else is
 				// most likely to be looking at the phone.
+				// The gesture opens the crash dialog first when it is on; the dialog decides whether the
+				// real prompt ever appears.
+				fun requestPrivateEntry() {
+					if (state.fakeCrash) showFakeCrash = true else beginPrivateEntry()
+				}
+
 				val notificationLabel = stringResource(
 					when (state.decoy) {
 						// Undisguised, the notification may as well carry the app's own name.
@@ -252,6 +259,31 @@ class MainActivity : ComponentActivity() {
 						hostState = snackbar,
 						modifier = Modifier.align(Alignment.BottomCenter)
 							.navigationBarsPadding().padding(12.dp),
+					)
+				}
+
+				if (showFakeCrash) {
+					FakeCrashDialog(
+						appName = notificationLabel,
+						onUnlock = {
+							showFakeCrash = false
+							beginPrivateEntry()
+						},
+						onAppInfo = {
+							showFakeCrash = false
+							runCatching {
+								startActivity(
+									Intent(
+										Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+										Uri.fromParts("package", packageName, null),
+									),
+								)
+							}
+						},
+						onClose = {
+							showFakeCrash = false
+							finishAndRemoveTask()
+						},
 					)
 				}
 

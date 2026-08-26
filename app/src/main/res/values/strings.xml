@@ -191,6 +191,13 @@
 	<string name="bulk_restored">Unhid %1$s.</string>
 	<string name="duress_used_once">Your second PIN was used on %1$s.</string>
 	<string name="duress_used_multiple">Your second PIN was used %1$d times, most recently on %2$s.</string>
+	<string name="fake_crash_message">%1$s keeps stopping</string>
+	<string name="fake_crash_app_info">App info</string>
+	<string name="fake_crash_close">Close app</string>
+	<string name="fake_crash">Fake crash</string>
+	<string name="fake_crash_summary">The entry gesture shows an app-has-stopped dialog instead of the unlock screen. Press and hold the message to carry on. Both buttons do what they say.</string>
+	<string name="fake_crash_on">Fake crash on. Hold the message to unlock.</string>
+	<string name="fake_crash_off">Fake crash off.</string>
 	<string name="disguise_changed">Disguise changed. The launcher icon updates once you leave Shelf.</string>
 	<string name="disguise_change_failed">Could not change the launcher disguise.</string>
 	<string name="disguise_change_failed_detail">Could not change the launcher disguise: %1$s</string>
