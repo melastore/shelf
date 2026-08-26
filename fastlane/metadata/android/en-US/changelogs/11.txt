@@ -1,0 +1,8 @@
+Fixes folder rename still leaving file names and headers untouched in 0.5.1.
+
+- A folder that cannot be listed is no longer taken for an empty one.
+- Both ways of reading a folder are tried, and the one that finds files is used.
+- Hiding warns instead of reporting success over files it could not reach.
+- Stale gallery entries are cleared even when the folder cannot be read directly.
+- Full storage access is tested rather than taken from the permission, which some
+  builds report for any app that asks for it.
