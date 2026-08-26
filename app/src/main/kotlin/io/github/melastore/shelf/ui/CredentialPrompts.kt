@@ -289,6 +289,23 @@ fun KnockPrompt(
 		}
 	}
 
+	// Unlocking shows nothing at all: a dark screen split in four, and no text, count or buttons to
+	// tell a bystander that anything is being entered. Setting a code has to be guided, so that pass
+	// keeps the usual chrome; nobody can confirm a code they cannot see the length of.
+	if (!confirmEntry) {
+		BareKnockPad(
+			onQuarter = { quarter ->
+				if (tapped.size < KnockCode.MAX_TAPS) {
+					tapped += quarter
+					haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+				}
+			},
+			onSubmit = { if (KnockCode.isValid(tapped.toList())) finish() else tapped.clear() },
+			onDismiss = onDismiss,
+		)
+		return
+	}
+
 	CredentialScaffold(
 		title = if (confirming) stringResource(R.string.confirm_knock) else title,
 		subtitle = if (mismatch) stringResource(R.string.knock_mismatch) else subtitle,
@@ -324,6 +341,49 @@ fun KnockPrompt(
 						confirmLabel
 					},
 				)
+			}
+		}
+	}
+}
+
+/**
+ * The unlock pad: a dark screen divided in four, and nothing else.
+ *
+ * No title, no tap count, no buttons. Someone watching sees a finger land on an empty screen and
+ * learns neither how long the code is nor how far through it the owner got. A long press anywhere
+ * enters it, which is the same hold the crash dialog uses, and back gives up.
+ */
+@Composable
+private fun BareKnockPad(onQuarter: (Int) -> Unit, onSubmit: () -> Unit, onDismiss: () -> Unit) {
+	val description = stringResource(R.string.knock_area)
+	val line = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+	Dialog(
+		onDismissRequest = onDismiss,
+		properties = DialogProperties(
+			usePlatformDefaultWidth = false,
+			securePolicy = SecureFlagPolicy.SecureOn,
+		),
+	) {
+		Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+			Box(
+				Modifier.fillMaxSize()
+					.semantics { contentDescription = description }
+					.pointerInput(Unit) {
+						detectTapGestures(
+							onLongPress = { onSubmit() },
+							onTap = { position ->
+								val column = if (position.x < size.width / 2f) 0 else 1
+								val row = if (position.y < size.height / 2f) 0 else 1
+								onQuarter(row * KnockCode.SIDE + column)
+							},
+						)
+					},
+			) {
+				// Just enough to show where the quarters divide, and not enough to read as a keypad.
+				Canvas(Modifier.fillMaxSize()) {
+					drawLine(line, Offset(size.width / 2f, 0f), Offset(size.width / 2f, size.height), 1.dp.toPx())
+					drawLine(line, Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), 1.dp.toPx())
+				}
 			}
 		}
 	}
