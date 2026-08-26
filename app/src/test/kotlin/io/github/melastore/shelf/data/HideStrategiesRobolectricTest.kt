@@ -8,6 +8,7 @@ import io.github.melastore.shelf.root.StoragePaths
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -101,6 +102,52 @@ class HideStrategiesRobolectricTest {
 
 		assertEquals(HideResult.NeedsAccess("${paths.emulatedRoot}/Pictures", "Secret"), result)
 		assertTrue(journal.read().isEmpty())
+	}
+
+	/**
+	 * The permission answering yes is not the same as the mount allowing anything. A build that
+	 * reports all-files access it does not really have would otherwise show "Full storage access
+	 * granted" during setup and let Automatic pick a move that cannot run.
+	 */
+	@Test
+	fun `private move is unavailable when the storage root cannot be written`() = runBlocking {
+		val base = temporaryFolder.newFolder()
+		val emulated = File(base, "emulated")
+		val paths = StoragePaths.forTest(
+			backingRoot = File(base, "backing").apply { mkdirs() }.path,
+			// Never created, so nothing can be written under it however the permission answers.
+			emulatedRoot = emulated.path,
+			root = FakeRoot(),
+		)
+		val journal = Journal(File(temporaryFolder.root, "probe-journal.json"))
+
+		val hider = PrivateMoveHider(
+			context,
+			journal,
+			paths,
+			allFilesAvailable = { true },
+			mediaIndex = FakeMediaIndex,
+		)
+
+		assertFalse(hider.isAvailable())
+		assertTrue("the probe must not leave anything behind", emulated.listFiles().isNullOrEmpty())
+	}
+
+	@Test
+	fun `private move is available when the storage root really is writable`() = runBlocking {
+		val paths = testPaths(FakeRoot())
+		val journal = Journal(File(temporaryFolder.root, "probe-ok-journal.json"))
+
+		val hider = PrivateMoveHider(
+			context,
+			journal,
+			paths,
+			allFilesAvailable = { true },
+			mediaIndex = FakeMediaIndex,
+		)
+
+		assertTrue(hider.isAvailable())
+		assertTrue(File(paths.emulatedRoot).listFiles().isNullOrEmpty())
 	}
 
 	private fun testPaths(root: RootCommandRunner): StoragePaths {
