@@ -8,13 +8,13 @@ import io.github.melastore.shelf.root.StoragePaths
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -105,49 +105,30 @@ class HideStrategiesRobolectricTest {
 	}
 
 	/**
-	 * The permission answering yes is not the same as the mount allowing anything. A build that
-	 * reports all-files access it does not really have would otherwise show "Full storage access
-	 * granted" during setup and let Automatic pick a move that cannot run.
+	 * A build can answer isExternalStorageManager true, resolve the appop to allowed, and still hand
+	 * the process a view in which the folder is empty and cannot be renamed. Going ahead protects
+	 * every file and then rolls it back when the rename fails, leaving the vault behind for a move
+	 * that never happened.
 	 */
 	@Test
-	fun `private move is unavailable when the storage root cannot be written`() = runBlocking {
-		val base = temporaryFolder.newFolder()
-		val emulated = File(base, "emulated")
-		val paths = StoragePaths.forTest(
-			backingRoot = File(base, "backing").apply { mkdirs() }.path,
-			// Never created, so nothing can be written under it however the permission answers.
-			emulatedRoot = emulated.path,
-			root = FakeRoot(),
-		)
-		val journal = Journal(File(temporaryFolder.root, "probe-journal.json"))
-
-		val hider = PrivateMoveHider(
-			context,
-			journal,
-			paths,
-			allFilesAvailable = { true },
-			mediaIndex = FakeMediaIndex,
-		)
-
-		assertFalse(hider.isAvailable())
-		assertTrue("the probe must not leave anything behind", emulated.listFiles().isNullOrEmpty())
-	}
-
-	@Test
-	fun `private move is available when the storage root really is writable`() = runBlocking {
+	fun `private move refuses a folder the mount will not show it`() = runBlocking {
 		val paths = testPaths(FakeRoot())
-		val journal = Journal(File(temporaryFolder.root, "probe-ok-journal.json"))
+		// Present and empty to File, while the index reports what is really in there.
+		val source = File(paths.emulatedRoot, "Secret").apply { mkdirs() }
+		val journal = Journal(File(temporaryFolder.root, "restricted-journal.json"))
+		val index = object : FolderMediaIndex {
+			override fun scan(context: android.content.Context, paths: List<String>) = Unit
+			override suspend fun rescan(context: android.content.Context, path: String): HideWarning? = null
+			override suspend fun listFiles(path: String) = listOf("$path/one.jpg", "$path/two.jpg")
+		}
 
-		val hider = PrivateMoveHider(
-			context,
-			journal,
-			paths,
-			allFilesAvailable = { true },
-			mediaIndex = FakeMediaIndex,
-		)
+		val hider = PrivateMoveHider(context, journal, paths, allFilesAvailable = { true }, mediaIndex = index)
 
-		assertTrue(hider.isAvailable())
-		assertTrue(File(paths.emulatedRoot).listFiles().isNullOrEmpty())
+		val result = hider.hide(FolderTarget(source.path, "Secret", null))
+
+		assertTrue(result is HideResult.Failed)
+		assertTrue(journal.read().isEmpty())
+		assertTrue("nothing may be left behind", File(paths.emulatedRoot, ".shelf").listFiles().isNullOrEmpty())
 	}
 
 	private fun testPaths(root: RootCommandRunner): StoragePaths {
