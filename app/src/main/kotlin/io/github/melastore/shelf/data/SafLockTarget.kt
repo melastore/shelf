@@ -61,17 +61,18 @@ class SafLockTarget(private val resolver: ContentResolver, private val uri: Uri,
 
 	companion object {
 		/**
-		 * Every file under [folder], as targets. Directories are walked; anything the provider will not
-		 * describe is left out rather than guessed at.
+		 * Every file under [folder], as targets, or null if any part of the tree could not be listed.
+		 *
+		 * A partial walk is reported as a failure rather than trimmed. A caller cannot tell a folder it
+		 * was refused from an empty one, and the difference is whether the files end up protected.
 		 */
 		fun targetsUnder(
 			resolver: ContentResolver,
 			folder: DocumentFile,
 			limit: Int = ContentLocker.MAX_FILES + 1,
-		): List<LockTarget> {
+		): List<LockTarget>? {
 			val found = mutableListOf<LockTarget>()
-			collect(resolver, folder, found, limit, depth = 0)
-			return found
+			return found.takeIf { collect(resolver, folder, it, limit, depth = 0) }
 		}
 
 		private fun collect(
@@ -80,15 +81,18 @@ class SafLockTarget(private val resolver: ContentResolver, private val uri: Uri,
 			found: MutableList<LockTarget>,
 			limit: Int,
 			depth: Int,
-		) {
-			if (depth > MAX_DEPTH || found.size >= limit) return
-			for (child in runCatching { folder.listFiles() }.getOrNull().orEmpty()) {
-				if (found.size >= limit) return
+		): Boolean {
+			if (found.size >= limit) return true
+			if (depth > MAX_DEPTH) return false
+			val children = runCatching { folder.listFiles() }.getOrNull() ?: return false
+			for (child in children) {
+				if (found.size >= limit) return true
 				when {
-					child.isDirectory -> collect(resolver, child, found, limit, depth + 1)
+					child.isDirectory -> if (!collect(resolver, child, found, limit, depth + 1)) return false
 					child.isFile -> found += SafLockTarget(resolver, child.uri)
 				}
 			}
+			return true
 		}
 
 		private const val MAX_DEPTH = 8
