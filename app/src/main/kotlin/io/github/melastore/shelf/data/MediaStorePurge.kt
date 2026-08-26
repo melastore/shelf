@@ -82,11 +82,20 @@ object MediaStorePurge : FolderMediaIndex {
 
 	override suspend fun rescan(context: Context, path: String): HideWarning? = rescan(context, path, RootShell)
 
-	/** Files under [path], read directly when this build can and through root when it cannot. */
+	/**
+	 * Files under [path], read directly when this build can and through root when it cannot.
+	 *
+	 * canRead is not the test for whether the walk worked. On a restricted storage mount it answers
+	 * yes and the walk still comes back empty, and an empty list here means the stale rows for these
+	 * files are never invalidated — the gallery goes on listing what was just hidden. So a walk that
+	 * finds nothing falls through to the privileged path rather than being taken for an empty folder,
+	 * the same way [purge] treats a delete that reaches no rows.
+	 */
 	suspend fun listFiles(path: String, runner: RootCommandRunner): List<String> {
 		val target = File(path)
 		if (target.canRead()) {
-			return target.walkTopDown().filter { it.isFile }.take(MAX_SCAN + 1).map { it.path }.toList()
+			val walked = target.walkTopDown().filter { it.isFile }.take(MAX_SCAN + 1).map { it.path }.toList()
+			if (walked.isNotEmpty()) return walked
 		}
 		val found = runner.run("find ${RootShell.quote(path)} -type f 2>/dev/null | head -n ${MAX_SCAN + 1}")
 		return if (found.ok) found.stdout else emptyList()
