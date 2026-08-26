@@ -55,7 +55,7 @@ import io.github.melastore.shelf.R
  * something by the owner.
  */
 @Composable
-fun FakeCrashDialog(appName: String, onUnlock: () -> Unit, onAppInfo: () -> Unit, onClose: () -> Unit,) {
+fun FakeCrashDialog(appName: String, onUnlock: () -> Unit, onClose: () -> Unit) {
 	var details by remember { mutableStateOf(false) }
 
 	Dialog(
@@ -84,7 +84,6 @@ fun FakeCrashDialog(appName: String, onUnlock: () -> Unit, onAppInfo: () -> Unit
 					),
 				)
 				Spacer(Modifier.height(12.dp))
-				CrashRow(stringResource(R.string.fake_crash_app_info), onAppInfo) { InfoGlyph(it) }
 				CrashRow(stringResource(R.string.fake_crash_close), onClose) { tint ->
 					Icon(Icons.Filled.Close, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
 				}
