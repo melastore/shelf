@@ -1,0 +1,9 @@
+Two new ways in, and fixes for hiding on devices that misreport storage access.
+
+- Unlock with a knock code: four unmarked quarters, tapped in order.
+- Optional fake crash: the entry gesture shows an app-has-stopped dialog, and a
+  long press on the message carries on to the unlock screen.
+- Private move refuses a folder it cannot really reach, before touching it, and
+  asks for all-files access when it is picked instead of failing later.
+- Fixes a folder hidden with root that could not be unhidden again.
+- No vault directory is left behind by a move that never happened.

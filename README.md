@@ -35,9 +35,13 @@ SHA-256  c0a840767117551defe6282499cf23a10c586a42da67a8bb4f038ef297d6a405
 There is also a quieter way, set in Settings: a long press on the title, or on
 an ordinary-looking control in the disguise.
 
-Then enter your credential — a **PIN**, a **password**, or a **3×3 pattern**.
-You pick which at setup and can change it later in Settings. Fingerprint unlock
-can be turned on once a credential is set.
+Then enter your credential — a **PIN**, a **password**, a **3×3 pattern**, or a
+**knock code** on four unmarked quarters. You pick which at setup and can change
+it later in Settings. Fingerprint unlock can be turned on once a credential is
+set.
+
+Settings can also put an **app-has-stopped dialog** in front of the unlock
+screen. Closing it really closes the app; holding the message carries on.
 
 ## Hiding a folder
 
