@@ -31,12 +31,38 @@ class PrivateMoveHider(
 ) : HideStrategy {
 
 	private val appContext = context.applicationContext
+
+	@Volatile private var sharedRootWritable = false
 	private val content = FolderContentProtector(appContext, paths)
 	private val names = FolderNameProtector(appContext, paths)
 
 	override val method = HideMethod.PRIVATE_MOVE
 
-	override suspend fun isAvailable(): Boolean = allFilesAvailable()
+	override suspend fun isAvailable(): Boolean = allFilesAvailable() && canWriteSharedRoot()
+
+	/**
+	 * Whether a folder can really be moved into shared storage.
+	 *
+	 * [allFilesAvailable] is not the answer on its own. On some builds `isExternalStorageManager`
+	 * reports true for an app that only declares the permission, while the storage mount the process
+	 * was actually given lists every folder as empty and refuses every write. Believing it puts
+	 * "Full storage access granted" on the setup screen and lets Automatic pick a method that cannot
+	 * work, so the capability is tried rather than asked about.
+	 *
+	 * The probe is a dot-named directory removed immediately, never the vault itself: creating
+	 * `.shelf` to answer a question would leave Shelf's own fingerprint in storage for someone who
+	 * may never use this method. A success is remembered because it cannot become false without the
+	 * permission change that restarts the process; a failure is not, so granting access mid-session
+	 * is noticed.
+	 */
+	private suspend fun canWriteSharedRoot(): Boolean = withContext(Dispatchers.IO) {
+		if (sharedRootWritable) return@withContext true
+		val probe = File(paths.emulatedRoot, ".${UUID.randomUUID()}")
+		val made = runCatching { probe.mkdir() }.getOrDefault(false)
+		runCatching { probe.delete() }
+		if (made) sharedRootWritable = true
+		made
+	}
 
 	/**
 	 * The vault stays in shared storage so uninstalling Shelf cannot delete the user's folders.
