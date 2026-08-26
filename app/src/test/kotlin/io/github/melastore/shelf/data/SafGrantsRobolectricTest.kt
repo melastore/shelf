@@ -29,9 +29,8 @@ import org.robolectric.shadows.ShadowContentResolver
 
 /**
  * The rename method is the only one that reaches a folder purely through a picker grant, and it was
- * the one silently doing nothing: the folder was resolved with `DocumentFile.fromSingleUri`, which
- * answers `isDirectory` but refuses to list children, so both protectors saw an empty folder and
- * reported success over files they had never touched.
+ * the one silently doing nothing: both protectors saw an empty folder and reported success over
+ * files they had never touched.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
