@@ -14,6 +14,7 @@ import io.github.melastore.shelf.data.AutoHideMode
 import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.HidingPreference
 import io.github.melastore.shelf.data.SafRecoveryCandidate
+import io.github.melastore.shelf.data.ThemeMode
 import io.github.melastore.shelf.security.CredentialKind
 
 @Composable
@@ -97,7 +98,11 @@ internal fun AutomaticLockSettingsSection(
 }
 
 @Composable
-internal fun ScreenCaptureSettingsSection(state: AppUiState, onAllowScreenshotsChange: () -> Unit) {
+internal fun ScreenCaptureSettingsSection(
+	state: AppUiState,
+	onAllowScreenshotsChange: () -> Unit,
+	onHideFromRecentsChange: () -> Unit,
+) {
 	SettingsGroup(
 		stringResource(R.string.screen_capture),
 		stringResource(R.string.screen_capture_summary),
@@ -109,8 +114,53 @@ internal fun ScreenCaptureSettingsSection(state: AppUiState, onAllowScreenshotsC
 			trailing = { SelectionMark(state.allowScreenshots) },
 			onClick = onAllowScreenshotsChange,
 		)
+		// Same question as the screenshot setting — who else sees this app — so it sits in the same
+		// group rather than under appearance.
+		SettingsRow(
+			title = stringResource(R.string.hide_from_recents),
+			summary = stringResource(R.string.hide_from_recents_summary),
+			trailing = { SelectionMark(state.hideFromRecents) },
+			onClick = onHideFromRecentsChange,
+		)
 	}
 }
+
+@Composable
+internal fun AppearanceSettingsSection(state: AppUiState, onThemeMode: (ThemeMode) -> Unit) {
+	SettingsGroup(
+		stringResource(R.string.appearance),
+		stringResource(R.string.appearance_summary),
+	) {
+		ThemeMode.entries.forEach { mode ->
+			SettingsRow(
+				title = mode.title(),
+				summary = mode.summary(),
+				trailing = { SelectionMark(state.themeMode == mode) },
+				onClick = { onThemeMode(mode) },
+			)
+		}
+	}
+}
+
+@Composable
+private fun ThemeMode.title(): String = stringResource(
+	when (this) {
+		ThemeMode.SYSTEM -> R.string.theme_system
+		ThemeMode.LIGHT -> R.string.theme_light
+		ThemeMode.DARK -> R.string.theme_dark
+		ThemeMode.AMOLED -> R.string.theme_amoled
+	},
+)
+
+@Composable
+private fun ThemeMode.summary(): String = stringResource(
+	when (this) {
+		ThemeMode.SYSTEM -> R.string.theme_system_summary
+		ThemeMode.LIGHT -> R.string.theme_light_summary
+		ThemeMode.DARK -> R.string.theme_dark_summary
+		ThemeMode.AMOLED -> R.string.theme_amoled_summary
+	},
+)
 
 @Composable
 internal fun FolderSettingsSection(

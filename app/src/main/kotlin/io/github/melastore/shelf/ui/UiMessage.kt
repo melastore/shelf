@@ -66,6 +66,8 @@ fun HideFailure.toUiMessage(): UiMessage = when (this) {
 
 	is HideFailure.AllFilesRequired -> uiMessage(R.string.error_all_files_required, name)
 
+	is HideFailure.ParentNotGrantable -> uiMessage(R.string.error_parent_not_grantable, name)
+
 	is HideFailure.HiddenFolderMissing -> uiMessage(R.string.error_hidden_folder_missing, name, path)
 
 	is HideFailure.DestinationExists -> uiMessage(R.string.error_destination_exists, path, name)

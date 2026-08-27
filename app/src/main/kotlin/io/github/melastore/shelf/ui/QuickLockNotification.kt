@@ -64,10 +64,11 @@ object QuickLockSignal {
 /**
  * A quiet notification carrying the emergency-hide action.
  *
- * It is posted whenever a folder is sitting in the open — which outlasts the private space being on
- * screen, and is the state actually worth a one-tap way out — and while the private space itself is
- * open. Nothing on it names that space. The channel name is subject to the same rule: it stays
- * listed under the app's notification settings long after the notification is gone.
+ * It is posted only while a folder is sitting in the open, which outlasts the private space being on
+ * screen and is the one state worth a one-tap way out. With everything already hidden the action has
+ * nothing to do, so there is no notification to explain. Nothing on it names the private space, and
+ * the channel name is subject to the same rule: it stays listed under the app's notification
+ * settings long after the notification is gone.
  */
 object QuickLockNotification {
 	private const val CHANNEL = "background_activity"

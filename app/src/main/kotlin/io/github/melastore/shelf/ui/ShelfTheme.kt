@@ -1,6 +1,7 @@
 package io.github.melastore.shelf.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -13,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.melastore.shelf.data.DecoyType
+import io.github.melastore.shelf.data.ThemeMode
 
 /**
  * Each disguise gets its own palette. A calculator that renders in the habit tracker's greens is a
@@ -198,10 +200,29 @@ private val ShelfTypography = Typography().run {
 	)
 }
 
+/**
+ * True black for the surfaces a dark scheme paints nearly black anyway.
+ *
+ * Only the backdrop layers move. Containers keep their lift, or every card, sheet and dialog would
+ * dissolve into the background and the screen would lose its edges.
+ */
+private fun ColorScheme.amoled(): ColorScheme = copy(
+	background = Color.Black,
+	surface = Color.Black,
+	surfaceContainerLowest = Color.Black,
+	surfaceContainerLow = Color(0xFF0A0A0A),
+	surfaceDim = Color.Black,
+	inverseSurface = Color(0xFFE6E6E6),
+)
+
 @Composable
-fun ShelfTheme(decoy: DecoyType?, content: @Composable () -> Unit) {
-	val dark = isSystemInDarkTheme()
-	val colors = when (decoy) {
+fun ShelfTheme(decoy: DecoyType?, mode: ThemeMode = ThemeMode.SYSTEM, content: @Composable () -> Unit,) {
+	val dark = when (mode) {
+		ThemeMode.SYSTEM -> isSystemInDarkTheme()
+		ThemeMode.LIGHT -> false
+		ThemeMode.DARK, ThemeMode.AMOLED -> true
+	}
+	val base = when (decoy) {
 		DecoyType.HABITS -> if (dark) HabitsDark else Habits
 
 		DecoyType.CALENDAR -> if (dark) CalendarDark else Calendar
@@ -212,6 +233,7 @@ fun ShelfTheme(decoy: DecoyType?, content: @Composable () -> Unit) {
 		// same one the space behind it uses.
 		DecoyType.NONE, null -> if (dark) VaultDark else Vault
 	}
+	val colors = if (mode == ThemeMode.AMOLED) base.amoled() else base
 	MaterialTheme(
 		colorScheme = colors,
 		shapes = ShelfShapes,

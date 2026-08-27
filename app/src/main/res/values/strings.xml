@@ -96,7 +96,6 @@
 	<string name="hidden_folder_label">Hidden folder</string>
 	<string name="vault_empty_title">Nothing added yet</string>
 	<string name="empty_hint">Add a folder and it disappears from your gallery and file manager.</string>
-	<string name="rename_visibility_warning">A file manager set to show hidden files may list this folder. After a primary-PIN hide, file names are randomized and protected headers prevent ordinary previews and opening.</string>
 	<string name="zone_exposed">Out in the open</string>
 	<string name="zone_stowed">Hidden</string>
 	<string name="zone_exposed_empty">Nothing is out in the open.</string>
@@ -141,6 +140,7 @@
 	<string name="error_restore_detail">Could not restore %1$s: %2$s</string>
 	<string name="error_folder_unreadable">%1$s is not a folder Shelf can read.</string>
 	<string name="error_move_failed">Could not move %1$s without copying it.</string>
+	<string name="error_parent_not_grantable">Android will not grant access to the folder above %1$s, so hiding it this way needs all-files access. Turn it on in Settings, or move the folder inside another one.</string>
 	<string name="error_all_files_required">%1$s needs all-files access to restore. Turn it back on in Settings and try again.</string>
 	<string name="error_hidden_folder_missing">%1$s is no longer at %2$s.</string>
 	<string name="error_destination_exists">Something already exists at %1$s, so %2$s was left hidden. Move or rename it and try again.</string>
@@ -210,6 +210,8 @@
 	<string name="fake_crash_summary">The entry gesture shows an app-has-stopped dialog instead of the unlock screen. Press and hold the message to carry on. Both buttons do what they say.</string>
 	<string name="fake_crash_on">Fake crash on. Hold the message to unlock.</string>
 	<string name="fake_crash_off">Fake crash off.</string>
+	<string name="hide_recents_on">Hidden from recents.</string>
+	<string name="hide_recents_off">Shown in recents again.</string>
 	<string name="disguise_changed">Disguise changed. The launcher icon updates once you leave Shelf.</string>
 	<string name="disguise_change_failed">Could not change the launcher disguise.</string>
 	<string name="disguise_change_failed_detail">Could not change the launcher disguise: %1$s</string>
@@ -318,6 +320,18 @@
 	<string name="screen_capture_summary">The private space is normally excluded from screenshots, screen recordings, and the recent apps preview.</string>
 	<string name="allow_screenshots">Allow screenshots</string>
 	<string name="allow_screenshots_summary">Turn this on to photograph the folder list. It also lets screen recorders see the private space, so it switches itself off again when the space closes.</string>
+	<string name="hide_from_recents">Hide from recents</string>
+	<string name="hide_from_recents_summary">Keep this app out of the recent apps list, and stop the system holding a picture of it.</string>
+	<string name="appearance">Appearance</string>
+	<string name="appearance_summary">Each disguise keeps its own colours. This decides whether they are painted light or dark.</string>
+	<string name="theme_system">Follow system</string>
+	<string name="theme_system_summary">Light or dark, whichever the device is set to.</string>
+	<string name="theme_light">Light</string>
+	<string name="theme_light_summary">Always light, whatever the device does.</string>
+	<string name="theme_dark">Dark</string>
+	<string name="theme_dark_summary">Always dark.</string>
+	<string name="theme_amoled">AMOLED</string>
+	<string name="theme_amoled_summary">Dark on true black. Saves power on an OLED screen.</string>
 	<string name="screenshots_allowed_notice">Screenshots are allowed until the private space closes.</string>
 	<string name="create_decoy_pin">Set a second PIN</string>
 	<string name="change_decoy_pin">Change the second PIN</string>

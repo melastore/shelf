@@ -6,6 +6,7 @@ import android.provider.DocumentsContract
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import io.github.melastore.shelf.root.StoragePaths
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -25,6 +26,11 @@ import kotlinx.coroutines.withContext
  * The rename has to be made through a grant on a folder *above* the target. Renaming the very folder
  * a tree grant was taken on leaves that grant pointing at a name that no longer exists, and the way
  * back would be gone with it.
+ *
+ * Some parents can never be granted: the provider marks the volume root and Download with
+ * FLAG_DIR_BLOCKS_OPEN_DOCUMENT_TREE, so the picker refuses them however many times it is shown. A
+ * folder sitting directly in one of those is renamed through the file system instead, which needs
+ * all-files access. Asking for a grant that cannot be given is the one thing not done here.
  */
 class DotRenameHider(context: Context, private val journal: Journal, private val paths: StoragePaths,) : HideStrategy {
 
@@ -44,12 +50,14 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 			return@withContext HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
 		}
 
+		if (SafPaths.documentId(paths.emulatedRoot, target.emulatedPath) == null) {
+			return@withContext HideResult.Failed(HideFailure.NotPrimaryStorage(target.emulatedPath))
+		}
 		val parent = SafPaths.parentOf(target.emulatedPath)
 		val tree = grantCovering(target.emulatedPath)
-			?: return@withContext HideResult.NeedsAccess(
-				parent,
-				target.displayName,
-			)
+		if (tree == null && grantable(parent)) {
+			return@withContext HideResult.NeedsAccess(parent, target.displayName)
+		}
 
 		val hiddenPath = SafPaths.sibling(target.emulatedPath, SafPaths.hiddenName(name))
 		val entry = HiddenEntry(
@@ -59,7 +67,8 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 			method = method,
 			hiddenPath = hiddenPath,
 			// The covering grant, not whatever the user last picked: this is what a restore reopens.
-			treeUri = tree.toString(),
+			// Empty when the folder is reached through the mount, which needs no grant to reopen.
+			treeUri = tree?.toString().orEmpty(),
 		)
 		if (!journal.addNew(entry)) {
 			return@withContext HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
@@ -104,24 +113,16 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 			}
 		}
 
-		val document = documentUri(tree, target.emulatedPath) ?: run {
+		val renamed = renameFolder(tree, target.emulatedPath, SafPaths.hiddenName(name)) ?: run {
 			names.restore(target.emulatedPath)
 			content.restore(target.emulatedPath)
-			return@withContext fail(entry, HideFailure.NotPrimaryStorage(target.emulatedPath))
+			return@withContext fail(entry, renameFailure(tree, target.displayName))
 		}
-
-		val renamed = runCatching {
-			DocumentsContract.renameDocument(resolver, document, SafPaths.hiddenName(name))
-		}.getOrNull() ?: run {
-			names.restore(target.emulatedPath)
-			content.restore(target.emulatedPath)
-			return@withContext fail(entry, HideFailure.RenameFailed(target.displayName))
-		}
-		val finalName = DocumentFile.fromSingleUri(appContext, renamed)?.name
-			?: return@withContext rollbackRename(entry, renamed, name, HideFailure.HiddenNameUnverified)
+		val finalName = renamed.name
+			?: return@withContext rollbackRename(entry, renamed.uri, name, HideFailure.HiddenNameUnverified)
 		val finalEntry = entry.copy(hiddenPath = SafPaths.sibling(target.emulatedPath, finalName))
 		if (!journal.replace(finalEntry)) {
-			return@withContext rollbackRename(entry, renamed, name, HideFailure.JournalUpdateFailed)
+			return@withContext rollbackRename(entry, renamed.uri, name, HideFailure.JournalUpdateFailed)
 		}
 
 		MediaStorePurge.scan(appContext, contents + target.emulatedPath)
@@ -137,12 +138,12 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		// The grant recorded at hide time, while it is still held; failing that, any grant the user has
 		// given since that reaches the folder.
 		val tree = heldTree(entry.treeUri) ?: grantCovering(entry.hiddenPath)
-			?: return@withContext HideResult.NeedsAccess(
-				SafPaths.parentOf(entry.path),
-				entry.displayName,
-			)
-		val document = documentUri(tree, entry.hiddenPath)
-			?: return@withContext HideResult.Failed(HideFailure.NotPrimaryStorage(entry.hiddenPath))
+		if (tree == null && grantable(SafPaths.parentOf(entry.path))) {
+			return@withContext HideResult.NeedsAccess(SafPaths.parentOf(entry.path), entry.displayName)
+		}
+		if (SafPaths.documentId(paths.emulatedRoot, entry.hiddenPath) == null) {
+			return@withContext HideResult.Failed(HideFailure.NotPrimaryStorage(entry.hiddenPath))
+		}
 
 		// Already back under its own name — a rename that succeeded after the journal write failed, or
 		// a restore the user finished in a file manager. Clear the record rather than reporting an
@@ -233,9 +234,7 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		}
 
 		val wanted = SafPaths.nameOf(entry.path)
-		val restored = runCatching {
-			DocumentsContract.renameDocument(resolver, document, wanted)
-		}.getOrNull() ?: run {
+		val restored = renameFolder(tree, entry.hiddenPath, wanted) ?: run {
 			content.protect(entry.hiddenPath)
 			names.protect(entry.hiddenPath)
 			return@withContext HideResult.Failed(HideFailure.RenameBackFailed(entry.displayName))
@@ -243,7 +242,7 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		// The rename has already happened. Some providers hand back a uri they will not then describe,
 		// and treating that as a failure would leave a journal entry pointing at the old hidden name —
 		// which no longer exists, so every later attempt would fail too. Assume the name we asked for.
-		val restoredName = DocumentFile.fromSingleUri(appContext, restored)?.name ?: wanted
+		val restoredName = restored.name ?: wanted
 		val restoredPath = SafPaths.sibling(entry.path, restoredName)
 
 		journal.remove(entry.path)
@@ -255,10 +254,12 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 
 	override suspend fun health(entry: HiddenEntry): HiddenHealth = withContext(Dispatchers.IO) {
 		val tree = heldTree(entry.treeUri) ?: grantCovering(entry.hiddenPath)
-			?: return@withContext HiddenHealth(
+		if (tree == null && grantable(SafPaths.parentOf(entry.path))) {
+			return@withContext HiddenHealth(
 				HiddenHealthStatus.ACCESS_REQUIRED,
 				HiddenHealthDetail.SAF_ACCESS_REQUIRED,
 			)
+		}
 		val hidden = probe(tree, entry.hiddenPath)
 		val original = probe(tree, entry.path)
 		when {
@@ -390,13 +391,13 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 
 	private suspend fun rollbackRename(
 		entry: HiddenEntry,
-		renamed: Uri,
+		renamed: Uri?,
 		originalName: String,
 		failure: HideFailure,
 	): HideResult {
-		val rolledBack = runCatching {
-			DocumentsContract.renameDocument(resolver, renamed, originalName)
-		}.getOrNull()
+		val rolledBack = renamed?.let {
+			runCatching { DocumentsContract.renameDocument(resolver, it, originalName) }.getOrNull()
+		}
 		if (rolledBack != null) {
 			names.restore(entry.path)
 			content.restore(entry.path)
@@ -407,7 +408,7 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		// The folder may now be hidden under the provider's chosen name. Keep the operation record; an
 		// uncertain rollback must never turn into an untracked folder. Prefer the path encoded in the
 		// returned document URI when the provider exposes it.
-		val hiddenPath = documentPath(renamed) ?: entry.hiddenPath
+		val hiddenPath = renamed?.let(::documentPath) ?: entry.hiddenPath
 		journal.replace(entry.copy(hiddenPath = hiddenPath))
 		return HideResult.Failed(HideFailure.RollbackFailed(failure))
 	}
@@ -425,13 +426,49 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		return paths.emulatedRoot + if (relative.isEmpty()) "" else "/$relative"
 	}
 
-	private fun exists(tree: Uri, path: String): Boolean {
-		val uri = documentUri(tree, path) ?: return false
+	/**
+	 * Renames the last segment of [path], through [tree] when a grant covers it and through the
+	 * mount when none can exist. A null name means the rename happened but the result could not be
+	 * read back; the caller rolls back rather than recording a name it has not seen.
+	 */
+	private fun renameFolder(tree: Uri?, path: String, wanted: String): Renamed? {
+		if (tree == null) {
+			val destination = File(SafPaths.parentOf(path), wanted)
+			if (destination.exists() || !File(path).renameTo(destination)) return null
+			return Renamed(wanted, null)
+		}
+		val document = documentUri(tree, path) ?: return null
+		val uri = runCatching {
+			DocumentsContract.renameDocument(resolver, document, wanted)
+		}.getOrNull() ?: return null
+		return Renamed(DocumentFile.fromSingleUri(appContext, uri)?.name, uri)
+	}
+
+	/** Without a grant the rename went through the mount, which is all-files access or nothing. */
+	private fun renameFailure(tree: Uri?, name: String): HideFailure =
+		if (tree == null) HideFailure.ParentNotGrantable(name) else HideFailure.RenameFailed(name)
+
+	/**
+	 * Whether the picker could ever return a grant covering children of [parent].
+	 *
+	 * ExternalStorageProvider sets FLAG_DIR_BLOCKS_OPEN_DOCUMENT_TREE on the volume root and on
+	 * Download, so OPEN_DOCUMENT_TREE cannot land on either. A grant *inside* one of them is no help:
+	 * a rename is authorised by the folder above, and that is the blocked one. Asking anyway is what
+	 * produced a picker that reappeared however often it was answered.
+	 */
+	private fun grantable(parent: String): Boolean {
+		val clean = parent.trimEnd('/')
+		return clean != paths.emulatedRoot && clean != paths.emulatedRoot + "/" + DOWNLOAD
+	}
+
+	private fun exists(tree: Uri?, path: String): Boolean {
+		val uri = documentUri(tree, path) ?: return File(path).exists()
 		return runCatching { DocumentFile.fromSingleUri(appContext, uri)?.exists() }.getOrNull() == true
 	}
 
-	private fun probe(tree: Uri, path: String): DocumentProbe {
-		val uri = documentUri(tree, path) ?: return DocumentProbe.UNKNOWN
+	private fun probe(tree: Uri?, path: String): DocumentProbe {
+		val uri = documentUri(tree, path)
+			?: return if (File(path).exists()) DocumentProbe.PRESENT else DocumentProbe.MISSING
 		return try {
 			resolver.query(
 				uri,
@@ -451,13 +488,19 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		}
 	}
 
-	private fun documentUri(tree: Uri, path: String): Uri? {
+	private fun documentUri(tree: Uri?, path: String): Uri? {
+		if (tree == null) return null
 		val id = SafPaths.documentId(paths.emulatedRoot, path) ?: return null
 		return runCatching { DocumentsContract.buildDocumentUriUsingTree(tree, id) }.getOrNull()
 	}
 
 	/** Paths of the files under a folder, so the scanner can be told which ones moved. */
-	private fun childPaths(tree: Uri, path: String): List<String> = buildList {
+	private fun childPaths(tree: Uri?, path: String): List<String> = buildList {
+		if (tree == null) {
+			File(path).walkTopDown().maxDepth(MAX_DEPTH).filter { it.isFile }
+				.take(MAX_CHILDREN).mapTo(this) { it.absolutePath }
+			return@buildList
+		}
 		collectChildPaths(tree, path, depth = 0, found = this)
 	}
 
@@ -492,8 +535,11 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		}
 	}
 
+	private data class Renamed(val name: String?, val uri: Uri?)
+
 	private companion object {
 		const val PRIMARY_DOCUMENT = "primary:"
+		const val DOWNLOAD = "Download"
 		const val MAX_DEPTH = 8
 		const val MAX_CHILDREN = 5_000
 		const val MAX_RECOVERY_CANDIDATES = 200

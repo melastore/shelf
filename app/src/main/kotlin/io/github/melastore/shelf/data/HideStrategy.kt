@@ -17,6 +17,7 @@ sealed interface HideFailure {
 	data class FolderUnreadable(val name: String) : HideFailure
 	data class MoveFailed(val name: String) : HideFailure
 	data class AllFilesRequired(val name: String) : HideFailure
+	data class ParentNotGrantable(val name: String) : HideFailure
 	data class HiddenFolderMissing(val name: String, val path: String) : HideFailure
 	data class DestinationExists(val name: String, val path: String) : HideFailure
 	data class MoveBackFailed(val name: String, val path: String) : HideFailure
