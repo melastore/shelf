@@ -37,6 +37,7 @@ import io.github.melastore.shelf.data.RecoveryBundleCodec
 import io.github.melastore.shelf.data.SafPaths
 import io.github.melastore.shelf.data.SafRecoveryCandidate
 import io.github.melastore.shelf.data.ShelfCore
+import io.github.melastore.shelf.data.ThemeMode
 import io.github.melastore.shelf.data.TrackedFolder
 import io.github.melastore.shelf.security.BiometricAuth
 import io.github.melastore.shelf.security.CredentialFault
@@ -104,6 +105,8 @@ data class AppUiState(
 	val availableMethods: Set<HideMethod> = emptySet(),
 	val canRequestAllFiles: Boolean = false,
 	val fakeCrash: Boolean = false,
+	val hideFromRecents: Boolean = false,
+	val themeMode: ThemeMode = ThemeMode.SYSTEM,
 	/** Set when an operation stopped to ask for access to a folder above the target. */
 	val accessNeededFor: Uri? = null,
 	/** Where the folder picker opens, so the first hide does not start at an empty Recents list. */
@@ -220,6 +223,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					entryMethod = settings.entryMethod,
 					hidingPreference = settings.hidingPreference,
 					fakeCrash = settings.fakeCrash,
+					hideFromRecents = settings.hideFromRecents,
+					themeMode = settings.themeMode,
 					setupStep = if (credentialSet) 0 else preferences.setupStep(),
 					habits = habits,
 					calendarEvents = events,
@@ -800,6 +805,21 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				message = uiMessage(if (enabled) R.string.fake_crash_on else R.string.fake_crash_off),
 			)
 		}
+	}
+
+	fun setHideFromRecents(enabled: Boolean) = viewModelScope.launch {
+		withContext(Dispatchers.IO) { preferences.setHideFromRecents(enabled) }
+		_state.update {
+			it.copy(
+				hideFromRecents = enabled,
+				message = uiMessage(if (enabled) R.string.hide_recents_on else R.string.hide_recents_off),
+			)
+		}
+	}
+
+	fun setThemeMode(mode: ThemeMode) = viewModelScope.launch {
+		withContext(Dispatchers.IO) { preferences.setThemeMode(mode) }
+		_state.update { it.copy(themeMode = mode) }
 	}
 
 	fun setEntryMethod(method: EntryMethod) = viewModelScope.launch {

@@ -15,6 +15,13 @@ enum class EntryMethod { TITLE_HOLD, CORNER_KNOCK, NATURAL_HOLD }
 
 enum class HidingPreference { AUTO, ROOT, ALL_FILES, SAF }
 
+/**
+ * Which palette the app paints in. [AMOLED] is dark with true black behind it, which costs nothing
+ * to draw on an OLED panel; [SYSTEM] follows the device. The decoy palettes keep their own hues in
+ * every mode, since a disguise that does not look like the app it imitates is not a disguise.
+ */
+enum class ThemeMode { SYSTEM, LIGHT, DARK, AMOLED }
+
 /** One clear policy for both closing the private UI and putting exposed folders back out of sight. */
 enum class AutoHideMode { SCREEN_OFF, IMMEDIATE, NEVER }
 
@@ -33,6 +40,8 @@ data class AppSettings(
 	val autoHideMode: AutoHideMode,
 	val quickLockNotification: Boolean,
 	val fakeCrash: Boolean,
+	val hideFromRecents: Boolean,
+	val themeMode: ThemeMode,
 )
 
 /** Small, non-sensitive preferences. Secrets are kept in [io.github.melastore.shelf.security.PassphraseGate]. */
@@ -50,6 +59,8 @@ class AppPreferences(context: Context) {
 		autoHideMode = autoHideMode(),
 		quickLockNotification = values.getBoolean(KEY_QUICK_LOCK_NOTIFICATION, false),
 		fakeCrash = values.getBoolean(KEY_FAKE_CRASH, false),
+		hideFromRecents = values.getBoolean(KEY_HIDE_FROM_RECENTS, false),
+		themeMode = enumValue(KEY_THEME, ThemeMode.SYSTEM),
 	)
 
 	fun setDecoy(value: DecoyType) = putString(KEY_DECOY, value.name)
@@ -121,6 +132,16 @@ class AppPreferences(context: Context) {
 	fun setFakeCrash(value: Boolean) {
 		values.edit(commit = true) { putBoolean(KEY_FAKE_CRASH, value) }
 	}
+
+	fun setHideFromRecents(value: Boolean) {
+		values.edit(commit = true) { putBoolean(KEY_HIDE_FROM_RECENTS, value) }
+	}
+
+	fun hideFromRecents(): Boolean = values.getBoolean(KEY_HIDE_FROM_RECENTS, false)
+
+	fun setThemeMode(value: ThemeMode) = putString(KEY_THEME, value.name)
+
+	fun themeMode(): ThemeMode = enumValue(KEY_THEME, ThemeMode.SYSTEM)
 
 	fun autoHideMode(): AutoHideMode {
 		if (values.contains(KEY_AUTO_HIDE)) return enumValue(KEY_AUTO_HIDE, AutoHideMode.IMMEDIATE)
@@ -213,6 +234,8 @@ class AppPreferences(context: Context) {
 		const val KEY_LOCK_TRIGGER = "lock_trigger"
 		const val KEY_QUICK_LOCK_NOTIFICATION = "quick_lock_notification"
 		const val KEY_FAKE_CRASH = "fake_crash"
+		const val KEY_HIDE_FROM_RECENTS = "hide_from_recents"
+		const val KEY_THEME = "theme_mode"
 		const val KEY_FAILED_UNLOCKS = "failed_unlocks"
 		const val KEY_LOCKOUTS = "lockouts"
 		const val KEY_BLOCKED_UNTIL = "blocked_until"

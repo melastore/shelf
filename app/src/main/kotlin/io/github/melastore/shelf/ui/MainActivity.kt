@@ -1,6 +1,7 @@
 package io.github.melastore.shelf.ui
 
 import android.Manifest
+import android.app.ActivityManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -72,7 +73,7 @@ class MainActivity : ComponentActivity() {
 			val privateScreen = state.screen != Screen.DECOY || firstRun
 
 			// A null decoy selects the private palette, so the two sides never look alike.
-			ShelfTheme(decoy = state.decoy.takeUnless { privateScreen }) {
+			ShelfTheme(decoy = state.decoy.takeUnless { privateScreen }, mode = state.themeMode) {
 				val snackbar = remember { SnackbarHostState() }
 				val biometricTitle = stringResource(R.string.biometric_prompt_title)
 				val biometricSubtitle = stringResource(R.string.biometric_prompt_subtitle)
@@ -167,6 +168,12 @@ class MainActivity : ComponentActivity() {
 						window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
 					}
 				}
+				// Kept off the recents list while it is on, and the snapshot behind it suppressed. Both
+				// are per-task settings the system forgets on relaunch, so they are reapplied here rather
+				// than declared once in the manifest.
+				LaunchedEffect(state.hideFromRecents) {
+					applyRecentsVisibility(state.hideFromRecents)
+				}
 				LaunchedEffect(state.message) {
 					state.message?.let {
 						snackbar.showSnackbar(it.resolve(resources))
@@ -199,11 +206,11 @@ class MainActivity : ComponentActivity() {
 					DecoyType.CALENDAR -> R.drawable.ic_mono_calendar
 					DecoyType.CALCULATOR -> R.drawable.ic_mono_calculator
 				}
-				// Kept up while a folder is sitting in the open, not only while the private space is on
-				// screen: unhiding something and then closing the app is precisely when a one-tap way to
-				// put it back is worth having, and the app is no longer in front of you to offer it.
-				val offerHide = state.quickLockNotification &&
-					(privateScreen || state.exposedFolders > 0)
+				// Exposure is the whole condition. It outlives the private space being on screen, which
+				// is the point — unhiding something and then closing the app is when a one-tap way to put
+				// it back is worth having. With everything already hidden there is nothing for the action
+				// to do, and an offer to hide what is not showing only tells the room the app is here.
+				val offerHide = state.quickLockNotification && state.exposedFolders > 0
 				LaunchedEffect(offerHide, notificationLabel, notificationIcon) {
 					if (offerHide) {
 						QuickLockNotification.show(
@@ -310,6 +317,21 @@ class MainActivity : ComponentActivity() {
 		viewModel.refreshBiometricAvailability()
 		// A hide may have happened in a receiver while this was in the background.
 		viewModel.refreshExposure()
+	}
+
+	/**
+	 * Takes this task out of the recents list, and stops the system keeping a picture of it.
+	 *
+	 * Excluding the task is what removes the entry; the screenshot call matters for the moment
+	 * between the app going to the background and the entry disappearing, and on launchers that show
+	 * a preview anyway. Neither is a substitute for FLAG_SECURE, which is set separately.
+	 */
+	private fun applyRecentsVisibility(hidden: Boolean) {
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+			runCatching { setRecentsScreenshotEnabled(!hidden) }
+		}
+		val manager = getSystemService(ActivityManager::class.java) ?: return
+		runCatching { manager.appTasks.forEach { it.setExcludeFromRecents(hidden) } }
 	}
 
 	// The notification is deliberately not cancelled here. It reflects folders left in the open, which

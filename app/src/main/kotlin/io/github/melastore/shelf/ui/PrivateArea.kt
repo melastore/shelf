@@ -79,6 +79,7 @@ import io.github.melastore.shelf.data.HiddenEntry
 import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.HidingPreference
 import io.github.melastore.shelf.data.SafRecoveryCandidate
+import io.github.melastore.shelf.data.ThemeMode
 import io.github.melastore.shelf.security.CredentialKind
 
 @Composable
@@ -157,6 +158,8 @@ fun PrivateArea(
 			onDecoy = viewModel::setDecoy,
 			onEntryMethod = viewModel::setEntryMethod,
 			onFakeCrash = viewModel::setFakeCrash,
+			onHideFromRecents = viewModel::setHideFromRecents,
+			onThemeMode = viewModel::setThemeMode,
 			onHidingPreference = viewModel::setHidingPreference,
 			onChangeCredential = viewModel::changeVaultCredential,
 			onSetDecoyCredential = viewModel::setDecoyCredential,
@@ -332,9 +335,6 @@ private fun VaultScreen(
 					}
 				}
 				item { VaultStatus(count, state) }
-				if (!state.duress && state.method == HideMethod.DOT_RENAME) {
-					item { RenameVisibilityNotice() }
-				}
 
 				if (count == 0) {
 					item {
@@ -407,29 +407,6 @@ private fun VaultScreen(
 			},
 			onDismiss = { forgetting = null },
 		)
-	}
-}
-
-@Composable
-private fun RenameVisibilityNotice() {
-	Surface(
-		modifier = Modifier.fillMaxWidth(),
-		shape = MaterialTheme.shapes.large,
-		color = MaterialTheme.colorScheme.secondaryContainer,
-	) {
-		Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-			Icon(
-				Icons.Filled.Lock,
-				contentDescription = null,
-				tint = MaterialTheme.colorScheme.onSecondaryContainer,
-			)
-			Text(
-				stringResource(R.string.rename_visibility_warning),
-				modifier = Modifier.padding(start = 12.dp),
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.onSecondaryContainer,
-			)
-		}
 	}
 }
 
@@ -648,6 +625,8 @@ private fun SettingsScreen(
 	onDecoy: (DecoyType) -> Unit,
 	onEntryMethod: (EntryMethod) -> Unit,
 	onFakeCrash: (Boolean) -> Unit,
+	onHideFromRecents: (Boolean) -> Unit,
+	onThemeMode: (ThemeMode) -> Unit,
 	onHidingPreference: (HidingPreference) -> Unit,
 	onChangeCredential: (CredentialKind, CharArray, CharArray) -> Unit,
 	onSetDecoyCredential: (CharArray, CharArray) -> Unit,
@@ -778,8 +757,11 @@ private fun SettingsScreen(
 				ScreenCaptureSettingsSection(
 					state = state,
 					onAllowScreenshotsChange = { onAllowScreenshotsChange(!state.allowScreenshots) },
+					onHideFromRecentsChange = { onHideFromRecents(!state.hideFromRecents) },
 				)
 			}
+
+			item { AppearanceSettingsSection(state, onThemeMode) }
 
 			item {
 				FolderSettingsSection(state, onHidingPreference, onRequestAllFiles)

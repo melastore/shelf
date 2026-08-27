@@ -105,6 +105,48 @@ class HideStrategiesRobolectricTest {
 	}
 
 	/**
+	 * The provider marks the volume root and Download with FLAG_DIR_BLOCKS_OPEN_DOCUMENT_TREE, so a
+	 * grant above a folder sitting in either of them cannot be obtained however often the picker is
+	 * shown. Asking for one produced a picker that reappeared after every answer, and the folder was
+	 * never hidden. The mount is the only way in, so it is the one taken.
+	 */
+	@Test
+	fun `dot rename does not ask for a grant the picker cannot give`() = runBlocking {
+		val paths = testPaths(FakeRoot())
+		val journal = Journal(File(temporaryFolder.root, "toplevel-journal.json"))
+		val source = File(paths.emulatedRoot, "Newpipe").apply { mkdirs() }
+		File(source, "clip.mp4").writeText("x")
+		val hider = DotRenameHider(context, journal, paths)
+
+		val result = hider.hide(FolderTarget(source.path, "Newpipe", null))
+
+		assertTrue("must not ask for the root grant", result !is HideResult.NeedsAccess)
+		assertTrue(result is HideResult.Ok)
+		assertTrue(File(paths.emulatedRoot, ".Newpipe").isDirectory)
+		assertTrue(!source.exists())
+
+		val entry = journal.read().single()
+		hider.restore(entry)
+		assertTrue(source.isDirectory)
+		assertTrue(journal.read().isEmpty())
+	}
+
+	/** Download is blocked for the same reason, so its children take the same path. */
+	@Test
+	fun `dot rename does not ask for a grant above Download`() = runBlocking {
+		val paths = testPaths(FakeRoot())
+		val journal = Journal(File(temporaryFolder.root, "download-journal.json"))
+		val source = File(paths.emulatedRoot, "Download/Clips").apply { mkdirs() }
+		File(source, "clip.mp4").writeText("x")
+		val hider = DotRenameHider(context, journal, paths)
+
+		val result = hider.hide(FolderTarget(source.path, "Clips", null))
+
+		assertTrue("must not ask for the Download grant", result !is HideResult.NeedsAccess)
+		assertTrue(File(paths.emulatedRoot, "Download/.Clips").isDirectory)
+	}
+
+	/**
 	 * A build can answer isExternalStorageManager true, resolve the appop to allowed, and still hand
 	 * the process a view in which the folder is empty and cannot be renamed. Going ahead protects
 	 * every file and then rolls it back when the rename fails, leaving the vault behind for a move
