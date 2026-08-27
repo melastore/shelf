@@ -1,9 +1,9 @@
-Two new ways in, and fixes for hiding on devices that misreport storage access.
+Two new ways in, a theme setting, and fixes for hiding.
 
-- Unlock with a knock code: four unmarked quarters, tapped in order.
-- Optional fake crash: the entry gesture shows an app-has-stopped dialog, and a
-  long press on the message carries on to the unlock screen.
-- Private move refuses a folder it cannot really reach, before touching it, and
-  asks for all-files access when it is picked instead of failing later.
-- Fixes a folder hidden with root that could not be unhidden again.
-- No vault directory is left behind by a move that never happened.
+- Knock code unlock: four unmarked quarters, tapped in order.
+- Optional fake crash: the entry gesture shows an app-has-stopped dialog, and
+  a long press on the message carries on to the unlock screen.
+- Theme: follow system, light, dark, or AMOLED.
+- Shelf can be kept out of the recent apps list.
+- Folders at the top of internal storage can be hidden by rename again.
+- Fixes a root-hidden folder that could not be unhidden.
