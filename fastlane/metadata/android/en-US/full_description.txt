@@ -35,7 +35,9 @@ Folders can be hidden in three ways. On rooted devices Shelf protects file
 headers and clears permission bits on the backing filesystem. With optional
 all-files access it protects headers and moves the folder under random names in
 a persistent hidden directory. With neither permission it protects headers and
-uses the system folder picker to rename the folder with a leading dot. All three
+uses the system folder picker to rename the folder with a leading dot. Android
+grants no access to the top of internal storage or to Download, so a folder
+directly in one of those needs all-files access instead. All three
 methods replace file names with opaque identifiers and keep the originals in a
 recovery manifest encrypted with your credential. Header protection touches a
 fixed 64 KiB per non-empty file rather than copying whole files, so a folder of
@@ -46,10 +48,14 @@ Each folder operation is journalled before anything changes. The journal uses
 synced atomic writes and retains its previous valid generation. Root and
 all-files hides leave a recovery marker beside the folder, so Shelf can rebuild
 its records after a reinstall. "Unhide everything" in Settings scans for those
-markers and restores every folder in one pass.
-Manual rename recovery and read-only health checks cover records lost after a
-reinstall. Recovery records can also be exported in a password-encrypted,
-tamper-detecting file and merged back without overwriting existing records.
+markers and restores every folder in one pass. Manual rename recovery and
+read-only health checks cover the rest. Recovery records can also be exported
+in a password-encrypted, tamper-detecting file and merged back without
+overwriting existing records.
+
+The theme follows the system or is fixed to light, dark, or AMOLED, and each
+disguise keeps its own colours. Shelf can also be kept out of the recent apps
+list; screenshots of the private space are blocked unless you allow them.
 
 Root is optional. Shelf has no network access, analytics, advertising, or cloud
 service.

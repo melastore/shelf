@@ -35,56 +35,83 @@ SHA-256  c0a840767117551defe6282499cf23a10c586a42da67a8bb4f038ef297d6a405
 There is also a quieter way, set in Settings: a long press on the title, or on
 an ordinary-looking control in the disguise.
 
-Then enter your credential — a **PIN**, a **password**, a **3×3 pattern**, or a
-**knock code** on four unmarked quarters. You pick which at setup and can change
-it later in Settings. Fingerprint unlock can be turned on once a credential is
-set.
+Then enter your credential. It can be a **PIN**, a **password**, a **3×3
+pattern**, or a **knock code** on four unmarked quarters. You pick which at
+setup and can change it later. The knock pad stays blank while you tap, so
+anyone watching learns neither the length of your code nor how far through it
+you are. Fingerprint unlock can be turned on once a credential is set.
 
 Settings can also put an **app-has-stopped dialog** in front of the unlock
-screen. Closing it really closes the app; holding the message carries on.
+screen. It is laid out like the real one. Closing it really closes the app.
+Holding the message is what carries on.
 
 ## Hiding a folder
 
-Add a folder and it stays on your list whether it is hidden or not, so putting it
-back out of sight later is one tap. One button at the top hides or unhides
+Add a folder and it stays on your list whether it is hidden or not, so putting
+it back out of sight later is one tap. One button at the top hides or unhides
 everything at once.
 
-Shelf picks the strongest method your phone allows, or you can choose in Settings:
+Shelf picks the strongest method your phone allows, or you can choose in
+Settings:
 
 | Method | Needs | What it does |
 | --- | --- | --- |
 | **Root** | Root | Strips the folder's permissions. Nothing on the phone can open it. |
 | **All-files** | All-files access | Moves the folder into a hidden `.shelf` directory. Instant, and survives uninstalling Shelf. |
-| **Rename** | Nothing | Renames the folder with a leading dot. Always available. |
+| **Rename** | Usually nothing | Renames the folder with a leading dot. The fallback that works with no permission at all. |
 
-All three also scramble file names and encrypt the first 64 KB of every file, so
-even a file manager that finds the folder shows nothing it can open or preview.
+One catch on Rename. It works by asking you for access to the folder *above* the
+one you are hiding, and Android refuses to hand out access to the top of
+internal storage or to Download. So a folder sitting directly in either of those
+needs all-files access instead. Anything nested deeper is fine.
+
+All three methods also scramble file names and encrypt the first 64 KB of every
+file, so even a file manager that finds the folder shows nothing it can open or
+preview.
 
 ## Getting out fast
 
-**Auto hide** closes the private space and puts folders back on its own — after
+**Auto hide** closes the private space and puts folders back on its own: after
 the screen turns off, immediately when you leave the app, or never.
 
 You can also turn on a quiet notification with a one-tap hide. It carries the
-disguise's name and says nothing about a private space. It stays up while any
-folder is unhidden, works even after Shelf is closed, and comes back after a
-restart.
+disguise's name and says nothing about a private space. It appears only while a
+folder is actually sitting in the open, works even after Shelf is closed, and
+comes back after a restart.
+
+## Blending in
+
+Three settings decide how much of Shelf anyone else sees.
+
+**The disguise** is Momento, the calendar, the calculator, or none at all. Each
+keeps its own name, icon, and colours.
+
+**Theme** is Follow system, Light, Dark, or AMOLED. AMOLED is dark on true
+black, which costs an OLED screen nothing to draw. Disguises keep their own
+colours in every mode, because a calculator in the private space's teal is not
+much of a calculator.
+
+**Hide from recents** keeps Shelf out of the recent apps list and stops the
+system holding a picture of it. Screenshots of the private space are blocked
+already, unless you turn them on for a session.
 
 ## The second credential
 
 Optional. It opens a private space that looks and behaves like the real one and
-holds nothing that matters — the one to hand over if you are ever forced to.
+holds nothing that matters. This is the one to hand over if you are ever forced
+to.
 
 Nothing in the app calls it a decoy on any screen you could be made to open.
-Its use is recorded, and your real space tells you about it next time you get in.
-So are wrong credentials that someone else tried.
+Its use is recorded, and your real space tells you about it next time you get
+in. So are wrong credentials that someone else tried.
 
-Guessing gets slower each time: 30 seconds, then a minute, five, fifteen, an hour.
+Guessing gets slower each time: 30 seconds, then a minute, five, fifteen, an
+hour.
 
 ## Read this before you rely on it
 
 **Forget your credential and the contents are gone.** A recovery file brings
-folders back into view, but their contents and names stay scrambled — the key is
+folders back into view, but their contents and names stay scrambled. The key is
 your credential, and Shelf keeps no copy of it. Nothing can undo that.
 
 **This is not full encryption.** Only the first 64 KB of each file is protected.
@@ -117,7 +144,7 @@ To build a signed release, copy `keystore.properties.example` to
 ./gradlew clean assembleRelease
 ```
 
-Keep that keystore safe — future updates must be signed with the same key.
+Keep that keystore safe. Future updates must be signed with the same key.
 
 ## Credits
 
