@@ -71,15 +71,15 @@ android {
 
 	sourceSets {
 		named("main") {
-			kotlin.srcDir("src/main/kotlin")
+			kotlin.directories.add("src/main/kotlin")
 		}
 		named("test") {
-			kotlin.srcDir("src/test/kotlin")
+			kotlin.directories.add("src/test/kotlin")
 		}
 		// The Compose prompt tests need the activity that ui-test-manifest injects, which only the
 		// debug variant has. Kept here rather than shipped into a release build to satisfy them.
 		named("testDebug") {
-			kotlin.srcDir("src/testDebug/kotlin")
+			kotlin.directories.add("src/testDebug/kotlin")
 		}
 	}
 
