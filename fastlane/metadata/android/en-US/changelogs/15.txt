@@ -1,0 +1,5 @@
+Fixes the unlock screen staying up after you leave the app.
+
+- The credential prompt now closes when Shelf goes to the background, so
+  returning to the app shows the disguise and not a keypad. Rotating the phone
+  still keeps whatever you had typed.
