@@ -47,6 +47,11 @@ android {
 	buildTypes {
 		release {
 			signingConfigs.findByName("release")?.let { signingConfig = it }
+			// AGP otherwise writes the git HEAD at build time into
+			// META-INF/version-control-info.textproto. That makes the APK depend on which commit
+			// happened to be checked out, so F-Droid rebuilding from the tagged commit gets a
+			// different byte and reproducible-build verification fails.
+			vcsInfo { include = false }
 			isMinifyEnabled = true
 			isShrinkResources = true
 			proguardFiles(

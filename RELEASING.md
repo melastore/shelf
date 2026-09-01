@@ -23,7 +23,25 @@ using the app, not what changed in the source.
 ./gradlew --no-daemon clean spotlessCheck test lint assembleRelease
 ```
 
-**4. Verify the APK before anything is published.**
+**4. Commit and tag before building the APK you will publish.** The tag must be
+annotated, and nothing is pushed yet:
+
+```sh
+git commit -m "Release 0.6.2"
+git tag -a v0.6.2 -m "Shelf 0.6.2"
+```
+
+If anything is wrong at this point, `git tag -d v0.6.2` and start over. Nothing has
+left the machine.
+
+**5. Build the APK from the tagged tree.** `git status` must be clean and HEAD must be
+the tag, so that what you publish is built from exactly the source F-Droid will fetch:
+
+```sh
+./gradlew --no-daemon clean assembleRelease
+```
+
+**6. Verify the APK before anything is published.**
 
 ```sh
 "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs \
@@ -39,18 +57,14 @@ c0a840767117551defe6282499cf23a10c586a42da67a8bb4f038ef297d6a405
 Every release shares that key. A different one silently breaks updates for everyone
 who already has Shelf installed, and they have to uninstall to recover.
 
-Steps 1 to 4 come before any commit, so a failed build can never leave a tag behind.
-
-**5. Commit and tag.** The tag must be annotated:
+**7. Push, once the build and the signature both check out:**
 
 ```sh
-git commit -m "Release 0.6.2"
-git tag -a v0.6.2 -m "Shelf 0.6.2"
 git push origin main
 git push origin v0.6.2
 ```
 
-**6. Publish.** The asset filename matters:
+**8. Publish.** The asset filename matters:
 
 ```sh
 cp app/build/outputs/apk/release/app-release.apk shelf-0.6.2.apk
@@ -69,7 +83,7 @@ Requires Android 11 or newer.
 Signing certificate SHA-256: `c0a840767117551defe6282499cf23a10c586a42da67a8bb4f038ef297d6a405`
 ```
 
-**7. Update the F-Droid recipe** last, once the tag exists. See below.
+**9. Update the F-Droid recipe** last, once the tag exists. See below.
 
 ## The F-Droid recipe
 
@@ -91,22 +105,51 @@ CurrentVersion: 0.6.2
 CurrentVersionCode: 15
 ```
 
-Three rules that are easy to get wrong:
+### Reproducible builds
+
+Because the recipe uses `Binaries:` with `AllowedAPKSigningKeys`, F-Droid rebuilds from
+`commit:` and byte-compares the result against the APK on the release page. Anything in
+the build that varies between machines or checkouts fails the whole version.
+
+The one that has already caught us: AGP embeds the git HEAD at build time into
+`META-INF/version-control-info.textproto`. An APK built before the `Release X.Y.Z`
+commit records the *previous* commit, so F-Droid rebuilding from the tagged commit gets
+a different revision string and verification fails on that single line. It is disabled
+in `app/build.gradle.kts`:
+
+```kotlin
+release {
+    vcsInfo { include = false }
+}
+```
+
+Keep it disabled. To check the build is still deterministic before publishing:
+
+```sh
+./gradlew --no-daemon clean assembleRelease
+sha256sum app/build/outputs/apk/release/app-release.apk
+./gradlew --no-daemon clean assembleRelease
+sha256sum app/build/outputs/apk/release/app-release.apk   # must match
+```
+
+Three more rules that are easy to get wrong:
 
 - **`commit:` must be the commit the tag points at, and it must exist.** For an
   annotated tag, `git rev-list -n1 v0.6.2` gives the commit; `git rev-parse v0.6.2`
   gives the *tag object*, which is a different hash and will not resolve for F-Droid.
-- **Published entries are frozen.** `Binaries:` plus `AllowedAPKSigningKeys` means
-  F-Droid rebuilds from `commit:` and byte-compares the result against the APK on the
-  release page. Repointing an existing entry at a newer commit guarantees a mismatch.
-  A fix always means a new version, never an edit to an old entry.
+- **Published entries are frozen.** Repointing an existing entry at a newer commit
+  cannot fix a failure: the reference APK is whatever was uploaded, so a different
+  commit just moves the mismatch. A fix always means a new version, never an edit to an
+  old entry. A version whose APK cannot be reproduced from any commit in the repo is
+  unverifiable forever, and its entry has to be dropped from the recipe.
 - **Check it parses** before opening the merge request:
 
   ```sh
   python3 -c "import yaml; print(yaml.safe_load(open('io.github.melastore.shelf.yml')))"
   ```
 
-Because verification is a byte comparison, a toolchain difference between this machine
-and F-Droid's builders can fail a version that cannot then be rebuilt identically. If a
-reviewer reports a mismatch, the fix is to drop `Binaries:` and let F-Droid build and
-sign with its own key instead.
+A toolchain difference between this machine and F-Droid's builders can still fail a
+version. If a reviewer reports a mismatch that is not explained by the above, the
+fallback is to drop `Binaries:` and `AllowedAPKSigningKeys` and let F-Droid build and
+sign with its own key. That removes the byte comparison entirely, at the cost of a
+different signature from the GitHub APK.
