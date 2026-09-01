@@ -26,11 +26,6 @@ Keep user-facing text in Android string or plural resources. Data-layer operatio
 failures and warnings so the UI can localize them. Avoid logging credentials, real paths, journal
 contents, or recovery material.
 
-## Releases
-
-Cutting a release is a manual checklist, including a signing check that must pass before
-anything is tagged. See [RELEASING.md](RELEASING.md).
-
 ## Pull requests
 
 Keep changes focused and explain any storage, permission, or recovery tradeoffs. If a change modifies a
