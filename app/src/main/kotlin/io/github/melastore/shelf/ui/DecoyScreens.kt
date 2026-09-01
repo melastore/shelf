@@ -1,5 +1,6 @@
 package io.github.melastore.shelf.ui
 
+import android.text.format.DateFormat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -29,18 +30,15 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -52,6 +50,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -71,6 +71,7 @@ import io.github.melastore.shelf.data.DecoyType
 import io.github.melastore.shelf.data.EntryMethod
 import io.github.melastore.shelf.data.Habit
 import io.github.melastore.shelf.data.currentStreak
+import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -88,26 +89,26 @@ fun DecoyScreen(state: AppUiState, viewModel: ShelfViewModel, onSecretEntry: () 
 			DecoyType.CALENDAR -> CalendarDecoy(state, viewModel, onSecretEntry)
 			DecoyType.CALCULATOR -> CalculatorDecoy(state.entryMethod, onSecretEntry)
 		}
-		// With no disguise there is nothing to hide the way in behind, and the lock screen offers a
-		// button, so the corner target would only be a second route to a door that is already open.
+		// With no disguise there is nothing to hide the way in behind and the lock screen offers a
+		// button, so the corner target would be a second route to an open door.
 		if (state.decoy != DecoyType.NONE) {
-			// Always live, whatever gesture is configured, because the knock is the way back in when the
-			// chosen long-press lands on a control that is not on screen. An owner locked out of their own
-			// private space is a worse outcome than a gesture that is slightly easier to stumble on.
+			// Always live, whatever gesture is configured: the knock is the way back in when the chosen
+			// long press lands on a control that is not on screen. Being locked out of your own private
+			// space is worse than a gesture that is a little easier to stumble on.
 			//
-			// Top-right only: no decoy puts a control there, whereas the left of the bar is the title, and
-			// a target over it would swallow the long-press that is the default way in.
+			// Top right only. No decoy puts a control there, whereas the left of the bar is the title
+			// and a target over it would swallow the long press that is the default way in.
 			KnockTarget(onSecretEntry, Modifier.align(Alignment.TopEnd).statusBarsPadding())
 		}
 	}
 }
 
 /**
- * What the app shows when it is wearing no disguise, which is the default.
+ * What the app shows wearing no disguise, which is the default.
  *
- * There is nothing to conceal here and therefore nothing to find: one button, doing the one thing
- * the app is for. The hidden gestures still exist for anyone who later picks a disguise, but making
- * an undisguised app hide its own front door would only lock out the owner.
+ * Nothing to conceal and so nothing to find: one button, doing the one thing the app is for. The
+ * hidden gestures still work for anyone who later picks a disguise, but making an undisguised app
+ * hide its own front door would only lock out the owner.
  */
 @Composable
 private fun LockScreen(onUnlock: () -> Unit) {
@@ -186,13 +187,12 @@ private fun HabitDecoy(state: AppUiState, viewModel: ShelfViewModel, onSecretEnt
 			verticalArrangement = Arrangement.spacedBy(12.dp),
 		) {
 			item {
+				val weekday = dateFormat("EEEE")
+				val fullDate = dateFormat("dMMMMy")
 				Column(Modifier.padding(top = 4.dp, bottom = 4.dp)) {
+					Text(today.format(weekday), style = MaterialTheme.typography.headlineLarge)
 					Text(
-						today.format(DateTimeFormatter.ofPattern("EEEE")),
-						style = MaterialTheme.typography.headlineLarge,
-					)
-					Text(
-						today.format(DateTimeFormatter.ofPattern("d MMMM yyyy")),
+						today.format(fullDate),
 						style = MaterialTheme.typography.bodyLarge,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
@@ -252,33 +252,14 @@ private fun ProgressCard(done: Int, total: Int, modifier: Modifier = Modifier) {
 				Canvas(Modifier.fillMaxSize()) {
 					val stroke = Stroke(width = 9.dp.toPx(), cap = StrokeCap.Round)
 					val inset = stroke.width / 2
-					drawArc(
-						color = track,
-						startAngle = -90f,
-						sweepAngle = 360f,
-						useCenter = false,
-						topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
-						size = androidx.compose.ui.geometry.Size(
-							size.width - stroke.width,
-							size.height - stroke.width,
-						),
-						style = stroke,
-					)
-					drawArc(
-						color = arc,
-						startAngle = -90f,
-						sweepAngle = 360f * animated,
-						useCenter = false,
-						topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
-						size = androidx.compose.ui.geometry.Size(
-							size.width - stroke.width,
-							size.height - stroke.width,
-						),
-						style = stroke,
-					)
+					val corner = Offset(inset, inset)
+					val ring = Size(size.width - stroke.width, size.height - stroke.width)
+					drawArc(track, -90f, 360f, false, corner, ring, style = stroke)
+					drawArc(arc, -90f, 360f * animated, false, corner, ring, style = stroke)
 				}
+				// Follows the arc rather than the target, so the number and the ring never disagree.
 				Text(
-					"${(fraction * 100).toInt()}%",
+					percentText(animated),
 					style = MaterialTheme.typography.titleMedium,
 					color = MaterialTheme.colorScheme.onPrimaryContainer,
 				)
@@ -303,6 +284,14 @@ private fun ProgressCard(done: Int, total: Int, modifier: Modifier = Modifier) {
 			}
 		}
 	}
+}
+
+/** Locale-aware, because not every language writes a percentage as "50%". */
+@Composable
+private fun percentText(fraction: Float): String {
+	val locale = currentLocale()
+	val format = remember(locale) { NumberFormat.getPercentInstance(locale) }
+	return format.format(fraction)
 }
 
 @Composable
@@ -353,14 +342,25 @@ private fun HabitCard(habit: Habit, today: LocalDate, viewModel: ShelfViewModel)
 }
 
 /**
- * The device locale, read so Compose notices when it changes.
+ * The device locale, read through the configuration so Compose notices when it changes.
  *
- * `Locale.getDefault()` is a plain static read: a calendar laid out for one locale would keep its
- * weekday order and names after the user picked another, until something unrelated happened to
- * recompose it.
+ * `Locale.getDefault()` is a plain static read, so a calendar laid out for one locale keeps its
+ * weekday order and names after the user picks another, until something unrelated recomposes it.
  */
 @Composable
 private fun currentLocale(): Locale = LocalConfiguration.current.locales[0]
+
+/**
+ * A date formatter for [skeleton], a field list rather than a layout. Only the platform knows that
+ * en-GB writes "3 March" and en-US "March 3"; a hardcoded "d MMMM" gets one of them wrong.
+ */
+@Composable
+private fun dateFormat(skeleton: String): DateTimeFormatter {
+	val locale = currentLocale()
+	return remember(locale, skeleton) {
+		DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, skeleton), locale)
+	}
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -438,7 +438,7 @@ private fun CalendarDecoy(state: AppUiState, viewModel: ShelfViewModel, onSecret
 								)
 							}
 							Text(
-								month.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
+								month.format(dateFormat("MMMMy")),
 								modifier = Modifier.weight(1f),
 								style = MaterialTheme.typography.titleLarge,
 								textAlign = TextAlign.Center,
@@ -466,7 +466,7 @@ private fun CalendarDecoy(state: AppUiState, viewModel: ShelfViewModel, onSecret
 					),
 				) {
 					Text(
-						selected.format(DateTimeFormatter.ofPattern("EEEE, d MMMM")),
+						selected.format(dateFormat("EEEEdMMMM")),
 						style = MaterialTheme.typography.titleLarge,
 					)
 					Text(
@@ -495,7 +495,7 @@ private fun CalendarDecoy(state: AppUiState, viewModel: ShelfViewModel, onSecret
 		TextEntryDialog(
 			title = stringResource(R.string.new_event),
 			label = stringResource(R.string.event_title),
-			subtitle = selected.format(DateTimeFormatter.ofPattern("EEEE, d MMMM")),
+			subtitle = selected.format(dateFormat("EEEEdMMMM")),
 			onAdd = {
 				viewModel.addCalendarEvent(selected.toString(), it)
 				showAdd = false
@@ -722,7 +722,7 @@ private fun CalculatorState.press(key: String): CalculatorState = when (key) {
 	"−" -> operator(CalculatorOperation.SUBTRACT)
 	"×" -> operator(CalculatorOperation.MULTIPLY)
 	"÷" -> operator(CalculatorOperation.DIVIDE)
-	"=" -> equals()
+	"=" -> evaluate()
 	else -> digit(key.toInt())
 }
 

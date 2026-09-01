@@ -11,7 +11,7 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
-/** Versioned password-encrypted envelope used for small recovery bundles, never folder contents. */
+/** Versioned password-encrypted envelope. Used for small recovery bundles, never folder contents. */
 object PasswordEnvelope {
 
 	fun encrypt(plaintext: ByteArray, password: CharArray, iterations: Int = DEFAULT_ITERATIONS): ByteArray {

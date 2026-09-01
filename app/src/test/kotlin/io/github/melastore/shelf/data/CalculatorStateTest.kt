@@ -20,7 +20,7 @@ class CalculatorStateTest {
 			.digit(4)
 			.operator(CalculatorOperation.MULTIPLY)
 			.digit(3)
-			.equals()
+			.evaluate()
 
 		assertEquals("36", state.display)
 	}
@@ -32,7 +32,7 @@ class CalculatorStateTest {
 			.operator(CalculatorOperation.ADD)
 			.operator(CalculatorOperation.SUBTRACT)
 			.digit(2)
-			.equals()
+			.evaluate()
 
 		assertEquals("7", state.display)
 	}
@@ -43,7 +43,7 @@ class CalculatorStateTest {
 			.digit(4)
 			.operator(CalculatorOperation.DIVIDE)
 			.digit(0)
-			.equals()
+			.evaluate()
 
 		assertEquals("Error", state.display)
 	}

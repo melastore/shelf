@@ -7,10 +7,9 @@ import java.io.File
 /**
  * The folder machinery, owned by the process rather than by a screen.
  *
- * The emergency-hide action has to work when there is no private space on screen and no view model
- * alive to ask — a broadcast receiver can be the only thing running, started by the tap itself. If
- * hiding lived solely in the view model, the action would do nothing in exactly the situation it
- * exists for: the app closed, the folders still sitting in the open.
+ * Emergency hide has to work with no private space on screen and no view model to ask; a broadcast
+ * receiver started by the tap can be the only thing running. Keeping the hiding in the view model
+ * would make the action a no-op in exactly the case it exists for.
  */
 object ShelfCore {
 
@@ -27,7 +26,7 @@ object ShelfCore {
 		if (!::appContext.isInitialized) appContext = context.applicationContext
 	}
 
-	/** Folders on the list that are not hidden at this moment, in the order they were added. */
+	/** Folders on the list that are visible right now, in the order they were added. */
 	suspend fun exposedFolders(): List<TrackedFolder> {
 		val entries = journal.read().associateBy { paths.toEmulated(it.path) }
 		return registry.read().filter { folder ->
@@ -37,9 +36,9 @@ object ShelfCore {
 	}
 
 	/**
-	 * Hides everything on the list that is currently visible, reporting only how far it got. Anything
-	 * needing a grant Shelf does not hold is skipped: there is no one to ask, and the alternative is
-	 * stopping at the first folder and leaving the rest exposed.
+	 * Hides every visible folder on the list and reports how far it got. Anything needing a grant
+	 * Shelf does not hold is skipped; there is nobody to ask, and stopping at the first one would
+	 * leave the rest exposed.
 	 */
 	suspend fun hideAllExposed(preference: HidingPreference): Int {
 		var hidden = 0

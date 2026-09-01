@@ -10,19 +10,19 @@ import kotlinx.serialization.builtins.ListSerializer
 data class DecoyItem(val id: String, val name: String, val hiddenAt: Long, val hidden: Boolean = true)
 
 /**
- * What someone sees when the decoy PIN is entered.
+ * What someone sees when the second credential is entered.
  *
- * A private space that opens to nothing is not a private space anyone believes in; being made to
- * open it and showing an empty room reads as "there is another PIN". So the decoy PIN opens a real
- * looking space with a few dull things in it, which can be restored one by one exactly as the real
- * ones can. Nothing here touches storage: restoring simply strikes the row off.
+ * A private space that opens on nothing is not believable: being made to open it and showing an
+ * empty room reads as "there is another PIN". So it opens on a few dull-looking rows that restore
+ * one by one exactly as the real ones do. Nothing here touches storage; restoring strikes the row
+ * off and no more.
  */
 class DecoyVault(file: File) {
 
 	private val store = AtomicJsonList(file, ListSerializer(DecoyItem.serializer()))
 	private val seededMarker = File(file.parentFile, "${file.name}.seeded")
 
-	/** Seeded once so intentionally restoring every decoy item does not bring them back later. */
+	/** Seeded once, so deliberately restoring every row does not bring them back on the next read. */
 	suspend fun read(): List<DecoyItem> {
 		val existing = store.read()
 		if (seededMarker.isFile) return existing
@@ -46,7 +46,7 @@ class DecoyVault(file: File) {
 		current + DecoyItem(UUID.randomUUID().toString(), name, System.currentTimeMillis())
 	}
 
-	/** Keeps the decoy believable even if its non-sensitive backing file cannot be read. */
+	/** Keeps the decoy believable when its backing file cannot be read. */
 	fun fallback(): List<DecoyItem> = seed()
 
 	private fun seed(): List<DecoyItem> {
@@ -78,9 +78,9 @@ class DecoyVault(file: File) {
 data class DuressEvent(val at: Long)
 
 /**
- * A tripwire. Every time the decoy PIN opens the decoy space this records when, and the real space
- * reports it on the next visit. Being made to hand over a PIN is worth knowing about afterwards, and
- * it is the one thing the person doing the coercing has no way to see.
+ * A tripwire. Records every time the second credential opens the decoy space; the real space reports
+ * it on the next visit. Being made to hand over a credential is worth knowing about afterwards, and
+ * it is the one thing the person doing the coercing cannot see.
  */
 class DuressLog(file: File) {
 
@@ -92,7 +92,7 @@ class DuressLog(file: File) {
 
 	suspend fun read(): List<DuressEvent> = store.read()
 
-	/** Cleared only after the owner dismisses the warning, so background locking cannot lose it. */
+	/** Cleared only when the owner dismisses the warning, so a background lock cannot lose it. */
 	suspend fun clear() = store.update { emptyList() }
 
 	private companion object {

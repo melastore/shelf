@@ -29,7 +29,7 @@ object BiometricAuth {
 	private const val TRANSFORMATION = "${KeyProperties.KEY_ALGORITHM_AES}/${KeyProperties.BLOCK_MODE_GCM}/" +
 		KeyProperties.ENCRYPTION_PADDING_NONE
 
-	/** Why an attempt ended. A missing wrapper makes older installs fall back to the primary PIN. */
+	/** Why an attempt ended. A missing wrapper drops older installs back to the credential prompt. */
 	enum class Outcome { SUCCEEDED, FALLBACK, ENROLMENT_CHANGED, CREDENTIAL_MISSING }
 
 	fun isAvailable(context: Context): Boolean {
@@ -37,15 +37,14 @@ object BiometricAuth {
 		return manager.canAuthenticate(AUTHENTICATOR) == BiometricManager.BIOMETRIC_SUCCESS
 	}
 
-	/** True only when both the encrypted credential and its non-exportable Keystore key exist. */
+	/** True only if both the encrypted credential and its Keystore key are present. */
 	fun hasCredential(context: Context): Boolean = readBlob(context) != null && runCatching {
 		keyStore().containsAlias(KEY_NAME)
 	}.getOrDefault(false)
 
 	/**
-	 * Wraps [credential] after a strong-biometric match. The encrypted copy is app-private; its key is
-	 * non-exportable, requires biometric authentication for every use, and is invalidated when the
-	 * device's biometric enrolment changes.
+	 * Wraps [credential] after a strong-biometric match. The copy is app-private and its key is
+	 * non-exportable, needs a biometric match per use, and dies when the enrolment changes.
 	 */
 	fun enroll(
 		activity: Activity,
@@ -63,8 +62,8 @@ object BiometricAuth {
 			return null
 		}
 
-		// Enabling is an explicit fresh enrolment. Remove any stale or legacy key before binding the
-		// new wrapper to the biometrics enrolled today.
+		// Enabling is a fresh enrolment: drop any stale or legacy key before binding to today's
+		// biometrics.
 		reset(activity)
 		val cipher = prepareEncrypt() ?: run {
 			secret.fill(' ')
@@ -105,7 +104,7 @@ object BiometricAuth {
 		}
 	}
 
-	/** Authenticates and returns a short-lived primary credential owned by [onResult]. */
+	/** Authenticates and hands [onResult] a short-lived credential it then owns. */
 	fun authenticate(
 		activity: Activity,
 		title: String,
@@ -173,7 +172,8 @@ object BiometricAuth {
 		}
 	}
 
-	/** Deletes the wrapper and both current and legacy keys. */
+	/** Deletes the wrapper and both the current and legacy keys. */
+	@Suppress("ApplySharedPref", "UseKtx") // Synchronous: the key is gone the moment this returns.
 	fun reset(context: Context) {
 		preferences(context).edit().clear().commit()
 		runCatching {
@@ -306,6 +306,6 @@ object BiometricAuth {
 	private const val GCM_TAG_BITS = 128
 	private const val GCM_IV_BYTES = 12
 
-	/** A credential is at most [CredentialRules.MAX_LENGTH] characters, and UTF-8 is at most four bytes each. */
+	/** [CredentialRules.MAX_LENGTH] chars at four UTF-8 bytes each, plus the GCM tag. */
 	private const val MAX_CIPHERTEXT_BYTES = CredentialRules.MAX_LENGTH * 4 + GCM_TAG_BITS / 8
 }

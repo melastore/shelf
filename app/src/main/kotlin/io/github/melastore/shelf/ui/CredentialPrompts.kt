@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,9 +72,9 @@ import kotlin.math.roundToInt
 /**
  * Asks for a credential in whichever form this vault uses.
  *
- * One entry point rather than a branch at every call site: every screen that asks for a credential —
- * unlocking, changing one, confirming before a change — has to ask for the same one, and a screen that
- * offered a keypad to a vault opened by pattern would simply be a screen the owner cannot get past.
+ * One entry point instead of a branch at every call site. Unlocking, changing, confirming before a
+ * change: they all have to ask for the same thing, and a screen offering a keypad to a vault opened
+ * by pattern is a screen the owner cannot get past.
  */
 @Composable
 fun CredentialPrompt(
@@ -125,12 +126,12 @@ fun CredentialPrompt(
 }
 
 /**
- * A 3×3 pattern, drawn the way every Android lock screen draws one.
+ * A 3x3 pattern, drawn the way every Android lock screen draws one.
  *
- * Dots are picked up by proximity rather than by hit-testing a circle, because a finger dragged across
- * a grid does not land on centres, and a pattern that needs precision is one the owner fails to enter
- * in the dark. A line that passes over an unused dot collects it, which is what the platform does and
- * therefore what the owner's muscle memory expects.
+ * Dots are picked up by proximity rather than by hit-testing a circle: a finger dragged across a
+ * grid does not land on centres, and a pattern needing precision is one the owner fails in the dark.
+ * A line passing over an unused dot collects it, which is what the platform does and therefore what
+ * muscle memory expects.
  */
 @Composable
 fun PatternPrompt(
@@ -226,10 +227,9 @@ fun PatternPrompt(
 /**
  * Four unmarked quarters, tapped in order.
  *
- * Nothing on the pad says where the divisions fall or how long the code is, so it can be entered
- * without looking and a watcher sees taps landing on a blank square. Only the count is echoed back,
- * never the quarter: a row of filled dots tells the owner how far along they are and tells anyone
- * over their shoulder nothing they could repeat.
+ * Nothing says where the divisions fall or how long the code is, so it can be entered without
+ * looking and a watcher sees taps on a blank square. Only the count is echoed back, never the
+ * quarter: filled dots tell the owner how far along they are and a shoulder-surfer nothing.
  */
 @Composable
 fun KnockPrompt(
@@ -290,9 +290,9 @@ fun KnockPrompt(
 		}
 	}
 
-	// Unlocking shows nothing at all: a dark screen split in four, and no text, count or buttons to
-	// tell a bystander that anything is being entered. Setting a code has to be guided, so that pass
-	// keeps the usual chrome; nobody can confirm a code they cannot see the length of.
+	// Unlocking shows nothing at all: a dark screen split in four, with no text, count or buttons to
+	// tell a bystander anything is being entered. Setting a code has to be guided, so that pass keeps
+	// the usual chrome; nobody can confirm a code whose length they cannot see.
 	if (!confirmEntry) {
 		BareKnockPad(
 			onQuarter = { quarter ->
@@ -303,7 +303,7 @@ fun KnockPrompt(
 			},
 			onSubmit = {
 				// A hold that lands a fraction short counts as a tap and quietly adds a quarter, and a
-				// blank pad gives nothing to notice that by. So the hold answers with a weight of its
+				// blank pad gives nothing to notice that by, so the hold answers with a weight of its
 				// own, distinct from the tick a tap makes.
 				haptics.performHapticFeedback(HapticFeedbackType.LongPress)
 				if (KnockCode.isValid(tapped.toList())) finish() else tapped.clear()
@@ -358,12 +358,12 @@ fun KnockPrompt(
 }
 
 /**
- * The unlock pad: a dark screen divided in four, and nothing else.
+ * The unlock pad: a dark screen divided in four and nothing else.
  *
- * No title, no tap count, no buttons. Someone watching sees a finger land on an empty screen and
- * learns neither how long the code is nor how far through it the owner got. A long press anywhere
- * enters it, which is the same hold the crash dialog uses; a swipe starts the code over, for when
- * the count is lost and there is nothing on screen to check it against; and back gives up.
+ * No title, no tap count, no buttons. A watcher sees a finger land on an empty screen and learns
+ * neither the length of the code nor how far through it the owner got. A long press anywhere submits
+ * it, the same hold the crash dialog uses; a swipe starts over, for when the count is lost and there
+ * is nothing on screen to check it against; back gives up.
  */
 @Composable
 private fun BareKnockPad(onQuarter: (Int) -> Unit, onSubmit: () -> Unit, onReset: () -> Unit, onDismiss: () -> Unit,) {
@@ -395,7 +395,7 @@ private fun BareKnockPad(onQuarter: (Int) -> Unit, onSubmit: () -> Unit, onReset
 						detectDragGestures(onDragStart = { onReset() }) { change, _ -> change.consume() }
 					},
 			) {
-				// Just enough to show where the quarters divide, and not enough to read as a keypad.
+				// Just enough to show where the quarters divide, not enough to read as a keypad.
 				Canvas(Modifier.fillMaxSize()) {
 					drawLine(line, Offset(size.width / 2f, 0f), Offset(size.width / 2f, size.height), 1.dp.toPx())
 					drawLine(line, Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), 1.dp.toPx())
@@ -405,7 +405,7 @@ private fun BareKnockPad(onQuarter: (Int) -> Unit, onSubmit: () -> Unit, onReset
 	}
 }
 
-/** How many taps are in, and nothing about which ones. */
+/** How many taps are in, and nothing about which ones they were. */
 @Composable
 private fun KnockCount(taps: Int) {
 	Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
@@ -442,7 +442,7 @@ private fun KnockPad(onQuarter: (Int) -> Unit, modifier: Modifier = Modifier) {
 				}
 			},
 	) {
-		// Faint enough to be a shape rather than a keypad, and to leave no wear marks worth reading.
+		// Faint enough to read as a shape rather than a keypad, and to leave no wear marks.
 		Canvas(Modifier.matchParentSize()) {
 			drawLine(line, Offset(size.width / 2f, 0f), Offset(size.width / 2f, size.height), 1.dp.toPx())
 			drawLine(line, Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), 1.dp.toPx())
@@ -452,9 +452,9 @@ private fun KnockPad(onQuarter: (Int) -> Unit, modifier: Modifier = Modifier) {
 
 @Composable
 private fun PatternGrid(drawn: SnapshotStateList<Int>, onDotAdded: () -> Unit, modifier: Modifier = Modifier) {
-	// The grid is square, so one number describes it. It is recorded at layout rather than at draw:
-	// writing state while drawing is what makes a canvas redraw itself forever.
-	var side by remember { mutableStateOf(0f) }
+	// The grid is square, so one number describes it. Recorded at layout, not at draw: writing state
+	// while drawing makes a canvas redraw itself forever.
+	var side by remember { mutableFloatStateOf(0f) }
 	val spacing = side / PatternCode.SIDE
 	val origin = spacing / 2f
 	val active = MaterialTheme.colorScheme.primary
@@ -472,8 +472,8 @@ private fun PatternGrid(drawn: SnapshotStateList<Int>, onDotAdded: () -> Unit, m
 		val row = ((position.y - origin) / spacing).roundToInt()
 		if (column !in 0 until PatternCode.SIDE || row !in 0 until PatternCode.SIDE) return null
 		val dot = row * PatternCode.SIDE + column
-		// A finger dragged across a grid does not land on centres. Anything within a third of the gap
-		// counts as that dot; a pattern that needs precision is one its owner fails to enter in the dark.
+		// A finger dragged across a grid does not land on centres, so anything within a third of the
+		// gap counts as that dot.
 		val reach = centre(dot)
 		if (hypot(position.x - reach.x, position.y - reach.y) > spacing / 3f) return null
 		return dot
@@ -493,9 +493,9 @@ private fun PatternGrid(drawn: SnapshotStateList<Int>, onDotAdded: () -> Unit, m
 		modifier = modifier.fillMaxWidth().aspectRatio(1f).testTag("pattern")
 			.semantics { contentDescription = description }
 			.onSizeChanged { side = minOf(it.width, it.height).toFloat() }
-			// Not detectDragGestures: it reports the position after touch slop has been consumed, which
-			// on a quick swipe is already past the dot the finger went down on. That dot is then missing
-			// from the pattern, and the owner draws the shape they always draw and is refused.
+			// Not detectDragGestures: it reports the position after touch slop is consumed, which on a
+			// quick swipe is already past the dot the finger went down on. That dot goes missing and the
+			// owner draws the shape they always draw and is refused.
 			.pointerInput(spacing) {
 				awaitEachGesture {
 					val down = awaitFirstDown(requireUnconsumed = false)

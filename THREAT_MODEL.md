@@ -67,7 +67,7 @@ attacker who can modify the operating system.
   hidden again in one tap, which means app-private storage names every folder the
   user has ever added, whether or not any of them are hidden right now.
 - A forgotten credential. It is the key file headers and the filename manifest are
-  encrypted under, and no copy is kept that does not need it — the biometric and
+  encrypted under, and no copy is kept that does not need it. The biometric and
   emergency wrappers both require the device and an unlocked session to have
   existed first. A recovery file restores records, not contents.
 - The second credential against an adversary who already knows Shelf has one. It

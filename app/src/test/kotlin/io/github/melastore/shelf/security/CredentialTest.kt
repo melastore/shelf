@@ -71,8 +71,8 @@ class CredentialTest {
 	}
 
 	/**
-	 * The prompt cannot draw an invalid pattern, but the rules are what a stored credential is held to
-	 * — and a pattern read back from somewhere else has to be rejected rather than quietly accepted.
+	 * The prompt cannot draw an invalid pattern, but the rules are what a stored credential is held
+	 * to. One read back from anywhere else has to be rejected, not quietly accepted.
 	 */
 	@Test
 	fun `a pattern that could not have been drawn is rejected`() {

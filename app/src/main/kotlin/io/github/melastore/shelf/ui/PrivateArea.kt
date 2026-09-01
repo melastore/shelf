@@ -6,7 +6,6 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,8 +33,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -44,7 +41,6 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -63,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -75,8 +72,6 @@ import io.github.melastore.shelf.data.AutoHideMode
 import io.github.melastore.shelf.data.DecoyItem
 import io.github.melastore.shelf.data.DecoyType
 import io.github.melastore.shelf.data.EntryMethod
-import io.github.melastore.shelf.data.HiddenEntry
-import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.HidingPreference
 import io.github.melastore.shelf.data.SafRecoveryCandidate
 import io.github.melastore.shelf.data.ThemeMode
@@ -128,7 +123,6 @@ fun PrivateArea(
 		}
 	}
 	val context = LocalContext.current
-	val resources = context.resources
 
 	when (state.screen) {
 		Screen.VAULT -> VaultScreen(
@@ -239,7 +233,7 @@ private fun VaultScreen(
 	var discarding by remember { mutableStateOf<DecoyItem?>(null) }
 	var naming by remember { mutableStateOf(false) }
 	val count = if (state.duress) state.decoyItems.size else state.folders.size
-	val resources = LocalContext.current.resources
+	val resources = LocalResources.current
 
 	Box(Modifier.fillMaxSize()) {
 		Scaffold(
@@ -253,7 +247,7 @@ private fun VaultScreen(
 						}
 					},
 					actions = {
-						// Hidden under duress: a settings screen listing a decoy PIN would give the whole
+						// Not under duress: a settings screen listing a second credential would give the whole
 						// arrangement away to the person standing over the phone.
 						if (!state.duress) {
 							IconButton(onClick = onSettings) {
@@ -361,10 +355,9 @@ private fun VaultScreen(
 			}
 		}
 
-		// The way out of the decoy space and into the real one, in the same corner and with the same
-		// five taps that opened this. Someone standing over the phone has just watched a private space
-		// open and been shown everything in it; there is nothing left for them to become suspicious of,
-		// and the owner does not have to close the decoy and start again to reach their own space.
+		// The way out of the decoy and into the real space: same corner, same five taps. Whoever is
+		// standing over the phone has just been shown a private space and everything in it, so there
+		// is nothing left to be suspicious of, and the owner need not close the decoy and start over.
 		if (state.duress) {
 			KnockTarget(onSecretEntry, Modifier.align(Alignment.TopEnd).statusBarsPadding())
 		}
@@ -446,15 +439,10 @@ private data class ShelfRow(
 	val onForget: (() -> Unit)?,
 )
 
-/** A compact visual summary that makes the space feel distinct without hiding the useful state. */
+/** The header: which method is in use, how many folders, and the busy spinner. */
 @Composable
 private fun VaultStatus(count: Int, state: AppUiState) {
-	val method = when (state.method) {
-		HideMethod.ROOT_CHMOD -> stringResource(R.string.root_mode)
-		HideMethod.PRIVATE_MOVE -> stringResource(R.string.all_files_mode)
-		HideMethod.DOT_RENAME -> stringResource(R.string.saf_mode)
-		null -> stringResource(R.string.method_unavailable)
-	}
+	val method = state.method.label()
 	Surface(
 		modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp),
 		shape = MaterialTheme.shapes.extraLarge,
@@ -497,10 +485,7 @@ private fun VaultStatus(count: Int, state: AppUiState) {
 	}
 }
 
-/**
- * One quiet list header. The bulk action follows the useful direction: hide anything currently
- * visible, otherwise restore everything.
- */
+/** The bulk action follows the useful direction: hide whatever is visible, else restore the lot. */
 @Composable
 private fun FolderListHeader(count: Int, action: String, enabled: Boolean, onAction: () -> Unit,) {
 	Row(
@@ -522,10 +507,7 @@ private fun FolderListHeader(count: Int, action: String, enabled: Boolean, onAct
 	}
 }
 
-/**
- * A calm folder card. Lock state is carried by one familiar icon and a short subtitle instead of
- * splitting the screen into warning zones.
- */
+/** One folder. Lock state is an icon and a subtitle, not a coloured warning band. */
 @Composable
 private fun FolderTile(row: ShelfRow, busy: Boolean) {
 	var menu by remember { mutableStateOf(false) }
@@ -645,7 +627,7 @@ private fun SettingsScreen(
 ) {
 	var changeCurrent by remember { mutableStateOf<CharArray?>(null) }
 	var askCurrent by remember { mutableStateOf(false) }
-	// The kind the owner is moving to, which is the current one unless they picked a different row.
+	// The kind being moved to, which is the current one unless a different row was picked.
 	var changingTo by remember { mutableStateOf<CredentialKind?>(null) }
 	var decoyCurrent by remember { mutableStateOf<CharArray?>(null) }
 	var decoyAction by remember { mutableStateOf<DecoyPinAction?>(null) }
@@ -653,9 +635,9 @@ private fun SettingsScreen(
 	var confirmForce by remember { mutableStateOf(false) }
 	var recoveryCandidate by remember { mutableStateOf<SafRecoveryCandidate?>(null) }
 
-	// A confirmed PIN waits here for the second half of a two-step change. Leaving this screen — a
-	// back press, the screen going off, an automatic lock — abandons the dialog that would have
-	// cleared it, so the exit path has to.
+	// A confirmed credential waits here for the second half of a two-step change. Leaving the screen
+	// (back press, screen off, automatic lock) abandons the dialog that would have cleared it, so the
+	// exit path has to.
 	DisposableEffect(Unit) {
 		onDispose {
 			changeCurrent?.fill(' ')
@@ -782,8 +764,8 @@ private fun SettingsScreen(
 	}
 
 	if (askCurrent) {
-		// Proving the old credential uses the kind the vault has today; setting the new one uses the
-		// kind being moved to, which is the same one unless this is a change of kind.
+		// Proving the old credential uses the kind the vault has today. Setting the new one uses the
+		// kind being moved to, which is the same unless this is a change of kind.
 		CredentialPrompt(
 			kind = state.credentialKind,
 			title = CredentialWords.currentTitle(state.credentialKind),
@@ -898,8 +880,8 @@ private fun SettingsScreen(
 }
 
 /**
- * A single row that opens its options in place. A short, fixed list of mutually exclusive settings
- * does not need one full-width row each — five of them pushed everything below off the screen.
+ * A row that opens its options in place. A short fixed list of exclusive settings does not need a
+ * full-width row each; five of them pushed everything below off the screen.
  */
 @Composable
 internal fun <T> ChoiceRow(title: String, selected: String, options: List<Pair<T, String>>, onSelected: (T) -> Unit,) {
@@ -966,19 +948,12 @@ private fun RecoveryPassphraseDialog(
 	onConfirm: (CharArray) -> Unit,
 	onDismiss: () -> Unit,
 ) {
-	// A text field's value is a String and there is no version of that which can be overwritten, so
-	// unlike the PIN keypad this passphrase does live in the heap until it is collected. What is worth
-	// doing is not holding onto it: the fields are dropped as soon as the dialog closes, and the array
-	// handed on from here is cleared by the caller.
+	// A text field's value is a String and a String cannot be overwritten, so unlike the keypad this
+	// passphrase sits in the heap until it is collected. All we can do is not hold on to it: the
+	// state goes with the dialog, and the array handed on from here is cleared by the caller.
 	var first by remember { mutableStateOf("") }
 	var second by remember { mutableStateOf("") }
 	val valid = first.length >= MIN_RECOVERY_PASSWORD && (!confirmEntry || first == second)
-	DisposableEffect(Unit) {
-		onDispose {
-			first = ""
-			second = ""
-		}
-	}
 	AlertDialog(
 		onDismissRequest = onDismiss,
 		title = { Text(title) },
@@ -1015,69 +990,6 @@ private fun RecoveryPassphraseDialog(
 }
 
 private enum class DecoyPinAction { SET, REMOVE }
-
-/**
- * The real launcher icon, drawn from the same layers the adaptive icon uses, so the chooser is a
- * preview of what will actually appear on the home screen rather than an approximation of it.
- */
-@Composable
-private fun DecoyBadge(decoy: DecoyType) {
-	val (background, foreground) = when (decoy) {
-		DecoyType.NONE -> R.drawable.ic_bg_shelf to R.drawable.ic_launcher_shelf_foreground
-		DecoyType.HABITS -> R.drawable.ic_bg_habits to R.drawable.ic_launcher_foreground
-		DecoyType.CALENDAR -> R.drawable.ic_bg_calendar to R.drawable.ic_launcher_calendar_foreground
-		DecoyType.CALCULATOR -> R.drawable.ic_bg_calculator to R.drawable.ic_launcher_calculator_foreground
-	}
-	Box(Modifier.size(48.dp).clip(MaterialTheme.shapes.medium)) {
-		Image(painterResource(background), null, Modifier.fillMaxSize())
-		Image(painterResource(foreground), null, Modifier.fillMaxSize())
-	}
-}
-
-@Composable
-private fun DecoyType.label(): String = when (this) {
-	DecoyType.NONE -> stringResource(R.string.decoy_none)
-	DecoyType.HABITS -> stringResource(R.string.decoy_habits)
-	DecoyType.CALENDAR -> stringResource(R.string.decoy_calendar)
-	DecoyType.CALCULATOR -> stringResource(R.string.decoy_calculator)
-}
-
-@Composable
-private fun EntryMethod.title(): String = when (this) {
-	EntryMethod.TITLE_HOLD -> stringResource(R.string.entry_title_hold)
-	EntryMethod.CORNER_KNOCK -> stringResource(R.string.entry_corner_knock)
-	EntryMethod.NATURAL_HOLD -> stringResource(R.string.entry_natural_hold)
-}
-
-@Composable
-private fun EntryMethod.summary(): String = when (this) {
-	EntryMethod.TITLE_HOLD -> stringResource(R.string.entry_title_hold_summary)
-	EntryMethod.CORNER_KNOCK -> stringResource(R.string.entry_corner_knock_summary)
-	EntryMethod.NATURAL_HOLD -> stringResource(R.string.entry_natural_hold_summary)
-}
-
-@Composable
-private fun HidingPreference.title(): String = when (this) {
-	HidingPreference.AUTO -> stringResource(R.string.mode_auto)
-	HidingPreference.ROOT -> stringResource(R.string.root_mode)
-	HidingPreference.ALL_FILES -> stringResource(R.string.all_files_mode)
-	HidingPreference.SAF -> stringResource(R.string.saf_mode)
-}
-
-@Composable
-private fun HidingPreference.summary(available: Set<HideMethod>): String = when (this) {
-	HidingPreference.AUTO -> stringResource(R.string.mode_auto_summary)
-
-	HidingPreference.ROOT -> stringResource(
-		if (HideMethod.ROOT_CHMOD in available) R.string.root_mode_available else R.string.root_mode_unavailable,
-	)
-
-	HidingPreference.ALL_FILES -> stringResource(
-		if (HideMethod.PRIVATE_MOVE in available) R.string.all_files_available else R.string.all_files_unavailable,
-	)
-
-	HidingPreference.SAF -> stringResource(R.string.saf_mode_summary)
-}
 
 private const val KEEP_ACCESS = Intent.FLAG_GRANT_READ_URI_PERMISSION or
 	Intent.FLAG_GRANT_WRITE_URI_PERMISSION or

@@ -3,12 +3,11 @@ package io.github.melastore.shelf.data
 import java.io.File
 
 /**
- * Whether [dir] can be opened as a directory by this process.
+ * Whether [dir] looks openable as a directory by this process.
  *
- * This is the cheap check, not a guarantee. `canRead` and `canWrite` are access(2) against the FUSE
- * mount and answer for the mount rather than for the caller, and on some builds
- * `isExternalStorageManager` reports true for an app that merely declares the permission. Passing
- * here means a walk is worth attempting; only the walk itself says whether anything was seen.
+ * The cheap check, not a guarantee. `canRead` and `canWrite` are access(2) against the FUSE mount
+ * and answer for the mount, not the caller, and some builds report `isExternalStorageManager` true
+ * for an app that only declares the permission. Passing here means a walk is worth trying.
  */
 internal fun canWalkAsFile(dir: File): Boolean =
 	dir.isDirectory && dir.canRead() && dir.canWrite() && dir.listFiles() != null

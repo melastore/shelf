@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,15 +39,12 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.melastore.shelf.R
-import io.github.melastore.shelf.data.DecoyType
 import io.github.melastore.shelf.security.BiometricAuth
 
 class MainActivity : ComponentActivity() {
 
 	private val viewModel: ShelfViewModel by viewModels()
 	private var biometricPrompt: CancellationSignal? = null
-	private var showCredential by mutableStateOf(false)
-	private var showFakeCrash by mutableStateOf(false)
 	private val screenReceiver = object : BroadcastReceiver() {
 		override fun onReceive(context: Context, intent: Intent) {
 			when (intent.action) {
@@ -67,8 +65,10 @@ class MainActivity : ComponentActivity() {
 		enableEdgeToEdge()
 		setContent {
 			val state by viewModel.state.collectAsStateWithLifecycle()
-			// Setup runs before there is a credential, and therefore before there is anything to
-			// disguise. It gets the private palette for the same reason it gets FLAG_SECURE.
+			var showCredential by rememberSaveable { mutableStateOf(false) }
+			var showFakeCrash by rememberSaveable { mutableStateOf(false) }
+			// Setup runs before there is a credential, so there is nothing to disguise yet. It gets the
+			// private palette for the same reason it gets FLAG_SECURE.
 			val firstRun = state.ready && !state.credentialSet
 			val privateScreen = state.screen != Screen.DECOY || firstRun
 
@@ -109,8 +109,8 @@ class MainActivity : ComponentActivity() {
 								showCredential = true
 							}
 
-							// A changed enrolment invalidates the key, so the PIN takes over and the
-							// setting is turned off rather than silently doing nothing next time.
+							// A changed enrolment invalidates the key, so the credential takes over and
+							// the setting is turned off rather than quietly doing nothing next time.
 							BiometricAuth.Outcome.ENROLMENT_CHANGED -> {
 								viewModel.onBiometricEnrolmentChanged()
 								showCredential = true
@@ -158,9 +158,9 @@ class MainActivity : ComponentActivity() {
 					}
 				}
 
-				// The credential prompt is never exempt. Allowing screenshots is a decision made inside
-				// the private space, and the keypad is the one screen that is on show before anyone has
-				// proved they are entitled to make it.
+				// The credential prompt is never exempt. Allowing screenshots is a decision taken inside
+				// the private space, and the keypad is the one screen shown before anyone has proved
+				// they are entitled to take it.
 				LaunchedEffect(privateScreen, showCredential, state.allowScreenshots) {
 					if (showCredential || (privateScreen && !state.allowScreenshots)) {
 						window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -168,9 +168,8 @@ class MainActivity : ComponentActivity() {
 						window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
 					}
 				}
-				// Kept off the recents list while it is on, and the snapshot behind it suppressed. Both
-				// are per-task settings the system forgets on relaunch, so they are reapplied here rather
-				// than declared once in the manifest.
+				// Off the recents list, and no snapshot behind it. Both are per-task settings the system
+				// forgets on relaunch, so they are reapplied here rather than set once in the manifest.
 				LaunchedEffect(state.hideFromRecents) {
 					applyRecentsVisibility(state.hideFromRecents)
 				}
@@ -180,36 +179,19 @@ class MainActivity : ComponentActivity() {
 						viewModel.consumeMessage()
 					}
 				}
-				// Titled as the disguise, because this is on screen at exactly the moment someone else is
-				// most likely to be looking at the phone.
-				// The gesture opens the crash dialog first when it is on; the dialog decides whether the
-				// real prompt ever appears.
+				// With the crash dialog on, the gesture opens that first and it decides whether the real
+				// prompt ever appears.
 				fun requestPrivateEntry() {
 					if (state.fakeCrash) showFakeCrash = true else beginPrivateEntry()
 				}
 
-				val notificationLabel = stringResource(
-					when (state.decoy) {
-						// Undisguised, the notification may as well carry the app's own name.
-						DecoyType.NONE -> R.string.launcher_shelf
-
-						DecoyType.HABITS -> R.string.launcher_habits
-
-						DecoyType.CALENDAR -> R.string.launcher_calendar
-
-						DecoyType.CALCULATOR -> R.string.launcher_calculator
-					},
-				)
-				val notificationIcon = when (state.decoy) {
-					DecoyType.NONE -> R.drawable.ic_launcher_shelf_foreground
-					DecoyType.HABITS -> R.drawable.ic_launcher_foreground
-					DecoyType.CALENDAR -> R.drawable.ic_mono_calendar
-					DecoyType.CALCULATOR -> R.drawable.ic_mono_calculator
-				}
-				// Exposure is the whole condition. It outlives the private space being on screen, which
-				// is the point — unhiding something and then closing the app is when a one-tap way to put
-				// it back is worth having. With everything already hidden there is nothing for the action
-				// to do, and an offer to hide what is not showing only tells the room the app is here.
+				// Undisguised, both fall back to the app's own name and icon.
+				val (notificationLabelId, notificationIcon) = state.decoy.identity()
+				val notificationLabel = stringResource(notificationLabelId)
+				// Exposure is the whole condition, and it outlives the private space being on screen.
+				// That is the point: unhiding something then closing the app is exactly when a one-tap
+				// way to put it back is worth having. With everything already hidden the action has
+				// nothing to do, and the notification would only announce the app for no reason.
 				val offerHide = state.quickLockNotification && state.exposedFolders > 0
 				LaunchedEffect(offerHide, notificationLabel, notificationIcon) {
 					if (offerHide) {
@@ -283,7 +265,7 @@ class MainActivity : ComponentActivity() {
 					)
 				}
 
-				// Creating a credential is the setup flow's job now, so this only ever asks for one.
+				// Creating a credential belongs to setup, so this only ever asks for one.
 				if (showCredential && state.credentialSet) {
 					CredentialPrompt(
 						kind = state.credentialKind,
@@ -304,7 +286,6 @@ class MainActivity : ComponentActivity() {
 	override fun onStop() {
 		super.onStop()
 		if (!isChangingConfigurations) {
-			showCredential = false
 			biometricPrompt?.cancel()
 			biometricPrompt = null
 			viewModel.onMovedToBackground()
@@ -320,11 +301,11 @@ class MainActivity : ComponentActivity() {
 	}
 
 	/**
-	 * Takes this task out of the recents list, and stops the system keeping a picture of it.
+	 * Takes the task out of recents and stops the system keeping a picture of it.
 	 *
-	 * Excluding the task is what removes the entry; the screenshot call matters for the moment
-	 * between the app going to the background and the entry disappearing, and on launchers that show
-	 * a preview anyway. Neither is a substitute for FLAG_SECURE, which is set separately.
+	 * Excluding the task removes the entry. The screenshot call covers the moment between going to
+	 * the background and the entry disappearing, and launchers that show a preview anyway. Neither
+	 * replaces FLAG_SECURE, which is set separately.
 	 */
 	private fun applyRecentsVisibility(hidden: Boolean) {
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -334,8 +315,8 @@ class MainActivity : ComponentActivity() {
 		runCatching { manager.appTasks.forEach { it.setExcludeFromRecents(hidden) } }
 	}
 
-	// The notification is deliberately not cancelled here. It reflects folders left in the open, which
-	// outlasts this activity by design, and taking it away on exit would remove the way back exactly
+	// The notification is not cancelled here on purpose. It tracks folders left in the open, which
+	// outlasts this activity by design, and dropping it on exit would take the way back away exactly
 	// when the app is no longer around to offer one.
 	override fun onDestroy() {
 		biometricPrompt?.cancel()

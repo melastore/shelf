@@ -10,10 +10,10 @@ import java.util.Base64
 /**
  * Hides folders by clearing their permission bits on the backing store.
  *
- * The strongest of the three: nothing moves, nothing is renamed, and the folder is unreadable to
- * every app on the device rather than merely unlisted. File headers and names are protected before
- * permission removal as a second layer. It needs root because chmod against the FUSE mount is
- * discarded — the bits only persist on /data/media/<user>, which nothing unprivileged can reach.
+ * The strongest of the three. Nothing moves, nothing is renamed, and the folder is unreadable to
+ * every app on the device rather than just unlisted. Headers and names are protected first as a
+ * second layer. Root is required because chmod against the FUSE mount is discarded; the bits only
+ * stick on /data/media/<user>, which nothing unprivileged can reach.
  */
 class RootChmodHider(
 	context: Context,
@@ -55,10 +55,10 @@ class RootChmodHider(
 			originalMode = mode,
 			originalOwner = owner,
 		)
-		// Journal before touching the folder: a crash after this line is recoverable, one before is a
-		// no-op, but a crash after chmod with no record would strand the folder at mode 000. Hiding a
-		// folder that is already hidden would record that 000 as its original mode and destroy the
-		// only copy of the real permissions, so it is refused before anything is written.
+		// Journal before touching the folder. A crash after this line is recoverable and one before is
+		// a no-op, but a crash after chmod with no record strands the folder at mode 000. Hiding an
+		// already-hidden folder would record that 000 as the original mode and lose the real
+		// permissions for good, so it is refused before anything is written.
 		if (!journal.addNew(entry)) {
 			return HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
 		}
@@ -122,9 +122,10 @@ class RootChmodHider(
 			return HideResult.Failed(HideFailure.ChmodFailed(hidden.stderr.joinToString().ifBlank { null }))
 		}
 
-		// The files never moved, so their rows have to be deleted outright.
+		// The files never moved, so their MediaStore rows have to be deleted outright.
 		val warning = mergeWarnings(
-			mergeWarnings(protectionWarning, nameWarning),
+			protectionWarning,
+			nameWarning,
 			MediaStorePurge.forFolder(appContext, paths.toEmulated(backing), root),
 		)
 		return HideResult.Ok(entry, warning)
@@ -134,13 +135,13 @@ class RootChmodHider(
 		if (!isAvailable()) {
 			return HideResult.Failed(HideFailure.RootRequired(entry.displayName))
 		}
-		// chown after chmod would clear any setgid bit the mode restored, so the ownership goes back
-		// first and the recorded mode is the last word.
+		// chown after chmod clears any setgid bit the mode restored, so ownership goes back first and
+		// the recorded mode has the last word.
 		val restored = root.run(
 			"chown ${RootShell.quote(entry.originalOwner)} ${RootShell.quote(entry.path)}",
 			"chmod ${RootShell.quote(entry.originalMode)} ${RootShell.quote(entry.path)}",
 		)
-		// A root shell that fails without writing to stderr would otherwise produce a blank message.
+		// A root shell can fail without writing to stderr, which would leave a blank message.
 		if (!restored.ok) {
 			return HideResult.Failed(
 				HideFailure.RestoreFailed(entry.displayName, restored.stderr.joinToString().ifBlank { null }),
@@ -196,16 +197,10 @@ class RootChmodHider(
 		val marker = markerPathOrNull(entry)
 		val markerRemoved = marker == null || root.run("rm -f ${RootShell.quote(marker)}").ok
 		journal.remove(entry.path)
-		val warning = listOfNotNull(
+		val warning = mergeWarnings(
 			HideWarning.RecoveryMarkerRemovalFailed.takeUnless { markerRemoved },
 			MediaStorePurge.rescan(appContext, paths.toEmulated(entry.path), root),
-		).let { warnings ->
-			when (warnings.size) {
-				0 -> null
-				1 -> warnings.single()
-				else -> HideWarning.Multiple(warnings)
-			}
-		}
+		)
 		return HideResult.Ok(entry, warning)
 	}
 
@@ -261,12 +256,6 @@ class RootChmodHider(
 
 	private fun markerPath(entry: HiddenEntry): String =
 		"${entry.path}/$MARKER_PREFIX${entry.originalMode}-${entry.originalOwner.replace(':', '-')}"
-
-	private fun mergeWarnings(first: HideWarning?, second: HideWarning?): HideWarning? = when {
-		first == null -> second
-		second == null -> first
-		else -> HideWarning.Multiple(listOf(first, second))
-	}
 
 	private fun markerPathOrNull(entry: HiddenEntry): String? = entry.takeIf {
 		it.originalMode.matches(modePattern) && it.originalOwner.matches(ownerPattern)

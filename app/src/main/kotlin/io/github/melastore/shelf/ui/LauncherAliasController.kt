@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import io.github.melastore.shelf.data.DecoyType
 
-/** Keeps exactly one launcher identity enabled without restarting the running activity. */
+/** Keeps exactly one launcher entry enabled, without restarting the running activity. */
 class LauncherAliasController(context: Context) {
 
 	private val appContext = context.applicationContext

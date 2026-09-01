@@ -1,6 +1,7 @@
 package io.github.melastore.shelf.data
 
 import java.math.BigDecimal
+import java.math.MathContext
 import java.math.RoundingMode
 
 data class CalculatorState(
@@ -50,7 +51,8 @@ data class CalculatorState(
 		}
 	}
 
-	fun equals(): CalculatorState {
+	/** Applies the pending operation. Named for the key, not for [Any.equals]. */
+	fun evaluate(): CalculatorState {
 		val current = displayNumber() ?: return CalculatorState(display = "Error", replaceDisplay = true)
 		val result = calculate(accumulator, current, operation) ?: return CalculatorState(
 			display = "Error",
@@ -80,25 +82,16 @@ data class CalculatorState(
 
 	private fun format(value: BigDecimal): String {
 		val plain = value.stripTrailingZeros().toPlainString()
-		return if (plain.length <= MAX_DISPLAY) {
-			plain
-		} else {
-			value
-				.round(MathContextHolder.VALUE)
-				.stripTrailingZeros()
-				.toEngineeringString()
-		}
+		if (plain.length <= MAX_DISPLAY) return plain
+		return value.round(DISPLAY_PRECISION).stripTrailingZeros().toEngineeringString()
 	}
 
 	private companion object {
 		const val MAX_DISPLAY = 14
 		const val DIVISION_SCALE = 10
 		val HUNDRED = BigDecimal(100)
+		val DISPLAY_PRECISION = MathContext(10, RoundingMode.HALF_UP)
 	}
 }
 
 enum class CalculatorOperation { ADD, SUBTRACT, MULTIPLY, DIVIDE }
-
-private object MathContextHolder {
-	val VALUE = java.math.MathContext(10, RoundingMode.HALF_UP)
-}

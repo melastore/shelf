@@ -9,6 +9,7 @@ import io.github.melastore.shelf.root.StoragePaths
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.nio.file.Files
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -25,13 +26,13 @@ sealed interface NameProtectionResult {
 }
 
 /**
- * Replaces filenames with opaque identifiers and keeps the original names in one PIN-encrypted
+ * Replaces filenames with opaque identifiers, keeping the originals in one credential-encrypted
  * manifest at the folder root.
  *
- * The complete manifest is flushed before the first rename. A killed hide can therefore be resumed
- * or rolled back, and restore is idempotent: each mapping may be at either its original or opaque
- * name. Directory names are deliberately left alone; changing them would invalidate paths for every
- * descendant during a partially completed operation and make provider recovery much less reliable.
+ * The whole manifest is flushed before the first rename, so a killed hide can be resumed or rolled
+ * back, and restore is idempotent: each mapping may be at either its original or its opaque name.
+ * Directory names are left alone on purpose. Renaming those invalidates the path of every
+ * descendant mid-operation and makes provider recovery much less reliable.
  */
 class FolderNameProtector(
 	context: Context,
@@ -45,10 +46,10 @@ class FolderNameProtector(
 	/**
 	 * The File walk is only believed when it actually sees files.
 	 *
-	 * A folder this process may not enumerate still answers yes to isDirectory, canRead and
-	 * canWrite, and lists as empty; on some builds isExternalStorageManager agrees. Renaming nothing
+	 * A folder this process may not enumerate still answers yes to isDirectory, canRead and canWrite
+	 * and lists as empty, and some builds have isExternalStorageManager agreeing. Renaming nothing
 	 * and calling it done is the failure this guards against, so an empty File view defers to the
-	 * provider, which answers from the grant rather than from the mount.
+	 * provider, which answers from the grant rather than the mount.
 	 */
 	private fun walkable(path: String): File? =
 		File(path).takeIf { canWalkAsFile(it) && it.listFiles().orEmpty().isNotEmpty() }
@@ -59,13 +60,12 @@ class FolderNameProtector(
 	}
 
 	/**
-	 * Restore is not held to the same test as [protect], and must not be.
+	 * Restore deliberately fails the [protect] test.
 	 *
-	 * Protecting a folder that lists as empty risks reporting success over files that were never
-	 * touched, so an empty File view is refused there. Putting names back is the opposite: with no
-	 * manifest there is nothing to put back, and refusing would strand a folder its owner is trying
-	 * to open. A root hide on a restricted mount reaches exactly that state, and a caller that treats
-	 * the refusal as failure hides the folder again.
+	 * Protecting a folder that lists as empty risks reporting success over files never touched, so
+	 * an empty File view is refused there. Putting names back is the opposite: with no manifest there
+	 * is nothing to put back, and refusing would strand a folder the owner is trying to open. A root
+	 * hide on a restricted mount lands in exactly that state.
 	 */
 	suspend fun restore(path: String): NameProtectionResult = withContext(Dispatchers.IO) {
 		val direct = File(path).takeIf { canWalkAsFile(it) }
@@ -83,7 +83,10 @@ class FolderNameProtector(
 		} else {
 			if (!hasCredential()) return NameProtectionResult.CredentialRequired
 			val files = root.walkTopDown()
-				.filter { it.isFile && !reserved(it.name) }
+				// Not through directory symlinks: renaming files outside the folder is not something
+				// this folder's manifest could ever put back.
+				.onEnter { it == root || !Files.isSymbolicLink(it.toPath()) }
+				.filter { it.isFile && !reserved(it.name) && !Files.isSymbolicLink(it.toPath()) }
 				.take(MAX_FILES + 1)
 				.toList()
 			if (files.isEmpty()) return NameProtectionResult.NoFiles
@@ -353,7 +356,7 @@ class FolderNameProtector(
 		return if (parent.isEmpty()) name else "$parent/$name"
 	}
 
-	/** Finds an opaque name that an OEM provider adjusted by adding/removing punctuation or a suffix. */
+	/** Finds an opaque name an OEM provider adjusted by adding or dropping punctuation or a suffix. */
 	private fun compatibleOpaqueFile(expected: File, mapping: String): File? {
 		val token = opaqueToken(mapping) ?: return null
 		return expected.parentFile?.listFiles()?.singleOrNull { it.isFile && token in it.name }

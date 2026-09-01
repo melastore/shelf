@@ -9,14 +9,13 @@ import kotlinx.serialization.builtins.ListSerializer
 data class TrackedFolder(val path: String, val displayName: String, val addedAt: Long)
 
 /**
- * Every folder the user has put under Shelf, kept across a restore.
+ * Every folder the user has handed to Shelf, kept across a restore.
  *
- * The journal describes a change that has to be reversible and is emptied as each folder comes back;
- * this outlives that. Without it, unhiding a folder would drop it off the list and re-hiding it would
- * mean finding it in the picker again, which is the whole cost of the feature paid twice a day.
+ * The journal is emptied as each folder comes back; this outlives it. Without it, unhiding would
+ * drop a folder off the list and re-hiding would mean finding it in the picker again.
  *
- * Nothing here is enough to reverse anything: [Journal] remains the sole record of how a folder was
- * hidden, so losing this file costs the user a list, not a folder.
+ * Nothing here can reverse anything. [Journal] is still the only record of how a folder was hidden,
+ * so losing this file costs a list, not a folder.
  */
 class FolderRegistry(file: File) {
 
@@ -24,7 +23,7 @@ class FolderRegistry(file: File) {
 
 	suspend fun read(): List<TrackedFolder> = store.read()
 
-	/** Adds [path], or refreshes the name of a folder already tracked. Ordering is preserved. */
+	/** Adds [path], or refreshes the name of one already tracked. Order is preserved. */
 	suspend fun put(path: String, displayName: String, now: Long = System.currentTimeMillis()) {
 		store.update { current ->
 			val existing = current.firstOrNull { it.path == path }
@@ -36,7 +35,7 @@ class FolderRegistry(file: File) {
 		}
 	}
 
-	/** Adopts folders Shelf knows it hid but has never listed, such as records rebuilt after a wipe. */
+	/** Adopts folders Shelf hid but never listed, such as records rebuilt after a wipe. */
 	suspend fun putAll(folders: List<TrackedFolder>) {
 		if (folders.isEmpty()) return
 		store.update { current ->

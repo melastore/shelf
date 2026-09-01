@@ -10,11 +10,10 @@ import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 
 /**
- * Guards the hidden features behind a passphrase, without ever storing the passphrase itself.
+ * Guards the private space behind a credential without storing the credential.
  *
- * Only a salted PBKDF2 hash is written to app-private storage, so the file reveals at most that a
- * gate exists — never the phrase. There is deliberately no UI that lists or exports it: the phrase
- * lives only in the owner's head and is typed, never displayed.
+ * Only a salted PBKDF2 hash goes to app-private storage, so the file says a gate exists and nothing
+ * more. There is no UI that lists or exports the phrase; it is typed, never shown.
  */
 class PassphraseGate(private val file: File) {
 
@@ -63,8 +62,12 @@ class PassphraseGate(private val file: File) {
 
 	private fun hash(passphrase: CharArray, salt: ByteArray): ByteArray {
 		val spec = PBEKeySpec(passphrase, salt, PBKDF2_ROUNDS, KEY_BITS)
-		return SecretKeyFactory.getInstance(PBKDF2_ALG).generateSecret(spec).encoded
-			.also { spec.clearPassword() }
+		return try {
+			SecretKeyFactory.getInstance(PBKDF2_ALG).generateSecret(spec).encoded
+		} finally {
+			// Also on the failure path: the spec holds a copy of the credential either way.
+			spec.clearPassword()
+		}
 	}
 
 	private fun ByteArray.encode(): String = Base64.getEncoder().encodeToString(this)

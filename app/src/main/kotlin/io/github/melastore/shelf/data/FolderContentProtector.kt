@@ -5,8 +5,8 @@ import io.github.melastore.shelf.root.StoragePaths
 import java.io.File
 
 /**
- * The primary PIN is retained only while the real private space is open. It lets an ordinary hide
- * protect file headers without asking for a second password, and is wiped with every vault lock.
+ * The primary credential, held only while the real private space is open. It lets a hide protect
+ * file headers without asking for a second password, and is wiped with every lock.
  */
 object ContentCredential {
 	private var value: CharArray? = null
@@ -22,11 +22,11 @@ object ContentCredential {
 	@Synchronized fun isAvailable(): Boolean = value != null || retained.isNotEmpty()
 
 	/**
-	 * Keeps a short-lived copy alive while an emergency hide closes the UI immediately.
+	 * Keeps a copy alive while an emergency hide closes the UI out from under it.
 	 *
-	 * This snapshots whatever [copy] would hand out, not the live session alone: a second hide that
-	 * starts while the first still holds a lease would otherwise take an empty one, and lose the
-	 * credential the moment that first lease closed — halfway through its own folder.
+	 * Snapshots whatever [copy] would hand out, not just the live session. A second hide starting
+	 * while the first still holds a lease would otherwise take an empty one and lose the credential
+	 * the moment that first lease closed, halfway through its own folder.
 	 */
 	@Synchronized fun retain(): AutoCloseable {
 		val snapshot = (value ?: retained.lastOrNull())?.copyOf() ?: return AutoCloseable { }
@@ -54,7 +54,7 @@ sealed interface ContentProtectionResult {
 	data class Failed(val count: Int) : ContentProtectionResult
 }
 
-/** Adds crash-safe encrypted headers to the existing instant folder-hiding strategies. */
+/** Adds crash-safe encrypted headers on top of whichever hiding strategy is in use. */
 class FolderContentProtector(
 	context: Context,
 	private val paths: StoragePaths,
@@ -76,7 +76,7 @@ class FolderContentProtector(
 			if (summary.failed == 0) {
 				ContentProtectionResult.Done(summary.changed)
 			} else {
-				// Do not leave an unhidden folder half protected after an I/O error.
+				// Never leave a visible folder half protected after an I/O error.
 				locker.unlock(unprotected, password)
 				ContentProtectionResult.Failed(summary.failed)
 			}
@@ -103,14 +103,13 @@ class FolderContentProtector(
 	}
 
 	/**
-	 * Every file under [path], or null when neither way of reading the folder could see it.
+	 * Every file under [path], or null when neither reader could see the folder.
 	 *
-	 * Both are tried and the one that finds files wins, because neither can be trusted to report an
-	 * empty folder on its own. A File walk comes back empty for a folder this process is not allowed
-	 * to enumerate, with isDirectory, canRead, canWrite and even isExternalStorageManager all still
-	 * answering yes; a SAF walk comes back empty when the grant does not really reach the folder.
-	 * Empty is only the answer when the reader that produced it could genuinely see the folder, and
-	 * treating it as the answer otherwise reports success over every file that was never touched.
+	 * Both are tried and whichever finds files wins, because neither can be trusted to report an
+	 * empty folder on its own. A File walk comes back empty for a folder this process may not
+	 * enumerate, with isDirectory, canRead, canWrite and even isExternalStorageManager all saying
+	 * yes; a SAF walk comes back empty when the grant does not really reach it. Taking either empty
+	 * at face value reports success over every file that was never touched.
 	 */
 	private fun targets(path: String): List<LockTarget>? {
 		val direct = File(path).takeIf(::canWalkAsFile)?.let(ContentLocker::targetsUnder)

@@ -14,7 +14,7 @@ import io.github.melastore.shelf.data.SafRecoveryCandidate
 import io.github.melastore.shelf.data.TrackedFolder
 import io.github.melastore.shelf.root.StoragePaths
 
-/** Storage-facing folder operations shared by the vault and recovery UI paths. */
+/** The storage-facing folder operations, shared by the vault and recovery screens. */
 internal class FolderCoordinator(
 	private val paths: StoragePaths,
 	private val journal: Journal,

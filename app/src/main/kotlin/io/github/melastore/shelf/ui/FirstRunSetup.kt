@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,9 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -49,7 +46,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -65,11 +61,10 @@ private enum class SetupStep { WELCOME, DISGUISE, ENTRY, METHOD, STORAGE, NOTIFI
 /**
  * What a first-time owner sees instead of a decoy.
  *
- * Setting the app up in the disguise would mean explaining the disguise from inside it, and picking a
- * PIN through a gesture nobody has been told about yet. So the first launch is honest and the app
- * only puts its face on once there is something to hide behind it. From then on this never appears
- * again: the presence of a credential is what retires it, so an install that already has one — an
- * upgrade — goes straight to the decoy as before.
+ * Setting up inside the disguise would mean explaining the disguise from within it, and picking a
+ * credential through a gesture nobody has been told about yet. So the first launch is honest and the
+ * app only puts its face on once there is something behind it. Having a credential is what retires
+ * this, so an upgrade with one already goes straight to the decoy as before.
  */
 @Composable
 fun FirstRunSetup(
@@ -84,8 +79,8 @@ fun FirstRunSetup(
 	onStep: (Int) -> Unit,
 ) {
 	val steps = SetupStep.entries
-	// Seeded from the stored step, so a launch that starts a fresh process picks up where the last one
-	// stopped. rememberSaveable alone only covers a configuration change.
+	// Seeded from the stored step, so a fresh process picks up where the last one stopped.
+	// rememberSaveable on its own only covers a configuration change.
 	var index by rememberSaveable { mutableIntStateOf(state.setupStep.coerceIn(0, steps.lastIndex)) }
 	val step = steps[index.coerceIn(0, steps.lastIndex)]
 	val goTo: (Int) -> Unit = {
@@ -131,7 +126,7 @@ fun FirstRunSetup(
 				}
 			}
 
-			// The PIN step carries its own confirm button, because "Continue" would be wrong for a
+			// The credential step carries its own confirm button. "Continue" would be wrong for a
 			// keypad that has to be entered twice before it means anything.
 			if (step != SetupStep.CREDENTIAL) {
 				Row(
@@ -213,8 +208,7 @@ private fun WelcomeStep() {
 		stringResource(R.string.setup_welcome_body),
 	)
 	// Said once, plainly, at the only moment the app has the owner's full attention. An app that
-	// hides folders is easily mistaken for one that encrypts them, and that mistake is the kind
-	// people act on.
+	// hides folders is easily taken for one that encrypts them, and people act on that mistake.
 	NoticeCard(stringResource(R.string.setup_welcome_caveat))
 }
 
@@ -251,27 +245,13 @@ private fun DisguiseStep(selected: DecoyType, onDecoy: (DecoyType) -> Unit) {
 	Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
 		DecoyType.entries.forEach { decoy ->
 			ChoiceTile(
-				label = decoy.setupLabel(),
+				label = decoy.label(),
 				selected = selected == decoy,
 				modifier = Modifier.weight(1f),
-				icon = { SetupDecoyBadge(decoy) },
+				icon = { DecoyBadge(decoy) },
 				onClick = { onDecoy(decoy) },
 			)
 		}
-	}
-}
-
-@Composable
-private fun SetupDecoyBadge(decoy: DecoyType) {
-	val (background, foreground) = when (decoy) {
-		DecoyType.NONE -> R.drawable.ic_bg_shelf to R.drawable.ic_launcher_shelf_foreground
-		DecoyType.HABITS -> R.drawable.ic_bg_habits to R.drawable.ic_launcher_foreground
-		DecoyType.CALENDAR -> R.drawable.ic_bg_calendar to R.drawable.ic_launcher_calendar_foreground
-		DecoyType.CALCULATOR -> R.drawable.ic_bg_calculator to R.drawable.ic_launcher_calculator_foreground
-	}
-	Box(Modifier.size(48.dp).clip(MaterialTheme.shapes.medium)) {
-		Image(painterResource(background), null, Modifier.fillMaxSize())
-		Image(painterResource(foreground), null, Modifier.fillMaxSize())
 	}
 }
 
@@ -289,8 +269,8 @@ private fun EntryStep(selected: EntryMethod, onEntryMethod: (EntryMethod) -> Uni
 		Column(Modifier.padding(vertical = 4.dp)) {
 			EntryMethod.entries.forEach { method ->
 				SettingsRow(
-					title = method.setupTitle(),
-					summary = method.setupSummary(),
+					title = method.title(),
+					summary = method.summary(),
 					trailing = { SelectionMark(selected == method) },
 					onClick = { onEntryMethod(method) },
 				)
@@ -313,8 +293,8 @@ private fun MethodStep(state: AppUiState, onHidingPreference: (HidingPreference)
 		Column(Modifier.padding(vertical = 4.dp)) {
 			HidingPreference.entries.forEach { preference ->
 				SettingsRow(
-					title = preference.setupTitle(),
-					summary = preference.setupSummary(state.availableMethods),
+					title = preference.title(),
+					summary = preference.summary(state.availableMethods),
 					trailing = { SelectionMark(state.hidingPreference == preference) },
 					onClick = { onHidingPreference(preference) },
 				)
@@ -322,15 +302,15 @@ private fun MethodStep(state: AppUiState, onHidingPreference: (HidingPreference)
 		}
 	}
 	Spacer(Modifier.height(12.dp))
-	// Root is only probed when asked for: an unannounced su prompt during setup is alarming, and on a
-	// phone without root it is a dialog about something the owner never mentioned wanting.
+	// Root is only probed when asked for. An unannounced su prompt during setup is alarming, and on
+	// an unrooted phone it is a dialog about something the owner never asked for.
 	OutlinedButton(onClick = onCheckMethods, modifier = Modifier.fillMaxWidth()) {
 		Text(stringResource(R.string.setup_check_root))
 	}
 	if (state.availableMethods.isNotEmpty()) {
 		Spacer(Modifier.height(12.dp))
-		// Resolved before joining: joinToString's transform is not an inline composable context.
-		val names = state.availableMethods.map { it.shortLabel() }
+		// Resolved before joining: joinToString's transform is not a composable context.
+		val names = state.availableMethods.map { it.label() }
 		Text(
 			stringResource(R.string.setup_methods_found, names.joinToString(", ")),
 			style = MaterialTheme.typography.bodySmall,
@@ -367,8 +347,8 @@ private fun StorageStep(state: AppUiState, onRequestAllFiles: () -> Unit) {
 		}
 	}
 	Spacer(Modifier.height(20.dp))
-	// Said here rather than buried in Settings: this is the one permission that shows up in Android's
-	// own permission list, so an owner relying on the disguise should know before granting it.
+	// Said here rather than buried in Settings. This is the one permission that shows up in Android's
+	// own list, so anyone relying on the disguise should know before granting it.
 	NoticeCard(stringResource(R.string.setup_storage_caveat))
 }
 
@@ -428,14 +408,13 @@ private fun CredentialStep(onCreateCredential: (CredentialKind, CharArray) -> Un
 		Button(onClick = { setting = true }, shape = CircleShape) {
 			Text(CredentialWords.newTitle(kind), modifier = Modifier.padding(horizontal = 12.dp))
 		}
-		Spacer(Modifier.height(8.dp))
-		TextButton(onClick = {}, enabled = false) {
-			Text(
-				stringResource(R.string.setup_pin_reminder),
-				style = MaterialTheme.typography.bodySmall,
-				textAlign = TextAlign.Center,
-			)
-		}
+		Spacer(Modifier.height(12.dp))
+		Text(
+			stringResource(R.string.setup_pin_reminder),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			textAlign = TextAlign.Center,
+		)
 	}
 
 	if (setting) {
@@ -452,56 +431,4 @@ private fun CredentialStep(onCreateCredential: (CredentialKind, CharArray) -> Un
 			onDismiss = { setting = false },
 		)
 	}
-}
-
-@Composable
-private fun DecoyType.setupLabel(): String = when (this) {
-	DecoyType.NONE -> stringResource(R.string.decoy_none)
-	DecoyType.HABITS -> stringResource(R.string.decoy_habits)
-	DecoyType.CALENDAR -> stringResource(R.string.decoy_calendar)
-	DecoyType.CALCULATOR -> stringResource(R.string.decoy_calculator)
-}
-
-@Composable
-private fun EntryMethod.setupTitle(): String = when (this) {
-	EntryMethod.TITLE_HOLD -> stringResource(R.string.entry_title_hold)
-	EntryMethod.CORNER_KNOCK -> stringResource(R.string.entry_corner_knock)
-	EntryMethod.NATURAL_HOLD -> stringResource(R.string.entry_natural_hold)
-}
-
-@Composable
-private fun EntryMethod.setupSummary(): String = when (this) {
-	EntryMethod.TITLE_HOLD -> stringResource(R.string.entry_title_hold_summary)
-	EntryMethod.CORNER_KNOCK -> stringResource(R.string.entry_corner_knock_summary)
-	EntryMethod.NATURAL_HOLD -> stringResource(R.string.entry_natural_hold_summary)
-}
-
-@Composable
-private fun HidingPreference.setupTitle(): String = when (this) {
-	HidingPreference.AUTO -> stringResource(R.string.mode_auto)
-	HidingPreference.ROOT -> stringResource(R.string.root_mode)
-	HidingPreference.ALL_FILES -> stringResource(R.string.all_files_mode)
-	HidingPreference.SAF -> stringResource(R.string.saf_mode)
-}
-
-@Composable
-private fun HidingPreference.setupSummary(available: Set<HideMethod>): String = when (this) {
-	HidingPreference.AUTO -> stringResource(R.string.mode_auto_summary)
-
-	HidingPreference.ROOT -> stringResource(
-		if (HideMethod.ROOT_CHMOD in available) R.string.root_mode_available else R.string.root_mode_unavailable,
-	)
-
-	HidingPreference.ALL_FILES -> stringResource(
-		if (HideMethod.PRIVATE_MOVE in available) R.string.all_files_available else R.string.all_files_unavailable,
-	)
-
-	HidingPreference.SAF -> stringResource(R.string.saf_mode_summary)
-}
-
-@Composable
-private fun HideMethod.shortLabel(): String = when (this) {
-	HideMethod.ROOT_CHMOD -> stringResource(R.string.root_mode)
-	HideMethod.PRIVATE_MOVE -> stringResource(R.string.all_files_mode)
-	HideMethod.DOT_RENAME -> stringResource(R.string.saf_mode)
 }

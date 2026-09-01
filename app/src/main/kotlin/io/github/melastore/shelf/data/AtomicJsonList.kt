@@ -13,9 +13,9 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 
 /**
- * Raised when the records in [original] can no longer be read and no intact copy was left to fall
- * back to. The damaged bytes are kept at [preserved]: they are the only trace of what was hidden, so
- * they are never overwritten in place.
+ * Records in [original] cannot be read and no intact copy was left to fall back to. The damaged
+ * bytes are kept at [preserved]; they are the only trace of what was hidden, so nothing overwrites
+ * them in place.
  */
 class RecordsCorrupted(val original: File, val preserved: File) :
 	IOException(
@@ -25,13 +25,12 @@ class RecordsCorrupted(val original: File, val preserved: File) :
 /**
  * A small list of records persisted as JSON, updated atomically.
  *
- * The folder journal is the sole record of a reversible change, so a torn write would be as
- * damaging as losing the data itself. Every update goes through a temp file
- * and a rename, the previous generation is kept alongside as a backup, and updates are serialised so
- * a read-modify-write can't race another.
+ * The folder journal is the only record of a reversible change, so a torn write loses as much as
+ * losing the file. Every update goes temp file then rename, the previous generation is kept as a
+ * backup, and updates are serialised so two read-modify-writes cannot interleave.
  *
- * A file that fails to parse is never treated as an empty list: doing so would let the next write
- * quietly replace the records a restore depends on with a single fresh entry.
+ * A file that fails to parse is never read as an empty list. Doing that would let the next write
+ * replace the records a restore depends on with one fresh entry.
  */
 class AtomicJsonList<T>(private val file: File, private val serializer: KSerializer<List<T>>) {
 
@@ -51,9 +50,8 @@ class AtomicJsonList<T>(private val file: File, private val serializer: KSeriali
 	}
 
 	/**
-	 * Applies [block] to the current records under the same lock that guards the write, and returns
-	 * whatever it decided. This is how a caller rejects a duplicate: the check and the write that
-	 * depends on it happen as one step, so two operations on the same path can't interleave.
+	 * Applies [block] under the same lock that guards the write and returns what it decided. This is
+	 * how a caller rejects a duplicate: the check and the write that depends on it are one step.
 	 *
 	 * @throws RecordsCorrupted if the records are unreadable and unrecoverable.
 	 */
@@ -65,11 +63,10 @@ class AtomicJsonList<T>(private val file: File, private val serializer: KSeriali
 
 			val temp = File(file.parentFile, "${file.name}.tmp")
 			temp.writeSynced(json.encodeToString(serializer, next))
-			// Keep the generation we are about to replace. If the rename or a later write tears, the
-			// previous set of records is still somewhere intact.
-			// Never replace a good backup with a primary file we only managed to read by falling
-			// back to that backup.
-			if (parse(file) != null) backup.writeSynced(file.readText())
+			// Keep the generation about to be replaced, so a torn rename or a later torn write still
+			// leaves one intact copy. Only when the primary itself parses: overwriting a good backup
+			// with a primary we could only read *via* that backup would throw the good copy away.
+			parse(file)?.let { backup.writeSynced(json.encodeToString(serializer, it)) }
 			check(temp.renameTo(file)) { "could not commit ${file.path}" }
 			syncParentDirectory()
 			outcome
@@ -79,8 +76,8 @@ class AtomicJsonList<T>(private val file: File, private val serializer: KSeriali
 	private fun load(): List<T> {
 		parse(file)?.let { return it }
 
-		// Nothing committed yet, or a create that never reached the disk: the backup is the only
-		// place records could still be.
+		// Nothing committed yet, or a create that never reached disk. The backup is the only place
+		// records could still be.
 		if (!file.isFile || file.length() == 0L) {
 			parse(backup)?.let { return it }
 			if (!backup.isFile || backup.length() == 0L) return emptyList()
@@ -88,13 +85,12 @@ class AtomicJsonList<T>(private val file: File, private val serializer: KSeriali
 			throw RecordsCorrupted(backup, corruptCopyOf(backup))
 		}
 
-		// Only when the backup cannot stand in for it: a damaged primary that a good backup covers is
-		// read again on every open, and copying it each time would bury app storage in copies of the
-		// one file whose contents are worth the least to leave lying around.
+		// Only when the backup cannot stand in. A damaged primary that a good backup covers is re-read
+		// on every open, and copying it each time would fill app storage with junk.
 		return parse(backup) ?: throw RecordsCorrupted(file, corruptCopyOf(file))
 	}
 
-	/** One copy per damaged generation, named for its contents rather than the time it was noticed. */
+	/** One copy per damaged generation, named after the file's mtime rather than when we noticed. */
 	private fun corruptCopyOf(source: File): File {
 		val stamp = source.lastModified().takeIf { it > 0 } ?: 0L
 		val preserved = File(source.parentFile, "${source.name}.corrupt-$stamp")
@@ -115,9 +111,8 @@ class AtomicJsonList<T>(private val file: File, private val serializer: KSeriali
 	}
 
 	/**
-	 * A rename is only durable once the directory entry itself is flushed. Without this a power loss
-	 * can leave a zero-length journal, which is the exact loss the temp-and-rename dance is here to
-	 * prevent.
+	 * A rename is durable only once the directory entry is flushed too. Without this a power loss can
+	 * leave a zero-length journal, which is what the temp-and-rename is here to avoid.
 	 */
 	private fun syncParentDirectory() {
 		val dir = file.parentFile ?: return

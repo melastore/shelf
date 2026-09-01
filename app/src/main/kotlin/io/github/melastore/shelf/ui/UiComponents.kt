@@ -1,10 +1,11 @@
 package io.github.melastore.shelf.ui
 
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.keyframes
-import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,7 +24,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -49,8 +49,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -62,8 +60,8 @@ import io.github.melastore.shelf.security.CredentialRules
 import kotlin.math.roundToInt
 
 /**
- * A keypad rather than a text field: no soft keyboard animates in, nothing lands in the clipboard or
- * a keyboard's learned-word store, and the whole prompt fits above the thumb.
+ * A keypad rather than a text field: no soft keyboard animating in, nothing landing in the clipboard
+ * or a keyboard's learned words, and the whole prompt above the thumb.
  */
 @Composable
 fun PinPrompt(
@@ -255,7 +253,7 @@ private fun KeypadKey(label: String, onClick: () -> Unit) {
 	}
 }
 
-/** One short name, asked for in the same way wherever the app asks for one. */
+/** One short name, asked for the same way wherever the app asks for one. */
 @Composable
 fun TextEntryDialog(
 	title: String,
@@ -331,10 +329,9 @@ fun ConfirmDialog(
 /**
  * An invisible knock target in the top-right corner.
  *
- * The target is large enough to hit without aiming, and the window between taps is generous — a
- * gesture nobody can find by accident is no use if the owner cannot find it
- * either. A short vibration from the second tap onwards confirms the count is building without
- * showing anything on screen.
+ * Big enough to hit without aiming and a generous window between taps: a gesture nobody stumbles on
+ * is no use if the owner cannot find it either. A short buzz from the second tap confirms the count
+ * is building without putting anything on screen.
  */
 @Composable
 fun KnockTarget(onTriggered: () -> Unit, modifier: Modifier = Modifier) {
@@ -347,7 +344,8 @@ fun KnockTarget(onTriggered: () -> Unit, modifier: Modifier = Modifier) {
 			.testTag("secret-knock")
 			.size(KNOCK_TARGET)
 			.clickable(interactionSource = interaction, indication = null) {
-				val now = System.currentTimeMillis()
+				// Uptime, not wall clock: an NTP correction mid-knock must not reset the count.
+				val now = SystemClock.elapsedRealtime()
 				taps = if (now - lastTap <= KNOCK_GAP_MILLIS) taps + 1 else 1
 				lastTap = now
 				when {
@@ -386,7 +384,7 @@ fun EmptyState(title: String, body: String, modifier: Modifier = Modifier) {
 	}
 }
 
-/** Groups rows into one rounded block, the way current system settings screens read. */
+/** Groups rows into one rounded block, the way the system settings screens read. */
 @Composable
 fun SettingsGroup(title: String, summary: String? = null, content: @Composable () -> Unit) {
 	Column(Modifier.fillMaxWidth()) {
@@ -453,7 +451,7 @@ fun SettingsRow(
 	}
 }
 
-/** A filled circle when chosen, a ring when not: readable at a glance without a radio button. */
+/** Filled circle when chosen, ring when not. Readable at a glance without a radio button. */
 @Composable
 fun SelectionMark(selected: Boolean) {
 	val ring = MaterialTheme.colorScheme.outlineVariant
@@ -491,7 +489,7 @@ fun ChoiceTile(
 		} else {
 			MaterialTheme.colorScheme.surfaceContainer
 		},
-		border = androidx.compose.foundation.BorderStroke(
+		border = BorderStroke(
 			border,
 			if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
 		),

@@ -7,7 +7,7 @@ import io.github.melastore.shelf.data.RecoveryMergeResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** Encryption and authenticated record merging, independent of Android document pickers. */
+/** Encryption and record merging, with no dependency on the Android document pickers. */
 internal class RecoveryCoordinator(private val journal: Journal, private val codec: RecoveryBundleCodec,) {
 	suspend fun export(password: CharArray): ByteArray {
 		val plaintext = codec.encode(journal.read())

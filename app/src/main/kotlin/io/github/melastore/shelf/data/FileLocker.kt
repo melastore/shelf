@@ -7,8 +7,8 @@ import javax.crypto.SecretKey
 import kotlin.math.min
 
 /**
- * Random access to one file, so the locking protocol can be exercised against a temp directory in a
- * unit test and against a document provider on a device without knowing the difference.
+ * Random access to one file, so the locking protocol runs against a temp directory in a unit test
+ * and a document provider on a device without knowing the difference.
  */
 interface LockTarget {
 	fun size(): Long
@@ -16,7 +16,7 @@ interface LockTarget {
 	fun write(offset: Long, bytes: ByteArray)
 	fun truncate(size: Long)
 
-	/** Must not return until the bytes are on the medium. The whole protocol rests on this. */
+	/** Must not return until the bytes are on the medium. The protocol rests on this. */
 	fun sync()
 }
 
@@ -38,30 +38,26 @@ class FileLockTarget(private val file: File) : LockTarget {
 	override fun sync() = RandomAccessFile(file, "rw").use { it.fd.sync() }
 }
 
-/** Why a single file could not be locked or unlocked. The folder-level pass records these and goes on. */
+/** What happened to one file. The folder-level pass records these and carries on. */
 enum class LockOutcome { LOCKED, UNLOCKED, ALREADY, EMPTY, WRONG_PASSPHRASE, FAILED }
 
 /**
  * Scrambles the first [SLICE_LENGTH] bytes of a file in place so nothing can open or preview it.
  *
- * This is concealment with teeth, not confidentiality: everything past the slice is still the
- * original bytes on the original sectors, and a carving tool recovers them. What it does defeat is
- * every ordinary reader — a gallery, a file manager's preview, a video player — because none of them
- * can make sense of a file whose header is noise. The price is fixed per file rather than per byte,
- * which is the only reason it can be offered on a folder of video at all.
+ * Concealment, not confidentiality. Everything past the slice is still the original bytes on the
+ * original sectors and a carving tool recovers them. What it does stop is every ordinary reader:
+ * a gallery, a preview, a video player. The cost is fixed per file rather than per byte, which is
+ * the only reason it can be offered on a folder of video.
  *
- * ## Why the order of writes is the whole design
- *
- * Overwriting the head of a file destroys the only copy of those bytes. A process killed midway
- * through would leave the file permanently broken, which for an app whose promise is reversibility is
- * the worst failure available. So the encrypted copy is appended to the end and flushed *first*:
+ * The order of writes is the whole thing. Overwriting the head destroys the only copy of those
+ * bytes, so the encrypted copy is appended and flushed first:
  *
  *  1. append the trailer, sync
  *  2. overwrite the head, sync
  *
- * Killed anywhere in step 2, the trailer still holds a complete authenticated copy of the original
- * head, and [unlock] puts it back. Unlocking reverses it in the same order — write the head, sync,
- * then drop the trailer — and is idempotent, so re-running after any interruption is safe.
+ * Killed anywhere in step 2, the trailer still holds the original head and [unlock] puts it back.
+ * Unlocking reverses the same order (write head, sync, drop trailer) and is idempotent, so
+ * re-running after an interruption is safe.
  */
 object FileLocker {
 
@@ -69,9 +65,7 @@ object FileLocker {
 
 	fun isLocked(target: LockTarget): Boolean = readTrailer(target) != null
 
-	/**
-	 * @param key derived once by the caller from [salt]; every file gets its own nonce regardless.
-	 */
+	/** @param key derived once by the caller from [salt]. Every file still gets its own nonce. */
 	fun lock(target: LockTarget, key: SecretKey, salt: ByteArray): LockOutcome {
 		val size = target.size()
 		if (size == 0L) return LockOutcome.EMPTY
@@ -85,7 +79,7 @@ object FileLocker {
 				LockTrailer(sealed.cipherText, salt, sealed.nonce, sealed.tag, size),
 			)
 
-			// The recoverable copy lands, and is durable, before the original is touched.
+			// The recoverable copy is durable before the original is touched.
 			target.write(size, trailer)
 			target.sync()
 			target.write(0, sealed.cipherText)
@@ -96,7 +90,7 @@ object FileLocker {
 
 	/**
 	 * @param keyFor derives the key for a trailer's salt. Files locked in one pass share a salt, so a
-	 * caller that caches on it pays for the derivation once rather than once per file.
+	 * caller that caches on it derives once instead of once per file.
 	 */
 	fun unlock(target: LockTarget, keyFor: (ByteArray) -> SecretKey): LockOutcome {
 		val trailer = readTrailer(target) ?: return LockOutcome.ALREADY
@@ -104,8 +98,8 @@ object FileLocker {
 		val slice = runCatching {
 			HeaderCipher.open(trailer.cipherText, trailer.nonce, trailer.tag, keyFor(trailer.salt))
 		}.getOrElse {
-			// A wrong passphrase fails the GCM tag rather than returning rubbish, which is what stops
-			// this from writing garbage over the head of a file it cannot actually recover.
+			// A wrong passphrase fails the GCM tag rather than returning rubbish, so nothing gets
+			// written over the head of a file we cannot actually recover.
 			return LockOutcome.WRONG_PASSPHRASE
 		}
 

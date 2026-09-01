@@ -91,17 +91,11 @@
 	<string name="close_vault">Close private space</string>
 	<string name="settings">Settings</string>
 	<string name="back">Back</string>
-	<string name="method_unavailable">No method available — check Settings</string>
+	<string name="method_unavailable">No method available. Check Settings</string>
 	<string name="hide_folder">Add a folder</string>
 	<string name="hidden_folder_label">Hidden folder</string>
 	<string name="vault_empty_title">Nothing added yet</string>
 	<string name="empty_hint">Add a folder and it disappears from your gallery and file manager.</string>
-	<string name="zone_exposed">Out in the open</string>
-	<string name="zone_stowed">Hidden</string>
-	<string name="zone_exposed_empty">Nothing is out in the open.</string>
-	<string name="zone_stowed_empty">Nothing is hidden yet.</string>
-	<string name="vault_status_safe">Everything is tucked away</string>
-	<string name="vault_status_exposed">%1$d need attention</string>
 	<string name="vault_status_unlocked">Private space unlocked</string>
 	<string name="folders">Folders</string>
 	<string name="folder_status_hidden">Protected and hidden</string>
@@ -123,7 +117,7 @@
 	<string name="failed_attempts_multiple">%1$d wrong credentials were entered, most recently on %2$s.</string>
 
 	<!-- Operation results -->
-	<string name="message_joined">%1$s — %2$s</string>
+	<string name="message_joined">%1$s %2$s</string>
 	<string name="error_method_unavailable">The selected hiding method is not available on this device.</string>
 	<string name="error_method_cannot_restore">This version of Shelf cannot reverse the recorded hiding method.</string>
 	<string name="error_method_cannot_recover">Folder rename recovery is unavailable.</string>
@@ -181,7 +175,7 @@
 	<string name="primary_decoy_pin_different">Your two PINs must be different.</string>
 	<string name="primary_pin_changed">Primary PIN changed.</string>
 	<string name="primary_pin_changed_biometric_disabled">Primary PIN changed. Enable biometric unlock again to protect the new PIN.</string>
-	<string name="primary_pin_changed_second_removed">Saved. Your second PIN was removed because it can no longer be entered — set a new one if you want it.</string>
+	<string name="primary_pin_changed_second_removed">Saved. Your second PIN was removed because it can no longer be entered. Set a new one if you want it.</string>
 	<string name="decoy_pin_saved">Second PIN saved.</string>
 	<string name="decoy_pin_removed">Second PIN removed.</string>
 	<string name="too_many_attempts_use_pin">Too many attempts. Use your PIN in a moment.</string>
@@ -192,10 +186,9 @@
 	<string name="biometric_disabled">Biometric unlock disabled.</string>
 	<string name="pin_length_error">PIN must be 4 to 12 digits.</string>
 	<string name="pin_digits_only">PIN can contain digits only.</string>
-	<string name="too_many_attempts_retry">Too many attempts. Try again in 30 seconds.</string>
 	<string name="wrong_credential">Wrong credential.</string>
-	<string name="folder_list_read_failed">The folder list could not be read. Your folders are untouched — use Recovery in Settings.</string>
-	<string name="folder_list_read_failed_detail">The folder list could not be read: %1$s. Your folders are untouched — use Recovery in Settings.</string>
+	<string name="folder_list_read_failed">The folder list could not be read. Your folders are untouched; use Recovery in Settings.</string>
+	<string name="folder_list_read_failed_detail">The folder list could not be read: %1$s. Your folders are untouched; use Recovery in Settings.</string>
 	<string name="folder_hidden_named">Hidden %1$s.</string>
 	<string name="folder_restored_named">Restored %1$s.</string>
 	<string name="bulk_hidden">Hid %1$s.</string>
@@ -393,7 +386,7 @@
 	<string name="setup_grant_all_files">All-files access</string>
 	<string name="setup_methods_found">Available on this phone: %1$s</string>
 	<string name="setup_storage_title">Full storage access</string>
-	<string name="setup_storage_body">Optional, and the strongest option without root. It lets Shelf move a folder into hidden storage under a random name — instantly, whatever its size, and it survives uninstalling the app.</string>
+	<string name="setup_storage_body">Optional, and the strongest option without root. It lets Shelf move a folder into hidden storage under a random name, instantly and whatever its size, and it survives uninstalling the app.</string>
 	<string name="setup_storage_on">Full storage access granted</string>
 	<string name="setup_storage_caveat">Granting this puts “All files access” in Shelf\'s entry in Android\'s permission settings, which is a hint about what the app really does. Without it, folders are hidden by renaming instead.</string>
 	<string name="setup_notifications_title">Emergency hide</string>

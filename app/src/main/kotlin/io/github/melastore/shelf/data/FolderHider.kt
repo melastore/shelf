@@ -1,13 +1,12 @@
 package io.github.melastore.shelf.data
 
 import android.content.Context
+import android.net.Uri
 import io.github.melastore.shelf.root.StoragePaths
 
 /**
- * Hides and restores folders, using the best method this device currently allows.
- *
- * The first available strategy is used: root, an all-files move, then a SAF rename. A restore always
- * uses the method recorded in the entry.
+ * Hides and restores folders with the best method the device allows: root, an all-files move, then
+ * a SAF rename. A restore always uses the method recorded in the entry.
  */
 class FolderHider(private val strategies: List<HideStrategy>) {
 
@@ -27,7 +26,7 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 		.filter { (checkRoot || it.method != HideMethod.ROOT_CHMOD) && it.isAvailable() }
 		.mapTo(linkedSetOf()) { it.method }
 
-	/** The configured method a hide would use right now, or null when it is unavailable. */
+	/** The method a hide would use right now, or null when the configured one is unavailable. */
 	suspend fun activeMethod(preference: HidingPreference): HideMethod? {
 		val available = availableMethods(
 			checkRoot = preference == HidingPreference.AUTO || preference == HidingPreference.ROOT,
@@ -50,8 +49,8 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 
 	/**
 	 * Completes a hide whose journal write survived but whose physical change did not. Rolling the
-	 * interrupted entry back first also restores any headers or names changed before Android stopped
-	 * the earlier operation, then a fresh journalled hide can safely start.
+	 * interrupted entry back first also puts any headers or names changed before the interruption
+	 * back, so a fresh journalled hide can start cleanly.
 	 */
 	suspend fun rehide(target: FolderTarget, preference: HidingPreference, interrupted: HiddenEntry?,): HideResult {
 		if (interrupted != null) {
@@ -66,13 +65,13 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 	}
 
 	/**
-	 * A journal record is not proof of hiding until its strategy confirms the physical state.
+	 * A journal record is not proof of hiding until the strategy confirms the physical state.
 	 *
-	 * A conflict is not exposure. The hidden copy is still where it was put; what is back at the
-	 * original path is something else that has taken the name, and [rehide] refuses to hide over a
-	 * record it cannot roll back first. Calling that exposed would leave the folder counted as visible
-	 * for good — an emergency hide that can never finish, a notification that never clears, and a
-	 * device-bound re-hide credential that is never dropped. The health check reports it instead.
+	 * A conflict is not exposure. The hidden copy is still where it was put and something else has
+	 * taken the original name, and [rehide] refuses to hide over a record it cannot roll back.
+	 * Calling that exposed would count the folder as visible for good: an emergency hide that never
+	 * finishes, a notification that never clears, a re-hide credential never dropped. The health
+	 * check reports it instead.
 	 */
 	suspend fun isExposed(entry: HiddenEntry): Boolean = health(entry).status == HiddenHealthStatus.ALREADY_RESTORED
 
@@ -84,7 +83,7 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 		strategies.firstOrNull { it.method == entry.method }?.health(entry)
 			?: HiddenHealth(HiddenHealthStatus.UNKNOWN, HiddenHealthDetail.METHOD_UNAVAILABLE)
 
-	suspend fun recoveryCandidates(parentTree: android.net.Uri): List<SafRecoveryCandidate> =
+	suspend fun recoveryCandidates(parentTree: Uri): List<SafRecoveryCandidate> =
 		strategies.firstOrNull { it.method == HideMethod.DOT_RENAME }
 			?.recoveryCandidates(parentTree).orEmpty()
 
@@ -97,9 +96,19 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 		strategies.firstOrNull { it.method == method }?.recoverOrphans() ?: 0
 
 	/**
-	 * Sweeps every method, not just the configured one. Each strategy performs its own capability
-	 * check; doing one here as well would ask for root twice. A folder hidden with root before the user
-	 * reinstalled is still on disk at mode 000 even when another method is selected today.
+	 * Sweeps every method, not just the configured one: a folder hidden with root before a reinstall
+	 * is still at mode 000 whatever is selected today. Each strategy runs its own capability check,
+	 * so doing one here too would ask for root twice.
 	 */
 	suspend fun recoverEverything(): Int = strategies.sumOf { it.recoverOrphans() }
+}
+
+/** Collapses the warnings one operation collected into the single one a caller reports. */
+internal fun mergeWarnings(vararg warnings: HideWarning?): HideWarning? {
+	val present = warnings.filterNotNull()
+	return when (present.size) {
+		0 -> null
+		1 -> present.single()
+		else -> HideWarning.Multiple(present)
+	}
 }

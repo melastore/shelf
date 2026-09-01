@@ -7,14 +7,14 @@ import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import io.github.melastore.shelf.root.StoragePaths
 
-/** Resolving a path to a document the user has already granted, shared by both protectors. */
+/** Resolves a path to a document the user has already granted. Shared by both protectors. */
 object SafGrants {
 
 	private const val PRIMARY = "primary:"
 
 	/**
-	 * A persisted read-write grant covering [path], including one taken on the folder itself. Grants
-	 * accumulate, so the closest one wins.
+	 * A persisted read-write grant covering [path], including one on the folder itself. Grants
+	 * accumulate, so the closest wins.
 	 */
 	fun covering(resolver: ContentResolver, emulatedRoot: String, path: String): Uri? =
 		resolver.persistedUriPermissions.asSequence()
@@ -34,9 +34,8 @@ object SafGrants {
 	/**
 	 * [path] as a directory that can be walked and written to.
 	 *
-	 * It has to be built with [DocumentFile.fromTreeUri]. `fromSingleUri` answers `isDirectory` from
-	 * the provider and so looks correct, but anything needing the children — `listFiles`, `findFile`,
-	 * `createFile` — throws `UnsupportedOperationException` on it.
+	 * Has to be [DocumentFile.fromTreeUri]. `fromSingleUri` answers `isDirectory` from the provider
+	 * and looks right, but `listFiles`, `findFile` and `createFile` all throw on it.
 	 */
 	fun folder(context: Context, paths: StoragePaths, path: String): DocumentFile? {
 		val tree = covering(context.contentResolver, paths.emulatedRoot, path) ?: return null

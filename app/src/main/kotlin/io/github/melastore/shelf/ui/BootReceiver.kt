@@ -12,13 +12,13 @@ import kotlinx.coroutines.launch
 /**
  * Puts the emergency-hide notification back after a restart.
  *
- * The notification tracks folders left in the open, which survive a reboot in every hiding method —
- * but the notification does not, and nothing reposts it until the app is opened again. That leaves
- * the one state the button exists for with no button: folders exposed, and the only way to put them
- * back is to find the app, get past the disguise, and enter a credential.
+ * Folders left in the open survive a reboot in every hiding method. The notification does not, and
+ * nothing reposts it until the app is opened again, which leaves the one state the button exists for
+ * with no button: folders exposed, and the only way back is to find the app, get past the disguise
+ * and enter a credential.
  *
- * It reads a count and nothing else. No path, name, or record is touched, and nothing is posted
- * unless the owner asked for the notification and something is actually exposed.
+ * It reads a count and nothing else. No path, name or record is touched, and nothing is posted
+ * unless the owner asked for the notification and something really is exposed.
  */
 class BootReceiver : BroadcastReceiver() {
 

@@ -57,10 +57,9 @@ sealed interface HideResult {
 	data class Failed(val failure: HideFailure) : HideResult
 
 	/**
-	 * Nothing was changed because the folder cannot be reached from any grant Shelf holds; [path] is
-	 * the folder the user would have to allow access to. Renaming a folder is a change to its parent,
-	 * so a grant on the folder itself is the one grant that cannot perform it — and would be left
-	 * pointing at a name that no longer exists.
+	 * Nothing changed: no grant Shelf holds reaches the folder. [path] is what the user has to allow.
+	 * A rename changes the parent, so a grant on the folder itself cannot perform one and would be
+	 * left pointing at a name that no longer exists.
 	 */
 	data class NeedsAccess(val path: String, val name: String) : HideResult
 }
@@ -71,15 +70,15 @@ data class FolderTarget(val emulatedPath: String, val displayName: String, val t
 /**
  * One way of making a folder disappear, and the way back.
  *
- * Every implementation is O(1) in the size of the folder. Hiding is a permission change or a rename
- * within one volume, never a copy: a vault that stalls for two minutes on a folder of video is one
- * the user stops reaching for, and a half-finished copy is a far worse failure than a refusal.
+ * Every implementation is O(1) in folder size: a permission change or a rename within one volume,
+ * never a copy. A copy would stall for minutes on a folder of video, and a half-finished one is a
+ * worse failure than a refusal.
  */
 interface HideStrategy {
 
 	val method: HideMethod
 
-	/** Whether this device, and the grants this app currently holds, can use it right now. */
+	/** Whether this device and the grants held right now can use it. */
 	suspend fun isAvailable(): Boolean
 
 	suspend fun hide(target: FolderTarget): HideResult
@@ -96,6 +95,6 @@ interface HideStrategy {
 	suspend fun recover(candidate: SafRecoveryCandidate, restoredName: String): HideResult =
 		HideResult.Failed(HideFailure.MethodCannotRecover)
 
-	/** Rebuilds records that survived outside app data after a reinstall. */
+	/** Rebuilds records from markers that survived outside app data, after a wipe or reinstall. */
 	suspend fun recoverOrphans(): Int = 0
 }

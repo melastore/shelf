@@ -45,21 +45,19 @@ import io.github.melastore.shelf.R
  * What the entry gesture shows instead of the unlock screen, for an owner who would rather be seen
  * failing to open an app than opening a locked one.
  *
- * Laid out to match the dialog this Android version actually puts up: a left-aligned title, then
- * rows with leading icons rather than a row of buttons, and "Show details" expanding into a stack
- * trace. Every row does what it says, so someone who takes the phone and works through them finds
- * an ordinary crash and no hint that anything is behind it. The way through is a long press on the
- * title, which leaves nothing on screen to notice.
+ * Laid out like the dialog this Android version really puts up: left-aligned title, rows with
+ * leading icons rather than buttons, and "Show details" expanding into a stack trace. Every row does
+ * what it says, so working through them finds an ordinary crash and no hint of anything behind it.
+ * The way through is a long press on the title, which leaves nothing on screen to notice.
  *
- * It is only reachable after the entry gesture, so nobody sees it who was not already being shown
- * something by the owner.
+ * Only reachable after the entry gesture, so nobody sees it who was not already being shown it.
  */
 @Composable
 fun FakeCrashDialog(appName: String, onUnlock: () -> Unit, onClose: () -> Unit) {
 	var details by remember { mutableStateOf(false) }
 
 	Dialog(
-		// Back dismisses a real one by closing the app, and tapping outside does nothing.
+		// Back closes the app, the way a real one does. Tapping outside does nothing.
 		onDismissRequest = onClose,
 		properties = DialogProperties(dismissOnClickOutside = false, usePlatformDefaultWidth = false),
 	) {
@@ -77,7 +75,7 @@ fun FakeCrashDialog(appName: String, onUnlock: () -> Unit, onClose: () -> Unit) 
 					color = MaterialTheme.colorScheme.onSurface,
 					modifier = Modifier.padding(horizontal = 24.dp).combinedClickable(
 						interactionSource = interaction,
-						// No ripple: a title that lights up under a finger is a title worth pressing.
+						// No ripple. A title that lights up under a finger is a title worth pressing.
 						indication = null,
 						onClick = {},
 						onLongClick = onUnlock,
@@ -116,7 +114,7 @@ private fun CrashRow(label: String, onClick: () -> Unit, icon: @Composable (Colo
 	}
 }
 
-/** Drawn rather than imported: the outlined set is a separate artifact, for one glyph. */
+/** Drawn rather than imported. The outlined icon set is a whole extra artifact for one glyph. */
 @Composable
 private fun InfoGlyph(tint: Color) {
 	Canvas(Modifier.size(24.dp)) {

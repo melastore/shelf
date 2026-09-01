@@ -11,16 +11,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Hides folders by moving them into a dedicated dot-directory on shared storage.
+ * Hides folders by moving them into a dot-directory on shared storage.
  *
- * With all-files access the app gets ordinary File access to the volume, and a move within one
- * volume is a rename: one syscall, no data copied, the same cost for four photos as for forty
- * gigabytes of video. The destination remains outside app-specific storage so Android will not
- * delete the user's folders if Shelf is uninstalled.
+ * With all-files access a move within one volume is a rename: one syscall, nothing copied, the same
+ * cost for four photos as for forty gigabytes of video. The destination stays outside app-specific
+ * storage so uninstalling Shelf cannot take the user's folders with it.
  *
- * A file manager with all-files access and hidden files enabled can still find the vault, so file
- * names and headers are protected before the move when the primary PIN is present. Copying is never a
- * fallback: it would be slow and could leave a half-written duplicate.
+ * A file manager with all-files access and hidden files on can still find the vault, so names and
+ * headers are protected before the move when the credential is available. Copying is never a
+ * fallback; it would be slow and could leave a half-written duplicate.
  */
 class PrivateMoveHider(
 	context: Context,
@@ -39,9 +38,9 @@ class PrivateMoveHider(
 	override suspend fun isAvailable(): Boolean = allFilesAvailable()
 
 	/**
-	 * The vault stays in shared storage so uninstalling Shelf cannot delete the user's folders.
-	 * Random container and payload names avoid exposing the original folder name at first glance. The
-	 * dot keeps ordinary file managers out of it unless their hidden-file option is enabled.
+	 * The vault lives in shared storage so uninstalling Shelf cannot delete the user's folders.
+	 * Random container and payload names keep the original folder name off the surface, and the dot
+	 * keeps ordinary file managers out unless hidden files are turned on.
 	 */
 	private fun vaults(): List<File> = listOf(File(paths.emulatedRoot, ".shelf"))
 
@@ -51,14 +50,13 @@ class PrivateMoveHider(
 			return@withContext HideResult.Failed(HideFailure.FolderUnreadable(target.displayName))
 		}
 
-		// Listed before the move, because afterwards there is nothing at these paths to enumerate.
+		// Listed before the move: afterwards there is nothing at these paths to enumerate.
 		val contents = mediaIndex.listFiles(target.emulatedPath)
 
-		// The mount decides whether this move can happen, and no permission API reports what it will
-		// do: a build can answer isExternalStorageManager true, resolve the appop to allowed, and still
-		// hand this process a view in which the folder is empty and cannot be renamed. A folder known
-		// to hold files that lists as empty here is that view, and going on would protect every file
-		// and then roll it all back when the rename failed. Refuse while nothing has been touched.
+		// The mount decides whether the move can happen and no permission API reports what it will do.
+		// A build can answer isExternalStorageManager true, resolve the appop to allowed, and still
+		// hand this process a view where the folder is empty and unrenameable. A folder known to hold
+		// files that lists as empty here is that view. Refuse now, before anything has been touched.
 		if (contents.isNotEmpty() && source.listFiles().isNullOrEmpty()) {
 			return@withContext HideResult.Failed(HideFailure.AllFilesRequired(target.displayName))
 		}
@@ -80,8 +78,8 @@ class PrivateMoveHider(
 				continue
 			}
 
-			// The journal is the normal route back; the marker is the last-resort route after app data is
-			// cleared or the app is reinstalled. Both exist before the folder moves.
+			// The journal is the normal route back, the marker the last resort after app data is
+			// cleared or the app reinstalled. Both exist before the folder moves.
 			if (!journal.addNew(entry)) {
 				destination.parentFile?.deleteRecursively()
 				return@withContext HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
@@ -152,7 +150,7 @@ class PrivateMoveHider(
 		val original = File(entry.path)
 
 		// A crash between journalling and the rename leaves the folder where it started. Nothing to
-		// move back, so just drop the record rather than reporting a failure the user cannot act on.
+		// move back, so drop the record rather than report a failure the user cannot act on.
 		if (!hidden.exists()) {
 			if (!original.exists()) {
 				return@withContext HideResult.Failed(
@@ -305,9 +303,7 @@ class PrivateMoveHider(
 			for (directory in directories) {
 				val origin = readOrigin(File(directory, ORIGIN_MARKER)) ?: continue
 				if (!isSafeOrigin(origin)) continue
-				val hidden = directory.listFiles()?.singleOrNull {
-					it.isDirectory && it.name != ORIGIN_MARKER
-				} ?: continue
+				val hidden = directory.listFiles()?.singleOrNull { it.isDirectory } ?: continue
 				val entry = HiddenEntry(
 					path = origin,
 					displayName = File(origin).name,
@@ -321,7 +317,7 @@ class PrivateMoveHider(
 		recovered
 	}
 
-	/** Keeps the vault itself out of the index, in case its contents are ever scannable. */
+	/** Keeps the vault out of the media index, in case its contents ever become scannable. */
 	private fun markNoMedia(vault: File) {
 		vault.mkdirs()
 		val marker = File(vault, ".nomedia")
@@ -355,12 +351,6 @@ class PrivateMoveHider(
 		val parent = hidden.parentFile ?: return
 		File(parent, ORIGIN_MARKER).delete()
 		parent.delete()
-	}
-
-	private fun mergeWarnings(first: HideWarning?, second: HideWarning?): HideWarning? = when {
-		first == null -> second
-		second == null -> first
-		else -> HideWarning.Multiple(listOf(first, second))
 	}
 
 	private companion object {

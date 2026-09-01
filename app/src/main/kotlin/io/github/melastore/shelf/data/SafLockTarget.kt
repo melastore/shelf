@@ -10,16 +10,14 @@ import java.io.IOException
 import java.nio.ByteBuffer
 
 /**
- * A [LockTarget] over a document the user has granted access to, so content locking is available on
- * the rename method as well — which matters more than the other two, because renaming is the default
- * and the one a file manager can see straight through.
+ * A [LockTarget] over a granted document, so content locking works on the rename method too. That
+ * matters most of the three: renaming is the default and the one a file manager sees straight
+ * through.
  *
- * The descriptor is opened per operation rather than held. A lock touches a file four times, so the
- * cost is small, and the alternative is a descriptor left open across a long pass over thousands of
- * files with nothing but a crash to close them.
+ * Descriptors are opened per operation, not held. A lock touches a file four times, and holding one
+ * open across thousands of files leaves nothing but a crash to close them.
  *
- * The mode is always `rw`, never `rwt`: `t` truncates on open, which on the very first write would
- * discard the file this whole exercise exists to preserve.
+ * Always `rw`, never `rwt`: `t` truncates on open and the first write would discard the file.
  */
 class SafLockTarget(private val resolver: ContentResolver, private val uri: Uri,) : LockTarget {
 
@@ -61,10 +59,9 @@ class SafLockTarget(private val resolver: ContentResolver, private val uri: Uri,
 
 	companion object {
 		/**
-		 * Every file under [folder], as targets, or null if any part of the tree could not be listed.
-		 *
-		 * A partial walk is reported as a failure rather than trimmed. A caller cannot tell a folder it
-		 * was refused from an empty one, and the difference is whether the files end up protected.
+		 * Every file under [folder], or null if any part of the tree could not be listed. A partial
+		 * walk fails rather than being trimmed: a caller cannot tell a refused folder from an empty
+		 * one, and the difference is whether the files end up protected.
 		 */
 		fun targetsUnder(
 			resolver: ContentResolver,

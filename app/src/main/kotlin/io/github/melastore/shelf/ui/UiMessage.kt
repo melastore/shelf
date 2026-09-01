@@ -8,7 +8,7 @@ import io.github.melastore.shelf.data.HiddenHealthDetail
 import io.github.melastore.shelf.data.HideFailure
 import io.github.melastore.shelf.data.HideWarning
 
-/** A user-facing message whose words live in Android resources, not state or data classes. */
+/** A user-facing message whose words live in resources rather than in state or data classes. */
 sealed interface UiMessage {
 	data class Resource(@StringRes val id: Int, val args: List<Any> = emptyList()) : UiMessage
 	data class Plural(@PluralsRes val id: Int, val quantity: Int, val args: List<Any>) : UiMessage

@@ -11,12 +11,12 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * A device-bound, temporary re-hide capability kept only while a tracked folder is exposed.
+ * A device-bound re-hide capability, kept only while a tracked folder is exposed.
  *
- * The notification can outlive Shelf's process, so an in-memory PIN cannot finish filename and
- * header protection after Android has killed the app. This wrapper is deliberately separate from
- * biometric unlock: it can only recreate the already-exposed session long enough to put folders
- * back out of sight, and its ciphertext is deleted as soon as every tracked folder is hidden.
+ * The notification outlives Shelf's process, so an in-memory credential cannot finish name and
+ * header protection once Android has killed the app. Separate from biometric unlock on purpose: it
+ * recreates an already-exposed session just long enough to put folders back, and the ciphertext is
+ * deleted the moment the last tracked folder is hidden.
  */
 object EmergencyCredentialStore {
 
@@ -40,7 +40,7 @@ object EmergencyCredentialStore {
 		}
 	}
 
-	/** Returns a caller-owned credential, or null after key invalidation or damaged storage. */
+	/** A caller-owned credential, or null if the key was invalidated or the stored copy is damaged. */
 	@Synchronized
 	fun load(context: Context): CharArray? {
 		val values = preferences(context)
@@ -66,8 +66,9 @@ object EmergencyCredentialStore {
 		}
 	}
 
-	/** Removes the ciphertext immediately; the non-exportable key is harmless without it. */
+	/** Drops the ciphertext. The non-exportable key is harmless without it. */
 	@Synchronized
+	@Suppress("ApplySharedPref", "UseKtx") // Synchronous: an apply() could still be queued at a kill.
 	fun clear(context: Context) {
 		preferences(context).edit().clear().commit()
 	}
@@ -92,8 +93,8 @@ object EmergencyCredentialStore {
 			init(Cipher.ENCRYPT_MODE, key)
 		}
 		return runCatching { prepare(existingKey() ?: newKey()) }.getOrElse {
-			// A changed device lock can invalidate a Keystore key. There is no useful ciphertext yet,
-			// so discard the dead alias and make one clean retry.
+			// A changed device lock invalidates the key. Nothing useful is stored yet, so drop the dead
+			// alias and retry once.
 			runCatching { keyStore().deleteEntry(KEY_NAME) }
 			runCatching { prepare(newKey()) }.getOrNull()
 		}
@@ -117,6 +118,6 @@ object EmergencyCredentialStore {
 	private const val GCM_TAG_BITS = 128
 	private const val GCM_IV_BYTES = 12
 
-	/** A credential is at most [CredentialRules.MAX_LENGTH] characters, and UTF-8 is at most four bytes each. */
+	/** [CredentialRules.MAX_LENGTH] chars at four UTF-8 bytes each, plus the GCM tag. */
 	private const val MAX_CIPHERTEXT_BYTES = CredentialRules.MAX_LENGTH * 4 + GCM_TAG_BITS / 8
 }

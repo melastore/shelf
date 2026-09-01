@@ -6,11 +6,10 @@ import java.nio.ByteBuffer
 /**
  * Recovery data appended to a locked file.
  *
- * It holds a complete, authenticated copy of the bytes that are about to be overwritten, which is
- * what makes locking survivable. It is written and flushed *before* the head of the file is touched,
- * so a process killed halfway through the overwrite leaves a file whose original head can still be
- * recovered from its own tail. Clearing Shelf's app data cannot strand a file either: everything
- * needed to reverse the transform except the passphrase travels with the file itself.
+ * Holds an authenticated copy of the bytes about to be overwritten, written and flushed before the
+ * head of the file is touched. A process killed mid-overwrite leaves a file whose original head is
+ * still recoverable from its own tail, and everything needed to reverse the transform except the
+ * passphrase travels with the file, so clearing app data cannot strand it either.
  */
 data class LockTrailer(
 	val cipherText: ByteArray,
@@ -19,7 +18,7 @@ data class LockTrailer(
 	val tag: ByteArray,
 	val originalSize: Long,
 ) {
-	// ByteArray identity would make two equal trailers compare unequal, which is a trap in tests.
+	// ByteArray identity would make two equal trailers compare unequal, which trips up the tests.
 	override fun equals(other: Any?): Boolean = other is LockTrailer &&
 		cipherText.contentEquals(other.cipherText) && salt.contentEquals(other.salt) &&
 		nonce.contentEquals(other.nonce) && tag.contentEquals(other.tag) &&
@@ -60,9 +59,9 @@ object LockTrailerCodec {
 	}
 
 	/**
-	 * The complete trailer length described by a [FOOTER_SIZE]-byte footer, or null if these are not
-	 * the last bytes of a locked file. This is the only thing that identifies a locked file, so it is
-	 * checked before anything is read, let alone written.
+	 * Trailer length described by a [FOOTER_SIZE]-byte footer, or null if these are not the last
+	 * bytes of a locked file. The only thing identifying a locked file, so it is checked before
+	 * anything is read, let alone written.
 	 */
 	fun totalLength(footer: ByteArray): Int? {
 		if (footer.size != FOOTER_SIZE) return null

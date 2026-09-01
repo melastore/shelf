@@ -9,13 +9,12 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * The passphrase transform behind content locking, kept free of any file or Android dependency so it
- * can be reasoned about and tested on its own.
+ * Passphrase transform behind content locking. No file or Android dependency, so it can be tested
+ * on its own.
  *
- * Key derivation is deliberately separate from [seal] and [open]. PBKDF2 at this work factor takes
- * roughly a second, which is the right price to pay once for a folder and quite the wrong one to pay
- * once per file — a folder of two thousand photos would take half an hour before a single byte moved.
- * One salt per run, one derivation, and a fresh nonce for every file, which is what GCM requires.
+ * Key derivation is separate from [seal] and [open] on purpose: PBKDF2 at this work factor takes
+ * about a second, which is fine once per folder and hopeless once per file. Callers derive once per
+ * pass and pass the key in; every file still gets its own nonce, which GCM requires.
  */
 object HeaderCipher {
 
@@ -23,7 +22,7 @@ object HeaderCipher {
 	const val NONCE_LENGTH = 12
 	const val TAG_LENGTH = 16
 
-	/** An encrypted slice and the per-file parameters [open] needs to reverse it. */
+	/** An encrypted slice plus the per-file parameters [open] needs to reverse it. */
 	class Sealed(val cipherText: ByteArray, val nonce: ByteArray, val tag: ByteArray)
 
 	fun newSalt(): ByteArray = randomBytes(SALT_LENGTH)
@@ -44,8 +43,8 @@ object HeaderCipher {
 		val cipher = Cipher.getInstance(TRANSFORM).apply {
 			init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(TAG_BITS, nonce))
 		}
-		// doFinal returns ciphertext followed by the tag; they are stored apart so the ciphertext can
-		// be written back over exactly the bytes it replaced.
+		// doFinal returns ciphertext then tag. Stored apart so the ciphertext overwrites exactly the
+		// bytes it replaced.
 		val combined = cipher.doFinal(slice)
 		return Sealed(
 			cipherText = combined.copyOfRange(0, slice.size),
@@ -57,9 +56,9 @@ object HeaderCipher {
 	/**
 	 * Recovers the original slice.
 	 *
-	 * @throws javax.crypto.AEADBadTagException on the wrong passphrase or altered bytes. That
-	 * distinction matters: a wrong passphrase must never produce plausible-looking rubbish that then
-	 * gets written back over the only copy of the real bytes.
+	 * @throws javax.crypto.AEADBadTagException on a wrong passphrase or altered bytes. Callers rely
+	 * on this: a wrong passphrase must fail loudly rather than return rubbish that then gets written
+	 * over the only copy of the real bytes.
 	 */
 	fun open(cipherText: ByteArray, nonce: ByteArray, tag: ByteArray, key: SecretKey): ByteArray {
 		val cipher = Cipher.getInstance(TRANSFORM).apply {

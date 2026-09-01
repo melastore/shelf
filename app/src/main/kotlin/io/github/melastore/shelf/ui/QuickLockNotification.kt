@@ -12,7 +12,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import io.github.melastore.shelf.R
 import io.github.melastore.shelf.data.ContentCredential
-import io.github.melastore.shelf.data.DecoyType
 import io.github.melastore.shelf.data.ShelfCore
 import io.github.melastore.shelf.security.EmergencyCredentialStore
 import kotlinx.coroutines.CoroutineScope
@@ -29,10 +28,9 @@ import kotlinx.coroutines.launch
 /**
  * The emergency-hide signal, delivered straight to whatever is listening in this process.
  *
- * The action used to leave a flag for the next `onResume` to pick up, which is exactly when it could
- * not arrive: pulling down the shade does not stop the activity underneath, so collapsing it again
- * resumes nothing and the private space stayed on screen. The one moment the button exists for was
- * the one moment it did nothing.
+ * The action used to leave a flag for the next `onResume`, which never came: pulling down the shade
+ * does not stop the activity underneath, so collapsing it resumes nothing and the private space
+ * stayed on screen. The one moment the button existed for was the one moment it did nothing.
  */
 object QuickLockSignal {
 
@@ -43,7 +41,7 @@ object QuickLockSignal {
 	)
 	private val _completions = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
-	/** Replayed, so a signal that arrives while the app is starting is not lost. */
+	/** Replayed, so a signal arriving while the app is still starting is not lost. */
 	val requests = _requests.asSharedFlow()
 	val completions = _completions.asSharedFlow()
 
@@ -64,11 +62,10 @@ object QuickLockSignal {
 /**
  * A quiet notification carrying the emergency-hide action.
  *
- * It is posted only while a folder is sitting in the open, which outlasts the private space being on
- * screen and is the one state worth a one-tap way out. With everything already hidden the action has
- * nothing to do, so there is no notification to explain. Nothing on it names the private space, and
- * the channel name is subject to the same rule: it stays listed under the app's notification
- * settings long after the notification is gone.
+ * Posted only while a folder is sitting in the open, which outlasts the private space being on
+ * screen and is the one state worth a one-tap way out. With everything hidden the action has nothing
+ * to do, so there is no notification to explain. Nothing on it names the private space, the channel
+ * name included: that stays listed in the app's notification settings long after the notification.
  */
 object QuickLockNotification {
 	private const val CHANNEL = "background_activity"
@@ -141,31 +138,17 @@ object QuickLockNotification {
 	}
 
 	/**
-	 * Starts the same process-independent hide used by the notification action. This is deliberately
-	 * an explicit broadcast: automatic hiding must survive the activity and its view model being
-	 * destroyed as soon as Shelf leaves the foreground.
+	 * Starts the same process-independent hide the notification action uses. An explicit broadcast on
+	 * purpose: automatic hiding has to survive the activity and its view model being destroyed the
+	 * moment Shelf leaves the foreground.
 	 */
 	fun requestHide(context: Context) {
 		context.sendBroadcast(hideIntent(context, identity(context)))
 	}
 
 	internal fun identity(context: Context): QuickLockIdentity {
-		val decoy = ShelfCore.preferences.decoy()
-		val label = context.getString(
-			when (decoy) {
-				DecoyType.NONE -> R.string.launcher_shelf
-				DecoyType.HABITS -> R.string.launcher_habits
-				DecoyType.CALENDAR -> R.string.launcher_calendar
-				DecoyType.CALCULATOR -> R.string.launcher_calculator
-			},
-		)
-		val icon = when (decoy) {
-			DecoyType.NONE -> R.drawable.ic_launcher_shelf_foreground
-			DecoyType.HABITS -> R.drawable.ic_launcher_foreground
-			DecoyType.CALENDAR -> R.drawable.ic_mono_calendar
-			DecoyType.CALCULATOR -> R.drawable.ic_mono_calculator
-		}
-		return QuickLockIdentity(label, icon)
+		val (label, icon) = ShelfCore.preferences.decoy().identity()
+		return QuickLockIdentity(context.getString(label), icon)
 	}
 
 	internal fun identity(context: Context, intent: Intent): QuickLockIdentity {
@@ -176,8 +159,13 @@ object QuickLockNotification {
 		)
 	}
 
-	private fun hideIntent(context: Context, identity: QuickLockIdentity) = Intent(context, QuickLockReceiver::class.java)
-		.putExtra(EXTRA_LABEL, identity.label)
+	private fun hideIntent(context: Context, identity: QuickLockIdentity) =
+		Intent(context, QuickLockReceiver::class.java).withIdentity(identity)
+
+	internal fun serviceIntent(context: Context, identity: QuickLockIdentity) =
+		Intent(context, QuickLockService::class.java).withIdentity(identity)
+
+	private fun Intent.withIdentity(identity: QuickLockIdentity) = putExtra(EXTRA_LABEL, identity.label)
 		.putExtra(EXTRA_ICON, identity.icon)
 
 	fun cancel(context: Context) = manager(context).cancel(ID)
@@ -190,22 +178,22 @@ internal data class QuickLockIdentity(val label: String, val icon: Int)
 /**
  * Does the hiding itself rather than asking the app to.
  *
- * The tap that gets here may be the only thing running: the notification outlives the private space,
- * so by the time it is used the activity is usually gone and its view model with it. Signalling and
- * hoping something is listening would make the action work only while the app was already open.
+ * The tap that gets here may be the only thing running. The notification outlives the private space,
+ * so by the time it is used the activity is usually gone and its view model with it, and signalling
+ * in the hope that something is listening would only work while the app was already open.
  */
 class QuickLockReceiver : BroadcastReceiver() {
 
 	override fun onReceive(context: Context, intent: Intent) {
 		ShelfCore.install(context)
 		val identity = QuickLockNotification.identity(context, intent)
-		// Closing the private UI must not wait for service scheduling. Any exposed real folder already
-		// has a device-bound re-hide credential armed by the successful unhide operation.
+		// Closing the private UI must not wait on service scheduling. Any exposed folder already has a
+		// device-bound re-hide credential, armed by the unhide that exposed it.
 		QuickLockSignal.request()
 		if (QuickLockService.start(context, identity)) return
 
-		// A foreground service start can be refused for an automatic background transition on some
-		// OEM builds. Keep a receiver fallback so the action still gets its full broadcast window.
+		// Some OEM builds refuse a foreground start for an automatic background transition, so keep a
+		// receiver fallback and let the action have its full broadcast window.
 		val finish = goAsync()
 		val credentialLease = retainRehideCredential(context)
 		CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -221,7 +209,7 @@ class QuickLockReceiver : BroadcastReceiver() {
 	}
 }
 
-/** A long-running hide must not live inside BroadcastReceiver's short execution window. */
+/** A long hide cannot live inside a BroadcastReceiver's short execution window. */
 class QuickLockService : Service() {
 
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -234,9 +222,9 @@ class QuickLockService : Service() {
 		ShelfCore.install(this)
 		val identity = intent?.let { QuickLockNotification.identity(this, it) }
 			?: QuickLockNotification.identity(this)
-		// Recent releases refuse a foreground start in states this one can legitimately be reached
-		// from. Losing the foreground guarantee is worth far less than the hide itself, so a refusal
-		// leaves the work running in an ordinary service rather than taking the app down with it.
+		// Recent releases refuse a foreground start from states this can legitimately be reached from.
+		// The hide matters more than the foreground guarantee, so a refusal leaves the work running
+		// in an ordinary service rather than taking the app down with it.
 		val foreground = runCatching {
 			startForeground(QuickLockNotification.ID, QuickLockNotification.showWorking(this, identity))
 		}.isSuccess
@@ -255,9 +243,9 @@ class QuickLockService : Service() {
 			if (foreground) {
 				stopForeground(if (remaining == 0) STOP_FOREGROUND_REMOVE else STOP_FOREGROUND_DETACH)
 			}
-			// Not stopSelf(startId): a second tap that arrived while this was running left a newer id
-			// behind, and stopping against the older one does nothing — leaving a foreground service
-			// and its notification up for good.
+			// Not stopSelf(startId). A second tap arriving while this ran left a newer id behind, and
+			// stopping against the older one does nothing, leaving a foreground service and its
+			// notification up for good.
 			stopSelf()
 		}
 		return START_NOT_STICKY
@@ -272,10 +260,7 @@ class QuickLockService : Service() {
 
 	companion object {
 		internal fun start(context: Context, identity: QuickLockIdentity): Boolean = runCatching {
-			val intent = Intent(context, QuickLockService::class.java)
-				.putExtra("label", identity.label)
-				.putExtra("icon", identity.icon)
-			ContextCompat.startForegroundService(context, intent)
+			ContextCompat.startForegroundService(context, QuickLockNotification.serviceIntent(context, identity))
 			true
 		}.getOrDefault(false)
 	}

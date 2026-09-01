@@ -5,9 +5,9 @@ import androidx.core.content.edit
 import io.github.melastore.shelf.security.CredentialKind
 
 /**
- * The face the app wears. [NONE] is the default: Shelf presents itself honestly and opens straight
- * onto the credential prompt. A disguise is a deliberate choice, not something an owner discovers
- * they have — and one they never chose is a disguise they will not remember to keep up.
+ * The face the app wears. [NONE] is the default: Shelf is itself and opens on the credential prompt.
+ * A disguise has to be picked, never handed out; one the owner never chose is one they forget to
+ * keep up.
  */
 enum class DecoyType { NONE, HABITS, CALENDAR, CALCULATOR }
 
@@ -16,19 +16,16 @@ enum class EntryMethod { TITLE_HOLD, CORNER_KNOCK, NATURAL_HOLD }
 enum class HidingPreference { AUTO, ROOT, ALL_FILES, SAF }
 
 /**
- * Which palette the app paints in. [AMOLED] is dark with true black behind it, which costs nothing
- * to draw on an OLED panel; [SYSTEM] follows the device. The decoy palettes keep their own hues in
- * every mode, since a disguise that does not look like the app it imitates is not a disguise.
+ * Which palette the app paints in. [AMOLED] is dark on true black, free to draw on OLED; [SYSTEM]
+ * follows the device. Decoy palettes keep their own hues in every mode, or they stop looking like
+ * the app they imitate.
  */
 enum class ThemeMode { SYSTEM, LIGHT, DARK, AMOLED }
 
-/** One clear policy for both closing the private UI and putting exposed folders back out of sight. */
+/** One setting for both closing the private UI and putting exposed folders back out of sight. */
 enum class AutoHideMode { SCREEN_OFF, IMMEDIATE, NEVER }
 
-/**
- * What each successive lockout costs: half a minute, a minute, five, fifteen, then an hour for as
- * long as the guessing goes on.
- */
+/** What each successive lockout costs: 30s, 1m, 5m, 15m, then an hour for as long as it goes on. */
 internal val LOCKOUT_LADDER = listOf(30_000L, 60_000L, 300_000L, 900_000L, 3_600_000L)
 
 data class AppSettings(
@@ -44,12 +41,12 @@ data class AppSettings(
 	val themeMode: ThemeMode,
 )
 
-/** Small, non-sensitive preferences. Secrets are kept in [io.github.melastore.shelf.security.PassphraseGate]. */
+/** Small, non-sensitive settings. Secrets live in [io.github.melastore.shelf.security.PassphraseGate]. */
 class AppPreferences(context: Context) {
 
 	private val values = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
-	/** Existing installs used a passphrase, so a missing kind preserves whichever input mode they had. */
+	/** Older installs used a passphrase, so a missing kind keeps whatever input mode they had. */
 	fun read(vaultCredentialExists: Boolean): AppSettings = AppSettings(
 		decoy = enumValue(KEY_DECOY, DecoyType.NONE),
 		entryMethod = enumValue(KEY_ENTRY, EntryMethod.TITLE_HOLD),
@@ -66,9 +63,8 @@ class AppPreferences(context: Context) {
 	fun setDecoy(value: DecoyType) = putString(KEY_DECOY, value.name)
 
 	/**
-	 * How far first-run setup got. The wizard hands the launcher a new icon at the end, which ends the
-	 * task it is running in, and it is also the one screen an owner is most likely to be pulled away
-	 * from. Either way the next launch resumes rather than starting over.
+	 * How far first-run setup got. Swapping the launcher icon at the end kills the task the wizard is
+	 * running in, and setup is also easy to walk away from. Either way the next launch resumes.
 	 */
 	fun setSetupStep(value: Int) {
 		values.edit(commit = true) { putInt(KEY_SETUP_STEP, value) }
@@ -89,9 +85,9 @@ class AppPreferences(context: Context) {
 	fun hidingPreference(): HidingPreference = enumValue(KEY_HIDING, HidingPreference.AUTO)
 
 	/**
-	 * How the owner's credential is entered. Two older keys still decide it on installs that predate the
-	 * setting: an explicit PIN flag, and failing that the fact that a credential exists at all, which on
-	 * those builds could only have been a passphrase.
+	 * How the credential is entered. On installs predating this setting two older keys decide it: an
+	 * explicit PIN flag, and failing that the mere existence of a credential, which back then could
+	 * only have been a passphrase.
 	 */
 	fun credentialKind(vaultCredentialExists: Boolean): CredentialKind = when {
 		values.contains(KEY_CREDENTIAL_KIND) -> enumValue(KEY_CREDENTIAL_KIND, CredentialKind.PIN)
@@ -110,7 +106,7 @@ class AppPreferences(context: Context) {
 	fun setCredentialKind(value: CredentialKind) {
 		values.edit(commit = true) {
 			putString(KEY_CREDENTIAL_KIND, value.name)
-			// Kept in step so a downgrade to a build that only knows the flag still reads the right one.
+			// Kept in step, so a downgrade to a build that only knows the flag still reads it right.
 			putBoolean(KEY_USES_PIN, value != CredentialKind.PASSWORD)
 		}
 	}
@@ -145,8 +141,8 @@ class AppPreferences(context: Context) {
 
 	fun autoHideMode(): AutoHideMode {
 		if (values.contains(KEY_AUTO_HIDE)) return enumValue(KEY_AUTO_HIDE, AutoHideMode.IMMEDIATE)
-		// Migration from the two older controls: an immediate background lock remains immediate;
-		// otherwise a screen-off trigger remains screen-off. Every other combination becomes never.
+		// Migrating the two older controls: immediate stays immediate, a screen-off trigger stays
+		// screen-off, everything else becomes never.
 		val timeout = values.getString(KEY_LOCK_TIMEOUT, null)
 		val trigger = values.getString(KEY_LOCK_TRIGGER, null)
 		return when {
@@ -165,11 +161,9 @@ class AppPreferences(context: Context) {
 	}
 
 	/**
-	 * Measured against [android.os.SystemClock.elapsedRealtime], not the wall clock, so winding the
-	 * device's date forward does not clear a lockout. A reboot restarts that counter, which can only
-	 * leave a stale value in the future; anything further away than the longest delay the current
-	 * streak could have earned is treated as expired rather than blocking on an uptime the device no
-	 * longer has.
+	 * Measured against [android.os.SystemClock.elapsedRealtime], so winding the date forward does not
+	 * clear a lockout. A reboot restarts that counter and can leave a stale value in the future, so
+	 * anything further off than the current streak could have earned is treated as expired.
 	 */
 	fun blockedUntil(now: Long): Long {
 		val until = values.getLong(KEY_BLOCKED_UNTIL, 0L)
@@ -180,11 +174,9 @@ class AppPreferences(context: Context) {
 	/**
 	 * Counts one wrong credential and returns when the next attempt is allowed, or zero.
 	 *
-	 * The delay grows with each lockout instead of staying flat. A fixed thirty seconds per five
-	 * attempts is a rate — roughly three hours to walk every four-dot pattern, under a day for a
-	 * four-digit PIN — and a rate is not a defence. Climbing to an hour turns the same work into
-	 * months. The streak is cleared only by getting in, so backing off and returning later resumes
-	 * where the attacker left off.
+	 * The delay grows per lockout rather than staying flat. A fixed 30s per five attempts is just a
+	 * rate: about three hours for every four-dot pattern, under a day for a four-digit PIN. Climbing
+	 * to an hour makes that months. Only getting in clears the streak, so waiting it out does not.
 	 */
 	fun recordFailedUnlock(now: Long, maximumAttempts: Int): Long {
 		val attempts = values.getInt(KEY_FAILED_UNLOCKS, 0) + 1

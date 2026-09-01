@@ -4,10 +4,9 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * How a folder was made to disappear, and therefore how it has to be brought back.
- *
- * A restore always uses the method that hid the folder, never whatever the device can do best today:
- * granting all-files access after hiding something must not strand it.
+ * How a folder was hidden, and therefore how it has to be brought back. A restore always uses the
+ * recorded method, never whatever the device can do best today, or granting all-files access after
+ * a hide would strand the folder.
  */
 @Serializable
 enum class HideMethod {
@@ -22,15 +21,14 @@ enum class HideMethod {
 }
 
 /**
- * One hidden folder and everything needed to put it back exactly as it was.
+ * One hidden folder and everything needed to put it back as it was.
  *
- * [path] identifies the entry and is where a restore puts the folder back: for [HideMethod.ROOT_CHMOD]
- * that is the /data/media/<user> path whose bits were cleared, and for the two rename-based methods
- * it is the emulated path the folder was taken from. It keeps the serialised name `backingPath` so
- * journals written by earlier versions still parse; those have no [method] and are read as root
- * hides, which is what they were.
+ * [path] identifies the entry and is where a restore puts the folder: the /data/media/<user> path
+ * whose bits were cleared for [HideMethod.ROOT_CHMOD], the emulated path it was taken from for the
+ * two rename-based methods. Serialised as `backingPath` so older journals still parse; those carry
+ * no [method] and read as root hides, which is what they were.
  *
- * [originalMode] and [originalOwner] apply to a root hide, [hiddenPath] and [treeUri] to the others.
+ * [originalMode] and [originalOwner] belong to a root hide, [hiddenPath] and [treeUri] to the rest.
  */
 @Serializable
 data class HiddenEntry(

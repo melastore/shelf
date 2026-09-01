@@ -1,10 +1,10 @@
 package io.github.melastore.shelf.data
 
 /**
- * The bits of Storage Access Framework bookkeeping that are pure string work.
+ * The SAF bookkeeping that is pure string work.
  *
- * ExternalStorageProvider names its documents `primary:<path relative to the volume root>`, so a
- * document id is derivable from a path rather than something to store and keep in step with renames.
+ * ExternalStorageProvider names documents `primary:<path relative to the volume root>`, so an id can
+ * be derived from a path instead of stored and kept in step with renames.
  */
 object SafPaths {
 
@@ -18,7 +18,7 @@ object SafPaths {
 		return PRIMARY + clean.removePrefix("$emulatedRoot/")
 	}
 
-	/** The name a hidden folder takes. The leading dot is what the media scanner skips. */
+	/** The name a hidden folder takes. The media scanner skips the leading dot. */
 	fun hiddenName(name: String): String = if (name.startsWith(".")) name else ".$name"
 
 	fun nameOf(path: String): String = path.trimEnd('/').substringAfterLast('/')
@@ -28,6 +28,6 @@ object SafPaths {
 
 	fun parentOf(path: String): String = path.trimEnd('/').substringBeforeLast('/')
 
-	/** [path] with its last segment replaced, which is all a rename in place amounts to. */
+	/** [path] with its last segment replaced, which is all an in-place rename amounts to. */
 	fun sibling(path: String, newName: String): String = "${parentOf(path)}/$newName"
 }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
 	Two shelf boards with objects standing on them, where the lower row has gone dark and slid
-	partly behind the upper board — the thing on the shelf that is still there and no longer on show.
+	partly behind the upper board: still on the shelf, no longer on show.
 	The negative space between the boards reads as a keyhole slot at a glance.
 
 	Everything sits inside the central 72dp safe zone (18..90), so no launcher mask clips it, and the

@@ -11,26 +11,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Hides folders by renaming them to a leading dot, using nothing but grants the user has given.
+ * Hides folders by renaming them to a leading dot, using only grants the user has given.
  *
- * This is the fallback that always works: no root, no all-files access, nothing in the app's
- * permission list to explain. A rename through the document provider is one syscall underneath, so
- * it is as fast as the other two, and the media scanner skips dot-directories, which takes the
- * folder out of every gallery on the device.
+ * The fallback that always works: no root, no all-files access, nothing extra in the app's
+ * permission list. A provider rename is one syscall underneath, so it is as fast as the other two,
+ * and the media scanner skips dot-directories, which takes the folder out of every gallery.
  *
- * It remains the easiest folder to locate: a file manager set to show hidden files can list it.
- * [FolderNameProtector] replaces visible file names, and [FolderContentProtector] prevents ordinary
- * opening and previews after a primary-PIN hide. The rest of each file remains in place and is not
- * full-file encryption.
+ * It is also the easiest to find: any file manager showing hidden files lists it. [FolderNameProtector]
+ * replaces the visible names and [FolderContentProtector] blocks opening and previews, but the rest
+ * of each file stays in place. This is not full-file encryption.
  *
- * The rename has to be made through a grant on a folder *above* the target. Renaming the very folder
- * a tree grant was taken on leaves that grant pointing at a name that no longer exists, and the way
- * back would be gone with it.
+ * The rename needs a grant on a folder *above* the target. Renaming the folder a tree grant was
+ * taken on leaves that grant pointing at a name that no longer exists, and the way back with it.
  *
- * Some parents can never be granted: the provider marks the volume root and Download with
- * FLAG_DIR_BLOCKS_OPEN_DOCUMENT_TREE, so the picker refuses them however many times it is shown. A
- * folder sitting directly in one of those is renamed through the file system instead, which needs
- * all-files access. Asking for a grant that cannot be given is the one thing not done here.
+ * Some parents can never be granted: the provider flags the volume root and Download with
+ * FLAG_DIR_BLOCKS_OPEN_DOCUMENT_TREE, so the picker refuses them however often it is shown. A
+ * folder directly inside one of those is renamed through the file system instead, which needs
+ * all-files access. Asking for a grant that cannot be given is the one thing never done here.
  */
 class DotRenameHider(context: Context, private val journal: Journal, private val paths: StoragePaths,) : HideStrategy {
 
@@ -41,7 +38,7 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 
 	override val method = HideMethod.DOT_RENAME
 
-	/** Nothing to check: this is what is left when neither of the other two is available. */
+	/** Nothing to check. This is what is left when neither of the other two is available. */
 	override suspend fun isAvailable(): Boolean = true
 
 	override suspend fun hide(target: FolderTarget): HideResult = withContext(Dispatchers.IO) {
@@ -67,14 +64,14 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 			method = method,
 			hiddenPath = hiddenPath,
 			// The covering grant, not whatever the user last picked: this is what a restore reopens.
-			// Empty when the folder is reached through the mount, which needs no grant to reopen.
+			// Empty when the folder was reached through the mount, which needs no grant.
 			treeUri = tree?.toString().orEmpty(),
 		)
 		if (!journal.addNew(entry)) {
 			return@withContext HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
 		}
-		// Capture the public names before filename protection replaces them. These are the stale
-		// MediaStore rows that need invalidating after the folder itself is renamed.
+		// Collect the public names before name protection replaces them. These are the stale
+		// MediaStore rows to invalidate once the folder itself is renamed.
 		val contents = childPaths(tree, target.emulatedPath)
 		val protectionWarning = when (val protected = content.protect(target.emulatedPath)) {
 			is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> null
@@ -128,10 +125,7 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		MediaStorePurge.scan(appContext, contents + target.emulatedPath)
 		val renameWarning = HideWarning.ProviderRenamed(finalName)
 			.takeIf { finalName != SafPaths.hiddenName(name) }
-		HideResult.Ok(
-			finalEntry,
-			mergeWarnings(mergeWarnings(protectionWarning, nameWarning), renameWarning),
-		)
+		HideResult.Ok(finalEntry, mergeWarnings(protectionWarning, nameWarning, renameWarning))
 	}
 
 	override suspend fun restore(entry: HiddenEntry): HideResult = withContext(Dispatchers.IO) {
@@ -145,9 +139,9 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 			return@withContext HideResult.Failed(HideFailure.NotPrimaryStorage(entry.hiddenPath))
 		}
 
-		// Already back under its own name — a rename that succeeded after the journal write failed, or
-		// a restore the user finished in a file manager. Clear the record rather than reporting an
-		// error the user has no way to act on.
+		// Already back under its own name: a rename that survived a failed journal write, or a restore
+		// the user finished in a file manager. Clear the record rather than report an error they
+		// cannot act on.
 		if (!exists(tree, entry.hiddenPath) && exists(tree, entry.path)) {
 			when (val nameRestore = names.restore(entry.path)) {
 				is NameProtectionResult.Done, NameProtectionResult.NoFiles -> Unit
@@ -239,9 +233,9 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 			names.protect(entry.hiddenPath)
 			return@withContext HideResult.Failed(HideFailure.RenameBackFailed(entry.displayName))
 		}
-		// The rename has already happened. Some providers hand back a uri they will not then describe,
-		// and treating that as a failure would leave a journal entry pointing at the old hidden name —
-		// which no longer exists, so every later attempt would fail too. Assume the name we asked for.
+		// The rename already happened. Some providers hand back a uri they then refuse to describe,
+		// and calling that a failure would leave the record pointing at a hidden name that no longer
+		// exists, failing every later attempt too. Assume the name we asked for.
 		val restoredName = restored.name ?: wanted
 		val restoredPath = SafPaths.sibling(entry.path, restoredName)
 
@@ -353,8 +347,8 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		}
 
 	/**
-	 * A persisted grant on a folder strictly above [path], if the user has already given one. Grants
-	 * accumulate: allowing DCIM once to hide one album covers every album under it afterwards.
+	 * A persisted grant on a folder strictly above [path]. Grants accumulate, so allowing DCIM once
+	 * to hide one album covers every album under it afterwards.
 	 */
 	private fun grantCovering(path: String): Uri? = resolver.persistedUriPermissions
 		.asSequence()
@@ -370,7 +364,7 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		.maxByOrNull { (treeRoot, _) -> treeRoot.length }
 		?.second
 
-	/** [uri] if that exact grant is still held, so a stale record does not look like a live one. */
+	/** [uri] only if that exact grant is still held, so a stale record cannot pass for a live one. */
 	private fun heldTree(uri: String): Uri? {
 		val parsed = runCatching { uri.toUri() }.getOrNull() ?: return null
 		return parsed.takeIf { candidate ->
@@ -405,18 +399,12 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 			return HideResult.Failed(failure)
 		}
 
-		// The folder may now be hidden under the provider's chosen name. Keep the operation record; an
-		// uncertain rollback must never turn into an untracked folder. Prefer the path encoded in the
-		// returned document URI when the provider exposes it.
+		// The folder may now be hidden under a name the provider chose. Keep the record: an uncertain
+		// rollback must never leave an untracked folder. Use the path encoded in the returned document
+		// uri when the provider exposes one.
 		val hiddenPath = renamed?.let(::documentPath) ?: entry.hiddenPath
 		journal.replace(entry.copy(hiddenPath = hiddenPath))
 		return HideResult.Failed(HideFailure.RollbackFailed(failure))
-	}
-
-	private fun mergeWarnings(first: HideWarning?, second: HideWarning?): HideWarning? = when {
-		first == null -> second
-		second == null -> first
-		else -> HideWarning.Multiple(listOf(first, second))
 	}
 
 	private fun documentPath(uri: Uri): String? {
@@ -427,9 +415,9 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 	}
 
 	/**
-	 * Renames the last segment of [path], through [tree] when a grant covers it and through the
-	 * mount when none can exist. A null name means the rename happened but the result could not be
-	 * read back; the caller rolls back rather than recording a name it has not seen.
+	 * Renames the last segment of [path], through [tree] when a grant covers it and through the mount
+	 * when no grant can exist. A null name means the rename happened but could not be read back, and
+	 * the caller rolls back rather than record a name it has not seen.
 	 */
 	private fun renameFolder(tree: Uri?, path: String, wanted: String): Renamed? {
 		if (tree == null) {
@@ -444,7 +432,7 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		return Renamed(DocumentFile.fromSingleUri(appContext, uri)?.name, uri)
 	}
 
-	/** Without a grant the rename went through the mount, which is all-files access or nothing. */
+	/** With no grant the rename went through the mount, which is all-files access or nothing. */
 	private fun renameFailure(tree: Uri?, name: String): HideFailure =
 		if (tree == null) HideFailure.ParentNotGrantable(name) else HideFailure.RenameFailed(name)
 
@@ -452,9 +440,9 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 	 * Whether the picker could ever return a grant covering children of [parent].
 	 *
 	 * ExternalStorageProvider sets FLAG_DIR_BLOCKS_OPEN_DOCUMENT_TREE on the volume root and on
-	 * Download, so OPEN_DOCUMENT_TREE cannot land on either. A grant *inside* one of them is no help:
-	 * a rename is authorised by the folder above, and that is the blocked one. Asking anyway is what
-	 * produced a picker that reappeared however often it was answered.
+	 * Download, so OPEN_DOCUMENT_TREE cannot land on either. A grant inside one of them is no help:
+	 * the rename is authorised by the folder above, and that is the blocked one. Asking anyway is
+	 * what used to make the picker reappear however often it was answered.
 	 */
 	private fun grantable(parent: String): Boolean {
 		val clean = parent.trimEnd('/')
@@ -494,7 +482,7 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		return runCatching { DocumentsContract.buildDocumentUriUsingTree(tree, id) }.getOrNull()
 	}
 
-	/** Paths of the files under a folder, so the scanner can be told which ones moved. */
+	/** Files under a folder, so the scanner can be told which paths moved. */
 	private fun childPaths(tree: Uri?, path: String): List<String> = buildList {
 		if (tree == null) {
 			File(path).walkTopDown().maxDepth(MAX_DEPTH).filter { it.isFile }

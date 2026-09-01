@@ -9,10 +9,10 @@ import java.nio.charset.StandardCharsets
 /**
  * How the owner proves who they are.
  *
- * All three end at the same place: a [CharArray] handed to [PassphraseGate] for comparison and to the
- * folder machinery as the passphrase its file headers are encrypted under. Nothing below the UI knows
- * which one was used, so the choice can be changed without touching a single hidden folder — as long
- * as the credential itself does not change with it.
+ * All four end at the same place: a [CharArray] handed to [PassphraseGate] to compare, and to the
+ * folder machinery as the passphrase file headers are encrypted under. Nothing below the UI knows
+ * which was used, so the kind can change without touching a hidden folder, as long as the credential
+ * itself stays the same.
  */
 enum class CredentialKind { PIN, PASSWORD, PATTERN, KNOCK }
 
@@ -27,12 +27,10 @@ enum class CredentialFault {
 }
 
 /**
- * The 3×3 lock pattern, as the digits of the dots it joins.
+ * The 3x3 lock pattern, encoded as the digits of the dots it joins.
  *
- * A pattern is nine dots and an order, which is a short string of digits and nothing more. Encoding it
- * that way rather than inventing a format means a pattern is the same kind of secret as a PIN all the
- * way down: the same gate, the same key derivation, and the same Keystore wrappers, whose length and
- * character limits it already satisfies.
+ * Nine dots and an order is a short digit string, so a pattern goes through the same gate, key
+ * derivation and Keystore wrappers as a PIN instead of needing a format of its own.
  */
 object PatternCode {
 
@@ -45,16 +43,15 @@ object PatternCode {
 
 	fun encode(dots: List<Int>): CharArray = CharArray(dots.size) { '0' + dots[it] }
 
-	/** Whether [encoded] could have come from [encode], which is the only shape a gate ever sees. */
+	/** Whether [encoded] could have come from [encode]. The only shape a gate ever sees. */
 	fun isEncoded(encoded: CharArray): Boolean {
 		if (encoded.any { it < '0' || it > '0' + DOTS - 1 }) return false
 		return isValid(encoded.map { it - '0' })
 	}
 
 	/**
-	 * The dots between [from] and [to] that a straight line passes through. Android's pattern lock
-	 * picks up every dot on the way, and a pattern the user drew but Shelf did not record the same way
-	 * would simply never match.
+	 * Dots a straight line from [from] to [to] passes through. Android's pattern lock picks these up
+	 * on the way, so we have to as well or the pattern the user drew never matches the one recorded.
 	 */
 	fun crossed(from: Int, to: Int): List<Int> {
 		val rowStep = to / SIDE - from / SIDE
@@ -68,15 +65,13 @@ object PatternCode {
 }
 
 /**
- * A knock code, as the digits of the quarters it taps.
+ * A knock code, encoded as the digits of the quarters it taps.
  *
- * Four unmarked quarters and an order. Nothing on screen says where the divisions are or how long
- * the code is, so it can be entered without looking at the phone at all, and someone watching sees
- * taps landing on a blank square rather than a keypad. Repeats are allowed, which is what separates
- * it from a pattern and why four taps still cover 256 codes rather than a handful of paths.
+ * Four unmarked quarters and an order. Nothing on screen shows where the divisions are or how long
+ * the code is, so it can be entered without looking and a watcher sees taps on a blank square.
+ * Repeats are allowed, unlike a pattern, so four taps cover 256 codes.
  *
- * Encoded as digits for the same reason a pattern is: the gate, the key derivation and the Keystore
- * wrappers then treat it as the same kind of secret as a PIN.
+ * Digits for the same reason [PatternCode] uses them.
  */
 object KnockCode {
 
@@ -89,7 +84,7 @@ object KnockCode {
 
 	fun encode(taps: List<Int>): CharArray = CharArray(taps.size) { '0' + taps[it] }
 
-	/** Whether [encoded] could have come from [encode], which is the only shape a gate ever sees. */
+	/** Whether [encoded] could have come from [encode]. The only shape a gate ever sees. */
 	fun isEncoded(encoded: CharArray): Boolean {
 		if (encoded.any { it < '0' || it > '0' + QUARTERS - 1 }) return false
 		return isValid(encoded.map { it - '0' })
@@ -99,10 +94,9 @@ object KnockCode {
 /**
  * The rules every credential is held to, wherever it is checked.
  *
- * They live in one place because two of the checks are not in the UI at all: the biometric wrapper and
- * the emergency re-hide wrapper both re-validate what comes back out of the Keystore before they will
- * hand it to the folder machinery. A password that the setup screen accepts but those two reject is a
- * vault whose owner quietly loses biometric unlock and automatic re-hiding without being told.
+ * One place, because two of the callers are not the UI: the biometric wrapper and the emergency
+ * re-hide wrapper both re-validate what comes back out of the Keystore. A password the setup screen
+ * accepts but those reject costs the owner biometric unlock and auto re-hiding with no warning.
  */
 object CredentialRules {
 
@@ -119,8 +113,8 @@ object CredentialRules {
 			else -> null
 		}
 
-		// A pattern is nine dots joined once each, so a valid one is short, distinct and inside the
-		// grid. The prompt already guarantees that; this is what stops anything else reaching the gate.
+		// Nine dots joined once each: short, distinct, inside the grid. The prompt guarantees that
+		// already; this stops anything else reaching the gate.
 		CredentialKind.PATTERN -> when {
 			credential.size < PatternCode.MIN_DOTS -> CredentialFault.PATTERN_TOO_SHORT
 			credential.size > PatternCode.DOTS -> CredentialFault.TOO_LONG
@@ -128,8 +122,7 @@ object CredentialRules {
 			else -> null
 		}
 
-		// Four quarters tapped in order, repeats allowed. The pad already guarantees the shape; this is
-		// what stops anything else reaching the gate.
+		// Four quarters in order, repeats allowed. Same reason as the pattern check above.
 		CredentialKind.KNOCK -> when {
 			credential.size < KnockCode.MIN_TAPS -> CredentialFault.KNOCK_TOO_SHORT
 			credential.size > KnockCode.MAX_TAPS -> CredentialFault.TOO_LONG
@@ -145,18 +138,17 @@ object CredentialRules {
 		}
 	}
 
-	/** Whether a credential can be put in, and taken back out of, a Keystore-wrapped copy intact. */
+	/** Whether a credential survives a round trip through a Keystore-wrapped copy. */
 	fun isStorable(credential: CharArray): Boolean = credential.size in MIN_PIN..MAX_LENGTH &&
 		credential.none { it.isISOControl() }
 }
 
 /**
- * Moves a credential between characters and bytes without ever building a String from it.
+ * Moves a credential between chars and bytes without building a String.
  *
- * A String cannot be wiped, and one holding the passphrase would sit in the heap until a garbage
- * collector happened to move it. The encoding is UTF-8 rather than a byte per character: passwords are
- * typed on the user's own keyboard, and narrowing each character to its low byte would silently mangle
- * every one that is not Latin-1 — a credential that then never matches the folders it locked.
+ * A String cannot be wiped and would sit in the heap until the collector got round to it. UTF-8
+ * rather than a byte per char: passwords come off the user's own keyboard, and truncating to the low
+ * byte would mangle anything outside Latin-1 into a credential that no longer opens its own folders.
  */
 object CredentialBytes {
 
@@ -168,7 +160,7 @@ object CredentialBytes {
 		return bytes
 	}
 
-	/** Null when [bytes] are not the UTF-8 of a storable credential. */
+	/** Null unless [bytes] are the UTF-8 of a storable credential. */
 	fun decode(bytes: ByteArray): CharArray? {
 		val buffer = runCatching { strictDecoder().decode(ByteBuffer.wrap(bytes)) }.getOrNull() ?: return null
 		val credential = CharArray(buffer.remaining())
@@ -181,7 +173,7 @@ object CredentialBytes {
 		return credential
 	}
 
-	/** The decoder allocates its own buffer, and it holds the credential until something overwrites it. */
+	/** The decoder allocates its own buffer, which holds the credential until it is overwritten. */
 	private fun wipe(buffer: CharBuffer) {
 		if (buffer.hasArray()) buffer.array().fill(' ')
 	}

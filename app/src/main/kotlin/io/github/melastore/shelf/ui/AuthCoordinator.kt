@@ -9,7 +9,7 @@ import kotlinx.coroutines.withContext
 
 internal enum class CredentialMatch { PRIMARY, DECOY, NONE }
 
-/** Owns credential storage and comparison; the ViewModel owns only UI policy and navigation. */
+/** Owns credential storage and comparison. The view model keeps UI policy and navigation. */
 internal class AuthCoordinator(filesDir: File, private val preferences: AppPreferences) {
 	private val primaryGate = PassphraseGate(File(filesDir, "gate"))
 	private val decoyGate = PassphraseGate(File(filesDir, "decoy_gate"))

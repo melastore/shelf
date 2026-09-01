@@ -10,12 +10,11 @@ data class FailedUnlock(val at: Long)
 /**
  * Every credential that was refused, and when.
  *
- * The lockout already slows guessing down; this is the half the owner sees. Someone who picked the
- * phone up and tried leaves nothing behind otherwise — the prompt they failed at looks exactly the
- * same the next time it is opened. A short list of times on the next real unlock is the difference
- * between suspecting that and knowing it.
+ * The lockout slows guessing down; this is the half the owner sees. Someone who picked the phone up
+ * and tried otherwise leaves nothing behind, since the prompt they failed at looks the same next
+ * time. A list of times on the next real unlock turns a suspicion into a fact.
  *
- * It is kept in app-private storage and says nothing about what was typed, only that something was.
+ * App-private, and says nothing about what was typed, only that something was.
  */
 class FailedUnlockLog(file: File) {
 

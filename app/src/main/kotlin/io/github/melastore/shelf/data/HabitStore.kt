@@ -4,7 +4,7 @@ import java.io.File
 import java.util.UUID
 import kotlinx.serialization.builtins.ListSerializer
 
-/** Persists the habit list that is the app's visible face. */
+/** Persists the habit list behind the Momento disguise. */
 class HabitStore(file: File) {
 
 	private val store = AtomicJsonList(file, ListSerializer(Habit.serializer()))

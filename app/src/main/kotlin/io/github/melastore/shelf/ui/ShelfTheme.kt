@@ -17,9 +17,9 @@ import io.github.melastore.shelf.data.DecoyType
 import io.github.melastore.shelf.data.ThemeMode
 
 /**
- * Each disguise gets its own palette. A calculator that renders in the habit tracker's greens is a
- * worse disguise than one that looks like every other calculator on the store, so the theme follows
- * whichever identity is currently on the launcher.
+ * Each disguise gets its own palette. A calculator painted in the habit tracker's colours is a worse
+ * disguise than one that looks like every other calculator, so the theme follows whichever identity
+ * is on the launcher.
  */
 private val Habits = lightColorScheme(
 	primary = Color(0xFF5B4BC4),

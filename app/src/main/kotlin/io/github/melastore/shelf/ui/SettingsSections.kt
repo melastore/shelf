@@ -84,8 +84,8 @@ internal fun AutomaticLockSettingsSection(
 	) {
 		ChoiceRow(
 			title = stringResource(R.string.auto_hide_choose),
-			selected = state.autoHideMode.settingsLabel(),
-			options = AutoHideMode.entries.map { it to it.settingsLabel() },
+			selected = state.autoHideMode.label(),
+			options = AutoHideMode.entries.map { it to it.label() },
 			onSelected = onAutoHideMode,
 		)
 		SettingsRow(
@@ -114,7 +114,7 @@ internal fun ScreenCaptureSettingsSection(
 			trailing = { SelectionMark(state.allowScreenshots) },
 			onClick = onAllowScreenshotsChange,
 		)
-		// Same question as the screenshot setting — who else sees this app — so it sits in the same
+		// Same question as the screenshot setting (who else sees this app), so it belongs in the same
 		// group rather than under appearance.
 		SettingsRow(
 			title = stringResource(R.string.hide_from_recents),
@@ -143,26 +143,6 @@ internal fun AppearanceSettingsSection(state: AppUiState, onThemeMode: (ThemeMod
 }
 
 @Composable
-private fun ThemeMode.title(): String = stringResource(
-	when (this) {
-		ThemeMode.SYSTEM -> R.string.theme_system
-		ThemeMode.LIGHT -> R.string.theme_light
-		ThemeMode.DARK -> R.string.theme_dark
-		ThemeMode.AMOLED -> R.string.theme_amoled
-	},
-)
-
-@Composable
-private fun ThemeMode.summary(): String = stringResource(
-	when (this) {
-		ThemeMode.SYSTEM -> R.string.theme_system_summary
-		ThemeMode.LIGHT -> R.string.theme_light_summary
-		ThemeMode.DARK -> R.string.theme_dark_summary
-		ThemeMode.AMOLED -> R.string.theme_amoled_summary
-	},
-)
-
-@Composable
 internal fun FolderSettingsSection(
 	state: AppUiState,
 	onHidingPreference: (HidingPreference) -> Unit,
@@ -180,8 +160,8 @@ internal fun FolderSettingsSection(
 			val needsGrant = preference == HidingPreference.ALL_FILES &&
 				HideMethod.PRIVATE_MOVE !in state.availableMethods
 			SettingsRow(
-				title = preference.settingsTitle(),
-				summary = preference.settingsSummary(state.availableMethods),
+				title = preference.title(),
+				summary = preference.summary(state.availableMethods),
 				trailing = { if (!needsGrant) SelectionMark(state.hidingPreference == preference) },
 				onClick = { if (needsGrant) onRequestAllFiles() else onHidingPreference(preference) },
 			)
@@ -248,34 +228,4 @@ internal fun RecoverySettingsSection(
 			onClick = onForceUnhide,
 		)
 	}
-}
-
-@Composable
-private fun HidingPreference.settingsTitle(): String = when (this) {
-	HidingPreference.AUTO -> stringResource(R.string.mode_auto)
-	HidingPreference.ROOT -> stringResource(R.string.root_mode)
-	HidingPreference.ALL_FILES -> stringResource(R.string.all_files_mode)
-	HidingPreference.SAF -> stringResource(R.string.saf_mode)
-}
-
-@Composable
-private fun HidingPreference.settingsSummary(available: Set<HideMethod>): String = when (this) {
-	HidingPreference.AUTO -> stringResource(R.string.mode_auto_summary)
-
-	HidingPreference.ROOT -> stringResource(
-		if (HideMethod.ROOT_CHMOD in available) R.string.root_mode_available else R.string.root_mode_unavailable,
-	)
-
-	HidingPreference.ALL_FILES -> stringResource(
-		if (HideMethod.PRIVATE_MOVE in available) R.string.all_files_available else R.string.all_files_unavailable,
-	)
-
-	HidingPreference.SAF -> stringResource(R.string.saf_mode_summary)
-}
-
-@Composable
-private fun AutoHideMode.settingsLabel(): String = when (this) {
-	AutoHideMode.SCREEN_OFF -> stringResource(R.string.auto_hide_screen_off)
-	AutoHideMode.IMMEDIATE -> stringResource(R.string.auto_hide_immediately)
-	AutoHideMode.NEVER -> stringResource(R.string.auto_hide_never)
 }
