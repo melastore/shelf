@@ -37,6 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.melastore.shelf.R
 import io.github.melastore.shelf.security.BiometricAuth
@@ -67,6 +69,14 @@ class MainActivity : ComponentActivity() {
 			val state by viewModel.state.collectAsStateWithLifecycle()
 			var showCredential by rememberSaveable { mutableStateOf(false) }
 			var showFakeCrash by rememberSaveable { mutableStateOf(false) }
+			// A half-typed credential should survive a rotation, so the flag lives in the composition
+			// rather than on the activity, which a rotation destroys. That puts it out of reach of
+			// onStop, so the trip to the background is handled here instead: isChangingConfigurations
+			// is true for the stop a rotation causes and false for the one leaving the app causes.
+			// The crash dialog is left alone. It is part of the disguise and gives nothing away.
+			LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+				if (!isChangingConfigurations) showCredential = false
+			}
 			// Setup runs before there is a credential, so there is nothing to disguise yet. It gets the
 			// private palette for the same reason it gets FLAG_SECURE.
 			val firstRun = state.ready && !state.credentialSet
@@ -283,6 +293,8 @@ class MainActivity : ComponentActivity() {
 		}
 	}
 
+	// The credential prompt is cleared by the ON_STOP effect in setContent, not here: it is
+	// composition state now so that a rotation cannot drop it.
 	override fun onStop() {
 		super.onStop()
 		if (!isChangingConfigurations) {
