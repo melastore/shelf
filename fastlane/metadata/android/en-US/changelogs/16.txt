@@ -1,0 +1,4 @@
+A build fix. Nothing changes in the app itself.
+
+- Release builds no longer record which commit they were built from, so anyone can
+  rebuild Shelf from source and check the result against the published APK.
