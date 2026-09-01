@@ -1,0 +1,8 @@
+Fixes for date formats, folder walks, and the corner tap.
+
+- The calendar and habit disguises now write dates the way your language and
+  region do, instead of always putting the day before the month.
+- Header and name protection no longer follows a linked folder out of the one
+  you are hiding.
+- The five-tap corner gesture is no longer thrown off by the clock changing.
+- Your credential is cleared from memory even when unlocking fails partway.
