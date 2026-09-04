@@ -1,12 +1,32 @@
 package io.github.melastore.shelf.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.melastore.shelf.R
@@ -18,6 +38,127 @@ import io.github.melastore.shelf.data.ThemeMode
 import io.github.melastore.shelf.security.CredentialKind
 
 @Composable
+internal fun StealthGuideCard(onClick: () -> Unit) {
+	Surface(
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(top = 8.dp, bottom = 4.dp)
+			.clip(MaterialTheme.shapes.large)
+			.clickable(onClick = onClick),
+		shape = MaterialTheme.shapes.large,
+		color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+	) {
+		Row(
+			modifier = Modifier.padding(16.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			Box(
+				modifier = Modifier
+					.size(40.dp)
+					.clip(CircleShape)
+					.background(MaterialTheme.colorScheme.primary),
+				contentAlignment = Alignment.Center,
+			) {
+				Icon(
+					Icons.Filled.Lock,
+					contentDescription = null,
+					tint = MaterialTheme.colorScheme.onPrimary,
+					modifier = Modifier.size(20.dp),
+				)
+			}
+			Spacer(Modifier.size(14.dp))
+			Column(modifier = Modifier.weight(1f)) {
+				Text(
+					text = stringResource(R.string.stealth_guide_title),
+					style = MaterialTheme.typography.titleSmall,
+					color = MaterialTheme.colorScheme.onSurface,
+				)
+				Spacer(Modifier.height(2.dp))
+				Text(
+					text = stringResource(R.string.stealth_guide_summary),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+		}
+	}
+}
+
+@Composable
+internal fun StealthGuideDialog(onDismiss: () -> Unit) {
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		shape = MaterialTheme.shapes.extraLarge,
+		title = {
+			Row(verticalAlignment = Alignment.CenterVertically) {
+				Icon(
+					Icons.Filled.Lock,
+					contentDescription = null,
+					tint = MaterialTheme.colorScheme.primary,
+					modifier = Modifier.size(24.dp),
+				)
+				Spacer(Modifier.size(10.dp))
+				Text(stringResource(R.string.stealth_guide_title))
+			}
+		},
+		text = {
+			Column(
+				modifier = Modifier
+					.fillMaxWidth()
+					.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(14.dp),
+			) {
+				GuideTopic(
+					title = stringResource(R.string.stealth_guide_disguise_title),
+					body = stringResource(R.string.stealth_guide_disguise_body),
+				)
+				GuideTopic(
+					title = stringResource(R.string.stealth_guide_entrance_title),
+					body = stringResource(R.string.stealth_guide_entrance_body),
+				)
+				GuideTopic(
+					title = stringResource(R.string.stealth_guide_peek_title),
+					body = stringResource(R.string.stealth_guide_peek_body),
+				)
+				GuideTopic(
+					title = stringResource(R.string.stealth_guide_duress_title),
+					body = stringResource(R.string.stealth_guide_duress_body),
+				)
+				GuideTopic(
+					title = stringResource(R.string.stealth_guide_panic_title),
+					body = stringResource(R.string.stealth_guide_panic_body),
+				)
+				GuideTopic(
+					title = stringResource(R.string.stealth_guide_safety_title),
+					body = stringResource(R.string.stealth_guide_safety_body),
+				)
+			}
+		},
+		confirmButton = {
+			TextButton(onClick = onDismiss) {
+				Text(stringResource(R.string.stealth_guide_close))
+			}
+		},
+	)
+}
+
+@Composable
+private fun GuideTopic(title: String, body: String) {
+	Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+		Text(
+			text = title,
+			style = MaterialTheme.typography.titleSmall,
+			color = MaterialTheme.colorScheme.primary,
+		)
+		Text(
+			text = body,
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+}
+
+@Composable
 internal fun AuthenticationSettingsSection(
 	state: AppUiState,
 	onChangePin: () -> Unit,
@@ -27,10 +168,14 @@ internal fun AuthenticationSettingsSection(
 	onRemoveDecoyPin: () -> Unit,
 	onSeedDecoy: () -> Unit,
 ) {
-	SettingsGroup(stringResource(R.string.credentials), stringResource(R.string.credential_kind_summary)) {
+	SettingsGroup(
+		stringResource(R.string.credentials),
+		stringResource(R.string.credentials_summary),
+	) {
+		val activeLabel = CredentialWords.label(state.credentialKind)
 		SettingsRow(
-			title = stringResource(R.string.change_vault_pin),
-			summary = CredentialWords.label(state.credentialKind),
+			title = stringResource(R.string.current_primary_credential),
+			summary = "$activeLabel · ${stringResource(R.string.change_credential_action)}",
 			onClick = onChangePin,
 		)
 		CredentialKind.entries.forEach { kind ->
@@ -56,10 +201,10 @@ internal fun AuthenticationSettingsSection(
 			onClick = onBiometricChange,
 		)
 		SettingsRow(
-			title = stringResource(
-				if (state.decoyPinSet) R.string.change_decoy_pin else R.string.create_decoy_pin,
+			title = stringResource(R.string.duress_protection_title),
+			summary = stringResource(
+				if (state.decoyPinSet) R.string.duress_configured else R.string.duress_not_configured,
 			),
-			summary = stringResource(R.string.decoy_pin_summary),
 			onClick = onSetDecoyPin,
 		)
 		if (state.decoyPinSet) {
@@ -84,11 +229,19 @@ internal fun AutomaticLockSettingsSection(
 	onQuickLockChange: () -> Unit,
 	onAutoHideMode: (AutoHideMode) -> Unit,
 	onFlipToHideChange: () -> Unit,
+	onAllowScreenshotsChange: (() -> Unit)? = null,
+	onHideFromRecentsChange: (() -> Unit)? = null,
 ) {
 	SettingsGroup(
 		stringResource(R.string.auto_hide),
 		stringResource(R.string.auto_hide_summary),
 	) {
+		SettingsRow(
+			title = stringResource(R.string.flip_to_hide_title),
+			summary = stringResource(R.string.flip_to_hide_summary),
+			trailing = { SelectionMark(state.flipToHide) },
+			onClick = onFlipToHideChange,
+		)
 		ChoiceRow(
 			title = stringResource(R.string.auto_hide_choose),
 			selected = state.autoHideMode.label(),
@@ -96,17 +249,28 @@ internal fun AutomaticLockSettingsSection(
 			onSelected = onAutoHideMode,
 		)
 		SettingsRow(
-			title = stringResource(R.string.flip_to_hide_title),
-			summary = stringResource(R.string.flip_to_hide_summary),
-			trailing = { SelectionMark(state.flipToHide) },
-			onClick = onFlipToHideChange,
-		)
-		SettingsRow(
 			title = stringResource(R.string.quick_lock_notification),
 			summary = stringResource(R.string.quick_lock_notification_summary),
 			trailing = { SelectionMark(state.quickLockNotification) },
 			onClick = onQuickLockChange,
 		)
+		if (onHideFromRecentsChange != null) {
+			SettingsRow(
+				title = stringResource(R.string.hide_from_recents),
+				summary = stringResource(R.string.hide_from_recents_summary),
+				trailing = { SelectionMark(state.hideFromRecents) },
+				onClick = onHideFromRecentsChange,
+			)
+		}
+		if (onAllowScreenshotsChange != null) {
+			SettingsRow(
+				title = stringResource(R.string.allow_screenshots),
+				summary = stringResource(R.string.allow_screenshots_summary),
+				dangerous = state.allowScreenshots,
+				trailing = { SelectionMark(state.allowScreenshots) },
+				onClick = onAllowScreenshotsChange,
+			)
+		}
 	}
 }
 

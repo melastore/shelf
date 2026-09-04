@@ -63,4 +63,20 @@ class AppPreferencesAutoHideTest {
 
 		assertEquals(AutoHideMode.NEVER, AppPreferences(application).autoHideMode())
 	}
+
+	@Test
+	fun `direct keypad entry method persists`() {
+		val preferences = AppPreferences(application)
+		preferences.setEntryMethod(EntryMethod.DIRECT_KEYPAD)
+
+		assertEquals(EntryMethod.DIRECT_KEYPAD, preferences.entryMethod())
+	}
+
+	@Test
+	fun `double tap title entry method persists`() {
+		val preferences = AppPreferences(application)
+		preferences.setEntryMethod(EntryMethod.DOUBLE_TAP_TITLE)
+
+		assertEquals(EntryMethod.DOUBLE_TAP_TITLE, preferences.entryMethod())
+	}
 }

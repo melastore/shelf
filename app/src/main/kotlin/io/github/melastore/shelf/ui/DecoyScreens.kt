@@ -97,7 +97,7 @@ fun DecoyScreen(state: AppUiState, viewModel: ShelfViewModel, onSecretEntry: () 
 		}
 		// With no disguise there is nothing to hide the way in behind and the lock screen offers a
 		// button, so the corner target would be a second route to an open door.
-		if (state.decoy != DecoyType.NONE) {
+		if (state.decoy != DecoyType.NONE && state.entryMethod != EntryMethod.DIRECT_KEYPAD) {
 			// Always live, whatever gesture is configured: the knock is the way back in when the chosen
 			// long press lands on a control that is not on screen. Being locked out of your own private
 			// space is worse than a gesture that is a little easier to stumble on.
@@ -209,7 +209,8 @@ private fun HabitDecoy(state: AppUiState, viewModel: ShelfViewModel, onSecretEnt
 					done = done,
 					total = state.habits.size,
 					modifier = Modifier.secretHold(
-						state.entryMethod == EntryMethod.NATURAL_HOLD,
+						state.entryMethod == EntryMethod.NATURAL_HOLD ||
+							state.entryMethod == EntryMethod.DIRECT_KEYPAD,
 						onSecretEntry,
 					),
 				)
@@ -467,7 +468,8 @@ private fun CalendarDecoy(state: AppUiState, viewModel: ShelfViewModel, onSecret
 			item {
 				Column(
 					Modifier.padding(top = 4.dp).secretHold(
-						state.entryMethod == EntryMethod.NATURAL_HOLD,
+						state.entryMethod == EntryMethod.NATURAL_HOLD ||
+							state.entryMethod == EntryMethod.DIRECT_KEYPAD,
 						onSecretEntry,
 					),
 				) {
@@ -627,6 +629,7 @@ private fun CalculatorDecoy(
 ) {
 	var calculator by remember { mutableStateOf(CalculatorState()) }
 	val knockTaps = remember { mutableStateListOf<Int>() }
+	var rawDigits by remember { mutableStateOf("") }
 	val haptics = LocalHapticFeedback.current
 	val rows = listOf(
 		listOf("C", "±", "%", "÷"),
@@ -699,17 +702,25 @@ private fun CalculatorDecoy(
 							modifier = Modifier.weight(if (key == "0" && row.size == 3) 2f else 1f),
 							kind = keyKind(key),
 							onClick = {
-								if (key == "=") {
+								if (key in "0".."9") {
+									rawDigits += key
+								} else if (key == "C") {
+									knockTaps.clear()
+									rawDigits = ""
+								} else if (key in listOf("÷", "×", "−", "+")) {
+									rawDigits = ""
+								} else if (key == "=") {
 									if (knockTaps.size in KnockCode.MIN_TAPS..KnockCode.MAX_TAPS) {
 										onStealthUnlock(KnockCode.encode(knockTaps.toList()))
 										knockTaps.clear()
+									} else if (rawDigits.length in 4..16) {
+										onStealthUnlock(rawDigits.toCharArray())
+										rawDigits = ""
 									} else if (calculator.operation == null &&
 										calculator.display.length in 4..16 && calculator.display.all { it.isDigit() }
 									) {
 										onStealthUnlock(calculator.display.toCharArray())
 									}
-								} else if (key == "C") {
-									knockTaps.clear()
 								}
 								calculator = calculator.press(key)
 							},
@@ -778,11 +789,32 @@ private fun CalculatorState.press(key: String): CalculatorState = when (key) {
 	else -> digit(key.toInt())
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SecretTitle(title: String, entryMethod: EntryMethod, onSecretEntry: () -> Unit) {
+	val haptics = LocalHapticFeedback.current
+	val modifier = when (entryMethod) {
+		EntryMethod.TITLE_HOLD -> Modifier.combinedClickable(
+			onClick = {},
+			onLongClick = {
+				haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+				onSecretEntry()
+			},
+		)
+
+		EntryMethod.DOUBLE_TAP_TITLE -> Modifier.combinedClickable(
+			onClick = {},
+			onDoubleClick = {
+				haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+				onSecretEntry()
+			},
+		)
+
+		else -> Modifier
+	}
 	Text(
 		title,
-		modifier = Modifier.secretHold(entryMethod == EntryMethod.TITLE_HOLD, onSecretEntry),
+		modifier = modifier,
 		style = MaterialTheme.typography.titleLarge,
 	)
 }

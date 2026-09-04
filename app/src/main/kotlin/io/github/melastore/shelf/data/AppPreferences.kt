@@ -11,7 +11,7 @@ import io.github.melastore.shelf.security.CredentialKind
  */
 enum class DecoyType { NONE, HABITS, CALENDAR, CALCULATOR }
 
-enum class EntryMethod { TITLE_HOLD, CORNER_KNOCK, NATURAL_HOLD }
+enum class EntryMethod { TITLE_HOLD, CORNER_KNOCK, NATURAL_HOLD, DIRECT_KEYPAD, DOUBLE_TAP_TITLE }
 
 enum class HidingPreference { AUTO, ROOT, ALL_FILES, SAF }
 
@@ -81,6 +81,8 @@ class AppPreferences(context: Context) {
 	fun decoy(): DecoyType = enumValue(KEY_DECOY, DecoyType.NONE)
 
 	fun setEntryMethod(value: EntryMethod) = putString(KEY_ENTRY, value.name)
+
+	fun entryMethod(): EntryMethod = enumValue(KEY_ENTRY, EntryMethod.TITLE_HOLD)
 
 	fun setHidingPreference(value: HidingPreference) = putString(KEY_HIDING, value.name)
 

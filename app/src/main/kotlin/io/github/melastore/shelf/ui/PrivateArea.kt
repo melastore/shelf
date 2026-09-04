@@ -667,6 +667,7 @@ private fun SettingsScreen(
 	onImportRecovery: () -> Unit,
 	onRequestAllFiles: () -> Unit,
 ) {
+	var showStealthGuide by remember { mutableStateOf(false) }
 	var changeCurrent by remember { mutableStateOf<CharArray?>(null) }
 	var askCurrent by remember { mutableStateOf(false) }
 	// The kind being moved to, which is the current one unless a different row was picked.
@@ -697,6 +698,11 @@ private fun SettingsScreen(
 						Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))
 					}
 				},
+				actions = {
+					TextButton(onClick = { showStealthGuide = true }) {
+						Text(stringResource(R.string.stealth_guide_button))
+					}
+				},
 				colors = TopAppBarDefaults.topAppBarColors(
 					containerColor = MaterialTheme.colorScheme.background,
 				),
@@ -707,6 +713,10 @@ private fun SettingsScreen(
 			Modifier.padding(padding).fillMaxSize(),
 			contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 40.dp),
 		) {
+			item {
+				StealthGuideCard(onClick = { showStealthGuide = true })
+			}
+
 			item {
 				SettingsGroup(
 					stringResource(R.string.disguise),
@@ -722,7 +732,14 @@ private fun SettingsScreen(
 								selected = state.decoy == decoy,
 								modifier = Modifier.weight(1f),
 								icon = { DecoyBadge(decoy) },
-								onClick = { onDecoy(decoy) },
+								onClick = {
+									onDecoy(decoy)
+									if (decoy == DecoyType.CALCULATOR) {
+										onEntryMethod(EntryMethod.DIRECT_KEYPAD)
+									} else if (state.entryMethod == EntryMethod.DIRECT_KEYPAD) {
+										onEntryMethod(EntryMethod.DOUBLE_TAP_TITLE)
+									}
+								},
 							)
 						}
 					}
@@ -776,12 +793,6 @@ private fun SettingsScreen(
 					onQuickLockChange = { onQuickLockChange(!state.quickLockNotification) },
 					onAutoHideMode = onAutoHideMode,
 					onFlipToHideChange = { onFlipToHideChange(!state.flipToHide) },
-				)
-			}
-
-			item {
-				ScreenCaptureSettingsSection(
-					state = state,
 					onAllowScreenshotsChange = { onAllowScreenshotsChange(!state.allowScreenshots) },
 					onHideFromRecentsChange = { onHideFromRecents(!state.hideFromRecents) },
 				)
@@ -920,6 +931,9 @@ private fun SettingsScreen(
 			},
 			onDismiss = { recoveryCandidate = null },
 		)
+	}
+	if (showStealthGuide) {
+		StealthGuideDialog(onDismiss = { showStealthGuide = false })
 	}
 }
 

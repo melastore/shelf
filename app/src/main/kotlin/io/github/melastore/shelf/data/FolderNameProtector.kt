@@ -433,15 +433,15 @@ class FolderNameProtector(
 		name.startsWith(ROOT_RECOVERY_PREFIX)
 
 	@Serializable
-	private data class NameManifest(val version: Int = VERSION, val files: List<NameMapping>)
+	internal data class NameManifest(val version: Int = VERSION, val files: List<NameMapping>)
 
 	@Serializable
-	private data class NameMapping(val original: String, val opaque: String)
+	internal data class NameMapping(val original: String, val opaque: String)
 
 	private data class SafEntry(val path: String, val document: DocumentFile)
 	private data class SafRename(val entry: SafEntry, val name: String)
 
-	private companion object {
+	companion object {
 		const val VERSION = 1
 		const val MANIFEST = ".shelf-names-v1"
 		const val MANIFEST_TEMP = ".shelf-names-v1.tmp"
@@ -454,5 +454,26 @@ class FolderNameProtector(
 		const val MAX_RECOVERY_NAMES = 100
 		val OPAQUE = Regex("(?:\\.sfn-|sfn_)[a-f0-9]{32}")
 		val UUID_TOKEN = Regex("[a-f0-9]{32}")
+
+		private val manifestJson = Json { ignoreUnknownKeys = true }
+
+		fun decryptManifest(encrypted: ByteArray, password: CharArray): Map<String, String>? {
+			if (encrypted.size !in 1..PasswordEnvelope.MAX_ENVELOPE_BYTES) return null
+			var plain = byteArrayOf()
+			return try {
+				plain = PasswordEnvelope.decrypt(encrypted, password)
+				val manifest = manifestJson.decodeFromString(
+					NameManifest.serializer(),
+					plain.toString(Charsets.UTF_8),
+				)
+				manifest.files.associate { mapping ->
+					mapping.opaque.substringAfterLast('/') to mapping.original.substringAfterLast('/')
+				}
+			} catch (_: Exception) {
+				null
+			} finally {
+				plain.fill(0)
+			}
+		}
 	}
 }

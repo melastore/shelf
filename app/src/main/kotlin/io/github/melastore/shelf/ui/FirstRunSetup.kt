@@ -120,8 +120,8 @@ fun FirstRunSetup(
 				) {
 					when (current) {
 						SetupStep.WELCOME -> WelcomeStep()
-						SetupStep.DISGUISE -> DisguiseStep(state.decoy, onDecoy)
-						SetupStep.ENTRY -> EntryStep(state.entryMethod, onEntryMethod)
+						SetupStep.DISGUISE -> DisguiseStep(state.decoy, onDecoy, onEntryMethod)
+						SetupStep.ENTRY -> EntryStep(state.decoy, state.entryMethod, onEntryMethod)
 						SetupStep.METHOD -> MethodStep(state, onHidingPreference, onCheckMethods)
 						SetupStep.STORAGE -> StorageStep(state, onRequestAllFiles)
 						SetupStep.NOTIFICATIONS -> NotificationStep(state.quickLockNotification, onRequestNotifications)
@@ -242,7 +242,7 @@ private fun NoticeCard(text: String) {
 }
 
 @Composable
-private fun DisguiseStep(selected: DecoyType, onDecoy: (DecoyType) -> Unit) {
+private fun DisguiseStep(selected: DecoyType, onDecoy: (DecoyType) -> Unit, onEntryMethod: (EntryMethod) -> Unit,) {
 	StepTitle(
 		stringResource(R.string.setup_disguise_title),
 		stringResource(R.string.setup_disguise_body),
@@ -254,18 +254,29 @@ private fun DisguiseStep(selected: DecoyType, onDecoy: (DecoyType) -> Unit) {
 				selected = selected == decoy,
 				modifier = Modifier.weight(1f),
 				icon = { DecoyBadge(decoy) },
-				onClick = { onDecoy(decoy) },
+				onClick = {
+					onDecoy(decoy)
+					if (decoy == DecoyType.CALCULATOR) {
+						onEntryMethod(EntryMethod.DIRECT_KEYPAD)
+					} else {
+						onEntryMethod(EntryMethod.DOUBLE_TAP_TITLE)
+					}
+				},
 			)
 		}
 	}
 }
 
 @Composable
-private fun EntryStep(selected: EntryMethod, onEntryMethod: (EntryMethod) -> Unit) {
+private fun EntryStep(selectedDecoy: DecoyType, selected: EntryMethod, onEntryMethod: (EntryMethod) -> Unit,) {
 	StepTitle(
 		stringResource(R.string.setup_entry_title),
 		stringResource(R.string.setup_entry_body),
 	)
+	if (selectedDecoy == DecoyType.CALCULATOR) {
+		NoticeCard(stringResource(R.string.setup_entry_calculator_hint))
+		Spacer(Modifier.height(16.dp))
+	}
 	Surface(
 		modifier = Modifier.fillMaxWidth(),
 		shape = MaterialTheme.shapes.large,
@@ -290,6 +301,8 @@ private fun MethodStep(state: AppUiState, onHidingPreference: (HidingPreference)
 		stringResource(R.string.setup_method_title),
 		stringResource(R.string.setup_method_body),
 	)
+	NoticeCard(stringResource(R.string.setup_method_recommendation))
+	Spacer(Modifier.height(16.dp))
 	Surface(
 		modifier = Modifier.fillMaxWidth(),
 		shape = MaterialTheme.shapes.large,

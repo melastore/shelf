@@ -33,11 +33,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,9 +60,12 @@ import io.github.melastore.shelf.data.ContentCredential
 import io.github.melastore.shelf.data.EphemeralMediaItem
 import io.github.melastore.shelf.data.EphemeralMediaLoader
 import io.github.melastore.shelf.data.EphemeralMediaType
+import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.ShelfCore
+import io.github.melastore.shelf.root.RootShell
 import javax.crypto.SecretKey
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -95,11 +100,35 @@ fun EphemeralMediaViewer(folder: VaultFolder, onDismiss: () -> Unit,) {
 		}
 	}
 
+	val rootEntry = folder.entry?.takeIf { it.method == HideMethod.ROOT_CHMOD }
+	val scope = rememberCoroutineScope()
+	DisposableEffect(folder) {
+		onDispose {
+			if (rootEntry != null) {
+				scope.launch(Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
+					RootShell.run("chmod 000 ${RootShell.quote(rootEntry.path)}")
+				}
+			}
+		}
+	}
+
 	LaunchedEffect(folder) {
 		loading = true
-		val actualPath = folder.entry?.hiddenPath?.takeIf { it.isNotEmpty() } ?: folder.path
+		val entry = folder.entry
+		val actualPath = entry?.hiddenPath?.takeIf { it.isNotEmpty() }
+			?: rootEntry?.path?.let(ShelfCore.paths::toEmulated)
+			?: folder.path
 		val scanned = withContext(Dispatchers.IO) {
-			EphemeralMediaLoader.scanMediaItems(actualPath, context, ShelfCore.paths, keyFor)
+			if (rootEntry != null) {
+				RootShell.run("chmod 755 ${RootShell.quote(rootEntry.path)}")
+			}
+			EphemeralMediaLoader.scanMediaItems(
+				actualPath,
+				context,
+				ShelfCore.paths,
+				keyFor,
+				entry?.treeUri,
+			)
 		}
 		mediaItems = scanned
 		loading = false
