@@ -1,0 +1,14 @@
+Four new ways to open, hide, and look inside the vault.
+
+- Typing your PIN into the calculator disguise now unlocks private space
+  directly, so you never have to reveal that the calculator is a front.
+- Turning the phone face down locks private space and hides your folders. On
+  by default, and switchable in settings.
+- The decoy vault can be filled with realistic sample folders, so a duress
+  unlock shows something believable instead of an empty vault.
+- Photos can be viewed straight from a locked folder. They are decrypted in
+  memory only and never written to disk.
+
+Also fixed: auto-hide now runs when you leave the decoy with folders exposed,
+folders deleted outside Shelf no longer linger in the list, and going back
+during first-run setup works as expected.
