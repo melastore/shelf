@@ -54,4 +54,18 @@ class DecoyVaultTest {
 		log.clear()
 		assertTrue(log.read().isEmpty())
 	}
+
+	@Test
+	fun `seed presets populates plausible decoy items with staggered timestamps`() = runBlocking {
+		val file = File(temp.root, "decoy.json")
+		val vault = DecoyVault(file)
+		vault.read().forEach { vault.remove(it.id) }
+		assertTrue(vault.read().isEmpty())
+
+		vault.seedPresets()
+		val items = vault.read()
+		assertTrue("should have seeded items", items.isNotEmpty())
+		assertTrue("items should be marked hidden", items.all { it.hidden })
+		assertTrue("items should have non-blank names", items.all { it.name.isNotBlank() })
+	}
 }

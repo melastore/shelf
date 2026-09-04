@@ -166,6 +166,22 @@ class FileLockerTest {
 		assertEquals(original.size.toLong(), f.length())
 	}
 
+	@Test
+	fun `openStream reads full original content in-memory without altering disk state`() {
+		val original = content(200_000)
+		val f = file(original)
+		val target = FileLockTarget(f)
+		FileLocker.lock(target, key, salt)
+		assertTrue("file is locked on disk", FileLocker.isLocked(target))
+
+		val stream = FileLocker.openStream(target) { key }
+		requireNotNull(stream)
+		val readBytes = stream.use { it.readBytes() }
+
+		assertTrue("decrypted stream matches original bytes", original.contentEquals(readBytes))
+		assertTrue("file remains locked on disk", FileLocker.isLocked(target))
+	}
+
 	/** Stops at a chosen point in the protocol, the way a killed process would. */
 	private class CrashingTarget(
 		file: File,

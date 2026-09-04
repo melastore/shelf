@@ -397,4 +397,16 @@
 	<string name="setup_credential_title">Choose how you unlock</string>
 	<string name="setup_credential_body">A PIN, a password, a 3×3 pattern, or a knock code on four unmarked quarters. This is also the key your folder contents are protected with, so it cannot be recovered if you forget it.</string>
 	<string name="setup_pin_reminder">There is no way to reset this PIN. Nothing leaves your device, so nobody can recover it for you.</string>
+
+	<!-- Features -->
+	<string name="flip_to_hide_title">Flip down to lock</string>
+	<string name="flip_to_hide_summary">Lock private space and hide folders when the phone is turned face down</string>
+	<string name="populate_decoy_title">Populate decoy items</string>
+	<string name="populate_decoy_summary">Generate realistic mock folders to make the duress vault convincing</string>
+	<string name="decoy_seeded">Added realistic sample folders to decoy vault.</string>
+	<string name="peek_photos">Peek photos</string>
+	<string name="ephemeral_media_title">In-Memory Media</string>
+	<string name="ephemeral_media_subtitle">Decrypted in RAM · Nothing saved to disk</string>
+	<string name="no_media_found">No photos found in this folder</string>
+	<string name="media_loading">Decrypting previews…</string>
 </resources>

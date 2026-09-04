@@ -7,11 +7,16 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.provider.Settings
+import android.view.HapticFeedbackConstants
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -26,6 +31,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,7 +44,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.melastore.shelf.R
 import io.github.melastore.shelf.security.BiometricAuth
@@ -212,6 +220,57 @@ class MainActivity : ComponentActivity() {
 						)
 					} else {
 						QuickLockNotification.cancel(this@MainActivity)
+					}
+				}
+
+				val sensorManager = remember { getSystemService(SensorManager::class.java) }
+				val accelerometer = remember { sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) }
+				val flipToHideActive = state.screen != Screen.DECOY && state.flipToHide
+				val lifecycleOwner = LocalLifecycleOwner.current
+
+				DisposableEffect(lifecycleOwner, flipToHideActive, accelerometer) {
+					if (!flipToHideActive || accelerometer == null || sensorManager == null) {
+						return@DisposableEffect onDispose {}
+					}
+					var registered = false
+					var flipped = false
+					val listener = object : SensorEventListener {
+						override fun onSensorChanged(event: SensorEvent) {
+							val z = event.values[2]
+							if (z < -7.0f && !flipped) {
+								flipped = true
+								window.decorView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+								viewModel.autoHideAndClose()
+							} else if (z > -3.0f) {
+								flipped = false
+							}
+						}
+
+						override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+					}
+					val observer = LifecycleEventObserver { _, event ->
+						when (event) {
+							Lifecycle.Event.ON_RESUME -> if (!registered) {
+								sensorManager.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_UI)
+								registered = true
+							}
+
+							Lifecycle.Event.ON_PAUSE -> if (registered) {
+								sensorManager.unregisterListener(listener)
+								registered = false
+							}
+
+							else -> Unit
+						}
+					}
+					lifecycleOwner.lifecycle.addObserver(observer)
+					if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && !registered) {
+						sensorManager.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_UI)
+						registered = true
+					}
+					onDispose {
+						lifecycleOwner.lifecycle.removeObserver(observer)
+						if (registered) sensorManager.unregisterListener(listener)
 					}
 				}
 

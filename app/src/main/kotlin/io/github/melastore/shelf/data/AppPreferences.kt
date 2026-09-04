@@ -39,6 +39,7 @@ data class AppSettings(
 	val fakeCrash: Boolean,
 	val hideFromRecents: Boolean,
 	val themeMode: ThemeMode,
+	val flipToHide: Boolean = true,
 )
 
 /** Small, non-sensitive settings. Secrets live in [io.github.melastore.shelf.security.PassphraseGate]. */
@@ -58,6 +59,7 @@ class AppPreferences(context: Context) {
 		fakeCrash = values.getBoolean(KEY_FAKE_CRASH, false),
 		hideFromRecents = values.getBoolean(KEY_HIDE_FROM_RECENTS, false),
 		themeMode = enumValue(KEY_THEME, ThemeMode.SYSTEM),
+		flipToHide = values.getBoolean(KEY_FLIP_TO_HIDE, true),
 	)
 
 	fun setDecoy(value: DecoyType) = putString(KEY_DECOY, value.name)
@@ -138,6 +140,12 @@ class AppPreferences(context: Context) {
 	fun setThemeMode(value: ThemeMode) = putString(KEY_THEME, value.name)
 
 	fun themeMode(): ThemeMode = enumValue(KEY_THEME, ThemeMode.SYSTEM)
+
+	fun setFlipToHide(value: Boolean) {
+		values.edit(commit = true) { putBoolean(KEY_FLIP_TO_HIDE, value) }
+	}
+
+	fun flipToHide(): Boolean = values.getBoolean(KEY_FLIP_TO_HIDE, true)
 
 	fun autoHideMode(): AutoHideMode {
 		if (values.contains(KEY_AUTO_HIDE)) return enumValue(KEY_AUTO_HIDE, AutoHideMode.IMMEDIATE)
@@ -228,6 +236,7 @@ class AppPreferences(context: Context) {
 		const val KEY_FAKE_CRASH = "fake_crash"
 		const val KEY_HIDE_FROM_RECENTS = "hide_from_recents"
 		const val KEY_THEME = "theme_mode"
+		const val KEY_FLIP_TO_HIDE = "flip_to_hide"
 		const val KEY_FAILED_UNLOCKS = "failed_unlocks"
 		const val KEY_LOCKOUTS = "lockouts"
 		const val KEY_BLOCKED_UNTIL = "blocked_until"

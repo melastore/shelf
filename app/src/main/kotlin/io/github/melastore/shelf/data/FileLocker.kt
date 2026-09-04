@@ -2,6 +2,7 @@ package io.github.melastore.shelf.data
 
 import io.github.melastore.shelf.crypto.HeaderCipher
 import java.io.File
+import java.io.InputStream
 import java.io.RandomAccessFile
 import javax.crypto.SecretKey
 import kotlin.math.min
@@ -11,6 +12,7 @@ import kotlin.math.min
  * and a document provider on a device without knowing the difference.
  */
 interface LockTarget {
+	val name: String get() = ""
 	fun size(): Long
 	fun read(offset: Long, length: Int): ByteArray
 	fun write(offset: Long, bytes: ByteArray)
@@ -21,6 +23,7 @@ interface LockTarget {
 }
 
 class FileLockTarget(private val file: File) : LockTarget {
+	override val name: String get() = file.name
 	override fun size(): Long = file.length()
 
 	override fun read(offset: Long, length: Int): ByteArray = RandomAccessFile(file, "r").use { raf ->
@@ -112,7 +115,16 @@ object FileLocker {
 		}.getOrDefault(LockOutcome.FAILED)
 	}
 
-	private fun readTrailer(target: LockTarget): LockTrailer? = runCatching {
+	/** Opens an in-memory stream for reading the plaintext bytes without restoring to disk. */
+	fun openStream(target: LockTarget, keyFor: (ByteArray) -> SecretKey): InputStream? {
+		val trailer = readTrailer(target) ?: return EphemeralDecryptedStream(target, byteArrayOf(), target.size())
+		return runCatching {
+			val slice = HeaderCipher.open(trailer.cipherText, trailer.nonce, trailer.tag, keyFor(trailer.salt))
+			EphemeralDecryptedStream(target, slice, trailer.originalSize)
+		}.getOrNull()
+	}
+
+	internal fun readTrailer(target: LockTarget): LockTrailer? = runCatching {
 		val size = target.size()
 		if (size < LockTrailerCodec.FOOTER_SIZE) return null
 		val footer = target.read(size - LockTrailerCodec.FOOTER_SIZE, LockTrailerCodec.FOOTER_SIZE)

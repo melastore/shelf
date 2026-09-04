@@ -87,7 +87,7 @@ fun DecoyScreen(state: AppUiState, viewModel: ShelfViewModel, onSecretEntry: () 
 			DecoyType.NONE -> LockScreen(onSecretEntry)
 			DecoyType.HABITS -> HabitDecoy(state, viewModel, onSecretEntry)
 			DecoyType.CALENDAR -> CalendarDecoy(state, viewModel, onSecretEntry)
-			DecoyType.CALCULATOR -> CalculatorDecoy(state.entryMethod, onSecretEntry)
+			DecoyType.CALCULATOR -> CalculatorDecoy(state.entryMethod, onSecretEntry, viewModel::tryStealthUnlock)
 		}
 		// With no disguise there is nothing to hide the way in behind and the lock screen offers a
 		// button, so the corner target would be a second route to an open door.
@@ -614,7 +614,11 @@ private fun CalendarEventCard(event: CalendarEvent, onDelete: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CalculatorDecoy(entryMethod: EntryMethod, onSecretEntry: () -> Unit) {
+private fun CalculatorDecoy(
+	entryMethod: EntryMethod,
+	onSecretEntry: () -> Unit,
+	onStealthUnlock: (CharArray) -> Unit = {},
+) {
 	var calculator by remember { mutableStateOf(CalculatorState()) }
 	val rows = listOf(
 		listOf("C", "±", "%", "÷"),
@@ -660,7 +664,14 @@ private fun CalculatorDecoy(entryMethod: EntryMethod, onSecretEntry: () -> Unit)
 							label = key,
 							modifier = Modifier.weight(if (key == "0" && row.size == 3) 2f else 1f),
 							kind = keyKind(key),
-							onClick = { calculator = calculator.press(key) },
+							onClick = {
+								if (key == "=" && calculator.operation == null &&
+									calculator.display.length in 4..16 && calculator.display.all { it.isDigit() }
+								) {
+									onStealthUnlock(calculator.display.toCharArray())
+								}
+								calculator = calculator.press(key)
+							},
 							onLongClick = onSecretEntry.takeIf {
 								key == "=" && entryMethod == EntryMethod.NATURAL_HOLD
 							},

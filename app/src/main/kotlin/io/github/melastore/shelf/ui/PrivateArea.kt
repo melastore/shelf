@@ -7,6 +7,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,7 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -144,6 +146,7 @@ fun PrivateArea(
 			onDismissAlert = viewModel::dismissDuressAlert,
 			onDismissAttempts = viewModel::dismissFailedAttempts,
 			onSecretEntry = onSecretEntry,
+			onSeedDecoy = viewModel::seedDecoyVault,
 		)
 
 		Screen.SETTINGS -> SettingsScreen(
@@ -162,6 +165,8 @@ fun PrivateArea(
 			onQuickLockChange = onQuickLockChange,
 			onAllowScreenshotsChange = onAllowScreenshotsChange,
 			onAutoHideMode = viewModel::setAutoHideMode,
+			onFlipToHideChange = viewModel::setFlipToHide,
+			onSeedDecoy = viewModel::seedDecoyVault,
 			onForceUnhide = viewModel::forceUnhideAll,
 			onCheckHealth = viewModel::checkHiddenItems,
 			onRecoverCandidate = viewModel::recoverRenamedFolder,
@@ -228,10 +233,12 @@ private fun VaultScreen(
 	onDismissAlert: () -> Unit,
 	onDismissAttempts: () -> Unit,
 	onSecretEntry: () -> Unit,
+	onSeedDecoy: () -> Unit,
 ) {
 	var forgetting by remember { mutableStateOf<VaultFolder?>(null) }
 	var discarding by remember { mutableStateOf<DecoyItem?>(null) }
 	var naming by remember { mutableStateOf(false) }
+	var viewingMedia by remember { mutableStateOf<VaultFolder?>(null) }
 	val count = if (state.duress) state.decoyItems.size else state.folders.size
 	val resources = LocalResources.current
 
@@ -300,6 +307,7 @@ private fun VaultScreen(
 						hidden = folder.hidden,
 						onToggle = { if (folder.hidden) onRestore(folder) else onHideAgain(folder) },
 						onForget = { forgetting = folder },
+						onViewMedia = { viewingMedia = folder },
 					)
 				}
 			}
@@ -336,6 +344,18 @@ private fun VaultScreen(
 							stringResource(R.string.vault_empty_title),
 							stringResource(R.string.empty_hint),
 						)
+					}
+					if (state.duress) {
+						item {
+							Box(
+								Modifier.fillMaxWidth().padding(top = 8.dp),
+								contentAlignment = Alignment.Center,
+							) {
+								OutlinedButton(onClick = onSeedDecoy) {
+									Text(stringResource(R.string.populate_decoy_title))
+								}
+							}
+						}
 					}
 				} else {
 					item {
@@ -401,6 +421,12 @@ private fun VaultScreen(
 			onDismiss = { forgetting = null },
 		)
 	}
+	viewingMedia?.let { folder ->
+		EphemeralMediaViewer(
+			folder = folder,
+			onDismiss = { viewingMedia = null },
+		)
+	}
 }
 
 @Composable
@@ -437,6 +463,7 @@ private data class ShelfRow(
 	val hidden: Boolean,
 	val onToggle: () -> Unit,
 	val onForget: (() -> Unit)?,
+	val onViewMedia: (() -> Unit)? = null,
 )
 
 /** The header: which method is in use, how many folders, and the busy spinner. */
@@ -512,7 +539,9 @@ private fun FolderListHeader(count: Int, action: String, enabled: Boolean, onAct
 private fun FolderTile(row: ShelfRow, busy: Boolean) {
 	var menu by remember { mutableStateOf(false) }
 	Surface(
-		modifier = Modifier.fillMaxWidth(),
+		modifier = Modifier
+			.fillMaxWidth()
+			.clickable(enabled = !busy && row.onViewMedia != null) { row.onViewMedia?.invoke() },
 		shape = MaterialTheme.shapes.large,
 		color = if (row.hidden) {
 			MaterialTheme.colorScheme.surfaceContainerLow
@@ -579,19 +608,30 @@ private fun FolderTile(row: ShelfRow, busy: Boolean) {
 			TextButton(onClick = row.onToggle, enabled = !busy) {
 				Text(stringResource(if (row.hidden) R.string.restore else R.string.hide))
 			}
-			if (row.onForget != null) {
+			if (row.onForget != null || row.onViewMedia != null) {
 				Box {
 					IconButton(onClick = { menu = true }, enabled = !busy) {
 						Icon(Icons.Filled.MoreVert, stringResource(R.string.more_options))
 					}
 					DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-						DropdownMenuItem(
-							text = { Text(stringResource(R.string.forget_record)) },
-							onClick = {
-								menu = false
-								row.onForget.invoke()
-							},
-						)
+						if (row.onViewMedia != null) {
+							DropdownMenuItem(
+								text = { Text(stringResource(R.string.peek_photos)) },
+								onClick = {
+									menu = false
+									row.onViewMedia.invoke()
+								},
+							)
+						}
+						if (row.onForget != null) {
+							DropdownMenuItem(
+								text = { Text(stringResource(R.string.forget_record)) },
+								onClick = {
+									menu = false
+									row.onForget.invoke()
+								},
+							)
+						}
 					}
 				}
 			}
@@ -617,6 +657,8 @@ private fun SettingsScreen(
 	onQuickLockChange: (Boolean) -> Unit,
 	onAllowScreenshotsChange: (Boolean) -> Unit,
 	onAutoHideMode: (AutoHideMode) -> Unit,
+	onFlipToHideChange: (Boolean) -> Unit,
+	onSeedDecoy: () -> Unit,
 	onForceUnhide: () -> Unit,
 	onCheckHealth: () -> Unit,
 	onFindRenamed: () -> Unit,
@@ -724,6 +766,7 @@ private fun SettingsScreen(
 					onBiometricChange = { onBiometricChange(!state.biometricEnabled) },
 					onSetDecoyPin = { decoyAction = DecoyPinAction.SET },
 					onRemoveDecoyPin = { removeDecoyPin = true },
+					onSeedDecoy = onSeedDecoy,
 				)
 			}
 
@@ -732,6 +775,7 @@ private fun SettingsScreen(
 					state = state,
 					onQuickLockChange = { onQuickLockChange(!state.quickLockNotification) },
 					onAutoHideMode = onAutoHideMode,
+					onFlipToHideChange = { onFlipToHideChange(!state.flipToHide) },
 				)
 			}
 

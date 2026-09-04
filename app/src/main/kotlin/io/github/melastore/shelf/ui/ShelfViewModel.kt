@@ -106,6 +106,7 @@ data class AppUiState(
 	val fakeCrash: Boolean = false,
 	val hideFromRecents: Boolean = false,
 	val themeMode: ThemeMode = ThemeMode.SYSTEM,
+	val flipToHide: Boolean = true,
 	/** Set when an operation stopped to ask for access to a folder above the target. */
 	val accessNeededFor: Uri? = null,
 	/** Where the folder picker opens, so the first hide does not start at an empty Recents list. */
@@ -223,6 +224,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					fakeCrash = settings.fakeCrash,
 					hideFromRecents = settings.hideFromRecents,
 					themeMode = settings.themeMode,
+					flipToHide = settings.flipToHide,
 					setupStep = if (credentialSet) 0 else preferences.setupStep(),
 					habits = habits,
 					calendarEvents = events,
@@ -323,6 +325,36 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				e.message?.let { uiMessage(R.string.private_space_open_failed_detail, it) }
 					?: uiMessage(R.string.private_space_open_failed),
 			)
+		} finally {
+			input.fill(' ')
+			authenticationMutex.unlock()
+		}
+	}
+
+	fun tryStealthUnlock(input: CharArray) = viewModelScope.launch {
+		if (!authenticationMutex.tryLock()) {
+			input.fill(' ')
+			return@launch
+		}
+		try {
+			val uptime = SystemClock.elapsedRealtime()
+			val blockedUntil = withContext(Dispatchers.IO) { preferences.blockedUntil(uptime) }
+			if (uptime < blockedUntil) return@launch
+			when (auth.match(input)) {
+				CredentialMatch.PRIMARY -> {
+					withContext(Dispatchers.IO) { preferences.clearFailedUnlocks() }
+					ContentCredential.set(input)
+					openVault()
+				}
+
+				CredentialMatch.DECOY -> {
+					withContext(Dispatchers.IO) { preferences.clearFailedUnlocks() }
+					openDecoyVault(System.currentTimeMillis())
+				}
+
+				CredentialMatch.NONE -> Unit
+			}
+		} catch (_: Exception) {
 		} finally {
 			input.fill(' ')
 			authenticationMutex.unlock()
@@ -667,6 +699,11 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		_state.update { it.copy(decoyItems = items, message = message ?: it.message) }
 	}
 
+	fun seedDecoyVault() = viewModelScope.launch {
+		runCatching { decoyVault.seedPresets() }
+		refreshDecoyItems(uiMessage(R.string.decoy_seeded))
+	}
+
 	fun dismissDuressAlert() = viewModelScope.launch {
 		val cleared = guard {
 			duressLog.clear()
@@ -818,6 +855,11 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		_state.update { it.copy(themeMode = mode) }
 	}
 
+	fun setFlipToHide(enabled: Boolean) = viewModelScope.launch {
+		withContext(Dispatchers.IO) { preferences.setFlipToHide(enabled) }
+		_state.update { it.copy(flipToHide = enabled) }
+	}
+
 	fun setEntryMethod(method: EntryMethod) = viewModelScope.launch {
 		withContext(Dispatchers.IO) { preferences.setEntryMethod(method) }
 		_state.update { it.copy(entryMethod = method, message = uiMessage(R.string.entry_gesture_changed)) }
@@ -921,7 +963,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 * Hands closing and hiding to a receiver that can finish after Android destroys this view model.
 	 * The receiver takes a lease on the session credential before telling this screen to close.
 	 */
-	private fun autoHideAndClose() {
+	fun autoHideAndClose() {
 		if ((_state.value.screen == Screen.DECOY && _state.value.exposedFolders == 0) || autoHideRequested) return
 		autoHideRequested = true
 		QuickLockNotification.requestHide(getApplication())

@@ -46,6 +46,28 @@ class DecoyVault(file: File) {
 		current + DecoyItem(UUID.randomUUID().toString(), name, System.currentTimeMillis())
 	}
 
+	/**
+	 * Populates the decoy space with realistic dummy items, spacing them across time so they look
+	 * naturally accumulated rather than freshly generated.
+	 */
+	suspend fun seedPresets(clearExisting: Boolean = false) {
+		store.update { current ->
+			val base = if (clearExisting) emptyList() else current
+			val now = System.currentTimeMillis()
+			val pool = (SEED_NAMES + EXTRA_PRESETS).shuffled()
+			val additions = pool.take(4).mapIndexed { index, name ->
+				DecoyItem(
+					id = UUID.randomUUID().toString(),
+					name = name,
+					hiddenAt = now - (index + 1) * SEED_SPACING,
+					hidden = true,
+				)
+			}
+			base + additions.filter { item -> base.none { it.name.equals(item.name, ignoreCase = true) } }
+		}
+		markSeeded()
+	}
+
 	/** Keeps the decoy believable when its backing file cannot be read. */
 	fun fallback(): List<DecoyItem> = seed()
 
@@ -68,9 +90,18 @@ class DecoyVault(file: File) {
 		}
 	}
 
-	private companion object {
+	companion object {
 		const val SEED_SPACING = 9L * 24 * 60 * 60 * 1_000
 		val SEED_NAMES = listOf("Payslips", "Old phone backup", "Insurance scans", "Tax 2023")
+		val EXTRA_PRESETS = listOf(
+			"Passport & IDs",
+			"Medical records",
+			"Tax 2024",
+			"Rental agreement",
+			"Vehicle papers",
+			"Travel tickets",
+			"Work expenses",
+		)
 	}
 }
 

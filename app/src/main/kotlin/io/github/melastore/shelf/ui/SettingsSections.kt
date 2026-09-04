@@ -25,6 +25,7 @@ internal fun AuthenticationSettingsSection(
 	onBiometricChange: () -> Unit,
 	onSetDecoyPin: () -> Unit,
 	onRemoveDecoyPin: () -> Unit,
+	onSeedDecoy: () -> Unit,
 ) {
 	SettingsGroup(stringResource(R.string.credentials), stringResource(R.string.credential_kind_summary)) {
 		SettingsRow(
@@ -63,6 +64,11 @@ internal fun AuthenticationSettingsSection(
 		)
 		if (state.decoyPinSet) {
 			SettingsRow(
+				title = stringResource(R.string.populate_decoy_title),
+				summary = stringResource(R.string.populate_decoy_summary),
+				onClick = onSeedDecoy,
+			)
+			SettingsRow(
 				title = stringResource(R.string.remove_decoy_pin),
 				summary = stringResource(R.string.remove_decoy_pin_summary),
 				dangerous = true,
@@ -77,6 +83,7 @@ internal fun AutomaticLockSettingsSection(
 	state: AppUiState,
 	onQuickLockChange: () -> Unit,
 	onAutoHideMode: (AutoHideMode) -> Unit,
+	onFlipToHideChange: () -> Unit,
 ) {
 	SettingsGroup(
 		stringResource(R.string.auto_hide),
@@ -87,6 +94,12 @@ internal fun AutomaticLockSettingsSection(
 			selected = state.autoHideMode.label(),
 			options = AutoHideMode.entries.map { it to it.label() },
 			onSelected = onAutoHideMode,
+		)
+		SettingsRow(
+			title = stringResource(R.string.flip_to_hide_title),
+			summary = stringResource(R.string.flip_to_hide_summary),
+			trailing = { SelectionMark(state.flipToHide) },
+			onClick = onFlipToHideChange,
 		)
 		SettingsRow(
 			title = stringResource(R.string.quick_lock_notification),
