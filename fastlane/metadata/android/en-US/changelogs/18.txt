@@ -1,0 +1,8 @@
+Knock your way in from the calculator, and play videos without decrypting them to disk.
+
+- The calculator disguise now takes a knock code as well as a PIN. Tap the
+  quadrants of the display area, then press and hold to unlock.
+- Videos in a locked folder play straight from the vault. They are decrypted
+  in memory as they stream, so nothing is written to disk.
+- The four disguise icons are redrawn, and each one now looks like the app it
+  is pretending to be rather than a variation on the same shape.
