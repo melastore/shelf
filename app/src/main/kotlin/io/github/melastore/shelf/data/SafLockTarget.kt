@@ -26,28 +26,34 @@ class SafLockTarget(private val resolver: ContentResolver, private val uri: Uri,
 	}
 
 	override fun read(offset: Long, length: Int): ByteArray = descriptor("r") { pfd ->
-		val channel = FileInputStream(pfd.fileDescriptor).channel
-		val buffer = ByteBuffer.allocate(length)
-		var position = offset
-		while (buffer.hasRemaining()) {
-			val read = channel.read(buffer, position)
-			if (read < 0) throw IOException("unexpected end of $uri at $position")
-			position += read
+		FileInputStream(pfd.fileDescriptor).use { stream ->
+			val channel = stream.channel
+			val buffer = ByteBuffer.allocate(length)
+			var position = offset
+			while (buffer.hasRemaining()) {
+				val read = channel.read(buffer, position)
+				if (read < 0) throw IOException("unexpected end of $uri at $position")
+				position += read
+			}
+			buffer.array()
 		}
-		buffer.array()
 	}
 
 	override fun write(offset: Long, bytes: ByteArray) = descriptor("rw") { pfd ->
-		val channel = FileOutputStream(pfd.fileDescriptor).channel
-		val buffer = ByteBuffer.wrap(bytes)
-		var position = offset
-		while (buffer.hasRemaining()) {
-			position += channel.write(buffer, position)
+		FileOutputStream(pfd.fileDescriptor).use { stream ->
+			val channel = stream.channel
+			val buffer = ByteBuffer.wrap(bytes)
+			var position = offset
+			while (buffer.hasRemaining()) {
+				position += channel.write(buffer, position)
+			}
 		}
 	}
 
 	override fun truncate(size: Long) = descriptor("rw") { pfd ->
-		FileOutputStream(pfd.fileDescriptor).channel.truncate(size)
+		FileOutputStream(pfd.fileDescriptor).use { stream ->
+			stream.channel.truncate(size)
+		}
 		Unit
 	}
 

@@ -30,8 +30,12 @@ object ShelfCore {
 	suspend fun exposedFolders(): List<TrackedFolder> {
 		val entries = journal.read().associateBy { paths.toEmulated(it.path) }
 		return registry.read().filter { folder ->
-			val entry = entries[folder.path] ?: return@filter true
-			runCatching { hider.isExposed(entry) }.getOrDefault(false)
+			val entry = entries[folder.path]
+			if (entry != null) {
+				runCatching { hider.isExposed(entry) }.getOrDefault(false)
+			} else {
+				File(folder.path).exists() || SafGrants.folder(appContext, paths, folder.path) != null
+			}
 		}
 	}
 

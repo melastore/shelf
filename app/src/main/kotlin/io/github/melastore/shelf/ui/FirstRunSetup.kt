@@ -1,5 +1,6 @@
 package io.github.melastore.shelf.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -86,6 +87,10 @@ fun FirstRunSetup(
 	val goTo: (Int) -> Unit = {
 		index = it.coerceIn(0, steps.lastIndex)
 		onStep(index)
+	}
+
+	BackHandler(enabled = index > 0) {
+		goTo(index - 1)
 	}
 
 	Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {

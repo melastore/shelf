@@ -504,7 +504,10 @@ private fun PatternGrid(drawn: SnapshotStateList<Int>, onDotAdded: () -> Unit, m
 					do {
 						val event = awaitPointerEvent()
 						event.changes.forEach { change ->
-							if (change.pressed) extendTo(change.position)
+							if (change.pressed) {
+								extendTo(change.position)
+								change.consume()
+							}
 						}
 					} while (event.changes.any { it.pressed })
 				}

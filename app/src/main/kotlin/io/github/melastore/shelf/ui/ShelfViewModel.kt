@@ -732,6 +732,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		awaitingPickerUntil = 0L
 		pending = null
 		recoveryCheckedFor = null
+		autoHideRequested = false
 		_state.update {
 			it.copy(
 				screen = Screen.DECOY,
@@ -905,6 +906,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	fun onMovedToForeground() {
 		backgroundLock?.cancel()
 		backgroundLock = null
+		autoHideRequested = false
 	}
 
 	/** Screen-off covers both non-never choices. Immediate has usually already fired from onStop. */
@@ -920,7 +922,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 * The receiver takes a lease on the session credential before telling this screen to close.
 	 */
 	private fun autoHideAndClose() {
-		if (_state.value.screen == Screen.DECOY || autoHideRequested) return
+		if ((_state.value.screen == Screen.DECOY && _state.value.exposedFolders == 0) || autoHideRequested) return
 		autoHideRequested = true
 		QuickLockNotification.requestHide(getApplication())
 	}

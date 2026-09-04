@@ -285,8 +285,10 @@ object BiometricAuth {
 
 	private fun readBlob(context: Context): CredentialBlob? = runCatching {
 		val values = preferences(context)
-		val ciphertext = Base64.getDecoder().decode(values.getString(CIPHERTEXT, null))
-		val iv = Base64.getDecoder().decode(values.getString(IV, null))
+		val ciphertextBase64 = values.getString(CIPHERTEXT, null) ?: return null
+		val ivBase64 = values.getString(IV, null) ?: return null
+		val ciphertext = Base64.getDecoder().decode(ciphertextBase64)
+		val iv = Base64.getDecoder().decode(ivBase64)
 		if (ciphertext.size !in 1..MAX_CIPHERTEXT_BYTES || iv.size != GCM_IV_BYTES) return null
 		CredentialBlob(ciphertext, iv)
 	}.getOrNull()

@@ -48,8 +48,10 @@ object EmergencyCredentialStore {
 		var iv = byteArrayOf()
 		var plain = byteArrayOf()
 		return try {
-			encrypted = Base64.getDecoder().decode(values.getString(CIPHERTEXT, null))
-			iv = Base64.getDecoder().decode(values.getString(IV, null))
+			val encryptedBase64 = values.getString(CIPHERTEXT, null) ?: return null
+			val ivBase64 = values.getString(IV, null) ?: return null
+			encrypted = Base64.getDecoder().decode(encryptedBase64)
+			iv = Base64.getDecoder().decode(ivBase64)
 			if (encrypted.size !in 1..MAX_CIPHERTEXT_BYTES || iv.size != GCM_IV_BYTES) return null
 			val key = existingKey() ?: return null
 			plain = Cipher.getInstance(TRANSFORMATION).run {
