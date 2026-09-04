@@ -404,9 +404,14 @@
 	<string name="populate_decoy_title">Populate decoy items</string>
 	<string name="populate_decoy_summary">Generate realistic mock folders to make the duress vault convincing</string>
 	<string name="decoy_seeded">Added realistic sample folders to decoy vault.</string>
-	<string name="peek_photos">Peek photos</string>
+	<string name="peek_photos">Peek media</string>
 	<string name="ephemeral_media_title">In-Memory Media</string>
 	<string name="ephemeral_media_subtitle">Decrypted in RAM · Nothing saved to disk</string>
-	<string name="no_media_found">No photos found in this folder</string>
+	<string name="no_media_found">No media found in this folder</string>
 	<string name="media_loading">Decrypting previews…</string>
+	<string name="video_playback_error">Unable to play video</string>
+	<string name="play">Play</string>
+	<string name="pause">Pause</string>
+	<string name="rewind_10">Rewind 10 seconds</string>
+	<string name="forward_10">Forward 10 seconds</string>
 </resources>

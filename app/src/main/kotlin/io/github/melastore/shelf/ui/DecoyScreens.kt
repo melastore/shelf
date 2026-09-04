@@ -7,6 +7,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +45,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -55,7 +57,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -71,6 +76,7 @@ import io.github.melastore.shelf.data.DecoyType
 import io.github.melastore.shelf.data.EntryMethod
 import io.github.melastore.shelf.data.Habit
 import io.github.melastore.shelf.data.currentStreak
+import io.github.melastore.shelf.security.KnockCode
 import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.YearMonth
@@ -620,6 +626,8 @@ private fun CalculatorDecoy(
 	onStealthUnlock: (CharArray) -> Unit = {},
 ) {
 	var calculator by remember { mutableStateOf(CalculatorState()) }
+	val knockTaps = remember { mutableStateListOf<Int>() }
+	val haptics = LocalHapticFeedback.current
 	val rows = listOf(
 		listOf("C", "±", "%", "÷"),
 		listOf("7", "8", "9", "×"),
@@ -644,16 +652,42 @@ private fun CalculatorDecoy(
 			Modifier.padding(padding).fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp),
 			verticalArrangement = Arrangement.Bottom,
 		) {
-			Text(
-				calculator.display,
-				modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 28.dp),
-				style = MaterialTheme.typography.displayLarge,
-				fontSize = 64.sp,
-				fontWeight = FontWeight.Light,
-				textAlign = TextAlign.End,
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis,
-			)
+			Box(
+				modifier = Modifier
+					.weight(1f)
+					.fillMaxWidth()
+					.pointerInput(Unit) {
+						detectTapGestures(
+							onTap = { position ->
+								val col = if (position.x < size.width / 2f) 0 else 1
+								val row = if (position.y < size.height / 2f) 0 else 1
+								if (knockTaps.size < KnockCode.MAX_TAPS) {
+									knockTaps += row * KnockCode.SIDE + col
+									haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+								}
+							},
+							onLongPress = {
+								if (knockTaps.size in KnockCode.MIN_TAPS..KnockCode.MAX_TAPS) {
+									haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+									onStealthUnlock(KnockCode.encode(knockTaps.toList()))
+									knockTaps.clear()
+								}
+							},
+						)
+					},
+				contentAlignment = Alignment.BottomEnd,
+			) {
+				Text(
+					calculator.display,
+					modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 28.dp),
+					style = MaterialTheme.typography.displayLarge,
+					fontSize = 64.sp,
+					fontWeight = FontWeight.Light,
+					textAlign = TextAlign.End,
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis,
+				)
+			}
 			rows.forEach { row ->
 				Row(
 					Modifier.fillMaxWidth().padding(vertical = 5.dp),
@@ -665,10 +699,17 @@ private fun CalculatorDecoy(
 							modifier = Modifier.weight(if (key == "0" && row.size == 3) 2f else 1f),
 							kind = keyKind(key),
 							onClick = {
-								if (key == "=" && calculator.operation == null &&
-									calculator.display.length in 4..16 && calculator.display.all { it.isDigit() }
-								) {
-									onStealthUnlock(calculator.display.toCharArray())
+								if (key == "=") {
+									if (knockTaps.size in KnockCode.MIN_TAPS..KnockCode.MAX_TAPS) {
+										onStealthUnlock(KnockCode.encode(knockTaps.toList()))
+										knockTaps.clear()
+									} else if (calculator.operation == null &&
+										calculator.display.length in 4..16 && calculator.display.all { it.isDigit() }
+									) {
+										onStealthUnlock(calculator.display.toCharArray())
+									}
+								} else if (key == "C") {
+									knockTaps.clear()
 								}
 								calculator = calculator.press(key)
 							},

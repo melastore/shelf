@@ -1,21 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-	A ring three quarters closed with the day's tick inside it. Everything sits inside the central
-	72dp safe zone, so no launcher mask can clip the mark.
--->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
 	android:width="108dp"
 	android:height="108dp"
 	android:viewportWidth="108"
 	android:viewportHeight="108">
+	<!-- Circular Habit Progress Track: 270 degrees arc -->
 	<path
-		android:pathData="M54,28 A26,26 0 1 1 28,54"
+		android:pathData="M54,27 A27,27 0 1 1 27,54"
 		android:strokeColor="#FFFFFFFF"
-		android:strokeWidth="7.5"
+		android:strokeWidth="7"
 		android:strokeLineCap="round"
 		android:fillColor="#00000000" />
+
+	<!-- Momentum streak sparks -->
 	<path
-		android:pathData="M42,54.5 L50,62.5 L66.5,46"
+		android:fillColor="#FFFFFFFF"
+		android:pathData="M54,18 m-3.5,0 a3.5,3.5 0 1 0 7,0 a3.5,3.5 0 1 0 -7,0 z" />
+	<path
+		android:fillColor="#FFFFFFFF"
+		android:pathData="M66,22 m-3,0 a3,3 0 1 0 6,0 a3,3 0 1 0 -6,0 z" />
+	<path
+		android:fillColor="#FFFFFFFF"
+		android:pathData="M76,30 m-2.5,0 a2.5,2.5 0 1 0 5,0 a2.5,2.5 0 1 0 -5,0 z" />
+
+	<!-- Razor-sharp completion checkmark -->
+	<path
+		android:pathData="M41,54.5 L49.5,63 L67,45"
 		android:strokeColor="#FFFFFFFF"
 		android:strokeWidth="7.5"
 		android:strokeLineCap="round"

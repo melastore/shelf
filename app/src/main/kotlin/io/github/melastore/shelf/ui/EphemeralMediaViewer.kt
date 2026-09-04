@@ -42,9 +42,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,6 +57,7 @@ import io.github.melastore.shelf.crypto.HeaderCipher
 import io.github.melastore.shelf.data.ContentCredential
 import io.github.melastore.shelf.data.EphemeralMediaItem
 import io.github.melastore.shelf.data.EphemeralMediaLoader
+import io.github.melastore.shelf.data.EphemeralMediaType
 import io.github.melastore.shelf.data.ShelfCore
 import javax.crypto.SecretKey
 import kotlinx.coroutines.Dispatchers
@@ -169,40 +172,78 @@ fun EphemeralMediaViewer(folder: VaultFolder, onDismiss: () -> Unit,) {
 		}
 
 		previewItem?.let { preview ->
-			MediaPreviewDialog(
-				item = preview,
-				keyFor = keyFor,
-				onDismiss = { previewItem = null },
-			)
+			if (preview.type == EphemeralMediaType.VIDEO) {
+				EphemeralVideoPlayerDialog(
+					item = preview,
+					keyFor = keyFor,
+					onDismiss = { previewItem = null },
+				)
+			} else {
+				MediaPreviewDialog(
+					item = preview,
+					keyFor = keyFor,
+					onDismiss = { previewItem = null },
+				)
+			}
 		}
 	}
 }
 
 @Composable
-private fun MediaThumbnail(item: EphemeralMediaItem, keyFor: (ByteArray) -> SecretKey?, onClick: () -> Unit,) {
+private fun MediaThumbnail(item: EphemeralMediaItem, keyFor: (ByteArray) -> SecretKey?, onClick: () -> Unit) {
 	val bitmapState = produceState<Bitmap?>(initialValue = null, item) {
 		value = withContext(Dispatchers.IO) {
-			EphemeralMediaLoader.loadBitmap(item.target, keyFor, maxDimension = 300)
+			EphemeralMediaLoader.loadThumbnail(item, keyFor, maxDimension = 300)
 		}
 	}
+	val isVideo = item.type == EphemeralMediaType.VIDEO
 	Surface(
 		modifier = Modifier
 			.aspectRatio(1f)
 			.clip(RoundedCornerShape(8.dp))
-			.clickable(enabled = bitmapState.value != null, onClick = onClick),
+			.clickable(enabled = bitmapState.value != null || isVideo, onClick = onClick),
 		color = MaterialTheme.colorScheme.surfaceContainer,
 	) {
-		val bmp = bitmapState.value
-		if (bmp != null) {
-			Image(
-				bitmap = bmp.asImageBitmap(),
-				contentDescription = item.name,
-				contentScale = ContentScale.Crop,
-				modifier = Modifier.fillMaxSize(),
-			)
-		} else {
-			Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-				CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+		Box(Modifier.fillMaxSize()) {
+			val bmp = bitmapState.value
+			if (bmp != null) {
+				Image(
+					bitmap = bmp.asImageBitmap(),
+					contentDescription = item.name,
+					contentScale = ContentScale.Crop,
+					modifier = Modifier.fillMaxSize(),
+				)
+			} else if (isVideo) {
+				Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+					Icon(
+						painter = painterResource(R.drawable.ic_video_badge),
+						contentDescription = item.name,
+						tint = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.size(28.dp),
+					)
+				}
+			} else {
+				Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+					CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+				}
+			}
+			if (isVideo && bmp != null) {
+				Box(
+					modifier = Modifier
+						.padding(6.dp)
+						.align(Alignment.BottomStart)
+						.clip(RoundedCornerShape(4.dp))
+						.background(Color.Black.copy(alpha = 0.6f))
+						.padding(horizontal = 5.dp, vertical = 2.dp),
+					contentAlignment = Alignment.Center,
+				) {
+					Icon(
+						painter = painterResource(R.drawable.ic_video_badge),
+						contentDescription = null,
+						tint = Color.White,
+						modifier = Modifier.size(12.dp),
+					)
+				}
 			}
 		}
 	}

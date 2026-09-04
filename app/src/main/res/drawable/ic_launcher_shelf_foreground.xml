@@ -1,73 +1,71 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-	Two shelf boards with objects standing on them, where the lower row has gone dark and slid
-	partly behind the upper board: still on the shelf, no longer on show.
-	The negative space between the boards reads as a keyhole slot at a glance.
-
-	Everything sits inside the central 72dp safe zone (18..90), so no launcher mask clips it, and the
-	whole mark is drawn in one colour so it doubles as the monochrome/themed-icon layer.
--->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
 	android:width="108dp"
 	android:height="108dp"
 	android:viewportWidth="108"
 	android:viewportHeight="108">
-
-	<!-- Upper board -->
+	<!-- Upper Shelf Board -->
 	<path
-		android:pathData="M26,52 L82,52"
+		android:pathData="M24,46 L84,46"
 		android:strokeColor="#FFFFFFFF"
-		android:strokeWidth="6"
+		android:strokeWidth="5"
 		android:strokeLineCap="round" />
 
-	<!-- Things standing on the upper board: visible, ordinary, unremarkable -->
+	<!-- Documents / Vault items on upper shelf -->
 	<path
-		android:pathData="M34,49 L34,36"
+		android:pathData="M33,43.5 L33,28"
 		android:strokeColor="#FFFFFFFF"
-		android:strokeWidth="6"
+		android:strokeWidth="5"
 		android:strokeLineCap="round" />
 	<path
-		android:pathData="M45,49 L45,30"
+		android:pathData="M43,43.5 L43,32"
 		android:strokeColor="#FFFFFFFF"
-		android:strokeWidth="6"
-		android:strokeLineCap="round" />
-	<path
-		android:pathData="M56,49 L56,39"
-		android:strokeColor="#FFFFFFFF"
-		android:strokeWidth="6"
+		android:strokeWidth="5"
 		android:strokeLineCap="round" />
 
-	<!-- Lower board -->
+	<!-- Vault Safe Box on upper shelf -->
 	<path
-		android:pathData="M26,78 L82,78"
-		android:strokeColor="#FFFFFFFF"
-		android:strokeWidth="6"
-		android:strokeLineCap="round" />
-
-	<!-- The hidden row: same shapes, dimmed and set back -->
+		android:fillColor="#FFFFFFFF"
+		android:pathData="M54,26 h20 a4,4 0 0 1 4,4 v13.5 h-28 v-13.5 a4,4 0 0 1 4,-4 z" />
+	<!-- Safe Lock Slot -->
 	<path
-		android:pathData="M34,75 L34,66"
-		android:strokeColor="#FFFFFFFF"
-		android:strokeWidth="6"
-		android:strokeLineCap="round"
-		android:strokeAlpha="0.32" />
-	<path
-		android:pathData="M45,75 L45,62"
-		android:strokeColor="#FFFFFFFF"
-		android:strokeWidth="6"
-		android:strokeLineCap="round"
-		android:strokeAlpha="0.32" />
-
-	<!-- The one still locked away, drawn solid so the eye lands on it last -->
-	<path
-		android:pathData="M67,75 L67,66"
-		android:strokeColor="#FFFFFFFF"
-		android:strokeWidth="6"
+		android:pathData="M64,31.5 v4"
+		android:strokeColor="#FF131922"
+		android:strokeWidth="2.5"
 		android:strokeLineCap="round" />
 	<path
-		android:pathData="M67,63 m-5,0 a5,5 0 1,1 10,0"
+		android:pathData="M64,38 m-2,0 a2,2 0 1 0 4,0 a2,2 0 1 0 -4,0"
+		android:fillColor="#FF131922" />
+
+	<!-- Lower Shelf Board -->
+	<path
+		android:pathData="M24,76 L84,76"
 		android:strokeColor="#FFFFFFFF"
-		android:strokeWidth="4"
+		android:strokeWidth="5"
+		android:strokeLineCap="round" />
+
+	<!-- Hidden Compartment under lower shelf (subtle depth layer) -->
+	<path
+		android:pathData="M33,73.5 L33,60"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="5"
+		android:strokeAlpha="0.35"
+		android:strokeLineCap="round" />
+	<path
+		android:pathData="M43,73.5 L43,64"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="5"
+		android:strokeAlpha="0.35"
+		android:strokeLineCap="round" />
+
+	<!-- Central Vault Padlock -->
+	<path
+		android:pathData="M64,57 m-5,0 a5,5 0 0 1 10,0 v4 h-10 z"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="3"
 		android:strokeLineCap="round"
 		android:fillColor="#00000000" />
+	<path
+		android:fillColor="#FFFFFFFF"
+		android:pathData="M56,61 h16 a3,3 0 0 1 3,3 v9 a3,3 0 0 1 -3,3 h-16 a3,3 0 0 1 -3,-3 v-9 a3,3 0 0 1 3,-3 z" />
 </vector>

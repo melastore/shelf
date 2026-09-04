@@ -1,32 +1,63 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A handset calculator: display above, two rows of keys, the operator column picked out. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
 	android:width="108dp"
 	android:height="108dp"
 	android:viewportWidth="108"
 	android:viewportHeight="108">
+	<!-- Calculator Body -->
 	<path
 		android:fillColor="#FFFFFFFF"
-		android:pathData="M36,22 h36 a12,12 0 0 1 12,12 v40 a12,12 0 0 1 -12,12 H36 a12,12 0 0 1 -12,-12 V34 a12,12 0 0 1 12,-12 z" />
+		android:pathData="M35,22 h38 a11,11 0 0 1 11,11 v44 a11,11 0 0 1 -11,11 h-38 a11,11 0 0 1 -11,-11 v-44 a11,11 0 0 1 11,-11 z" />
+
+	<!-- LCD Display Screen -->
 	<path
-		android:fillColor="#FF2A323A"
-		android:pathData="M36,30 h36 a5,5 0 0 1 5,5 v9 a5,5 0 0 1 -5,5 H36 a5,5 0 0 1 -5,-5 v-9 a5,5 0 0 1 5,-5 z" />
+		android:fillColor="#FF1F2937"
+		android:pathData="M34,29 h40 a5,5 0 0 1 5,5 v11 a5,5 0 0 1 -5,5 h-40 a5,5 0 0 1 -5,-5 v-11 a5,5 0 0 1 5,-5 z" />
+	<!-- Display Readout Accent -->
 	<path
-		android:fillColor="#FFB0BEC5"
-		android:pathData="M37.5,52 m-6,0 a6,6 0 1 0 12,0 a6,6 0 1 0 -12,0 z" />
+		android:pathData="M64,39.5 h8"
+		android:strokeColor="#FF10B981"
+		android:strokeWidth="2.5"
+		android:strokeLineCap="round" />
+
+	<!-- Keypad: 2x2 layout of arithmetic symbols -->
+	<!-- Plus (+) key: top-left -->
 	<path
-		android:fillColor="#FFB0BEC5"
-		android:pathData="M54,52 m-6,0 a6,6 0 1 0 12,0 a6,6 0 1 0 -12,0 z" />
+		android:fillColor="#FFE2E8F0"
+		android:pathData="M36,54 h14 a4,4 0 0 1 4,4 v6 a4,4 0 0 1 -4,4 h-14 a4,4 0 0 1 -4,-4 v-6 a4,4 0 0 1 4,-4 z" />
 	<path
-		android:fillColor="#FFE07A1E"
-		android:pathData="M70.5,52 m-6,0 a6,6 0 1 0 12,0 a6,6 0 1 0 -12,0 z" />
+		android:pathData="M43,58 v6 M40,61 h6"
+		android:strokeColor="#FF374151"
+		android:strokeWidth="2"
+		android:strokeLineCap="round" />
+
+	<!-- Minus (−) key: top-right -->
 	<path
-		android:fillColor="#FFB0BEC5"
-		android:pathData="M37.5,69 m-6,0 a6,6 0 1 0 12,0 a6,6 0 1 0 -12,0 z" />
+		android:fillColor="#FFE2E8F0"
+		android:pathData="M58,54 h14 a4,4 0 0 1 4,4 v6 a4,4 0 0 1 -4,4 h-14 a4,4 0 0 1 -4,-4 v-6 a4,4 0 0 1 4,-4 z" />
 	<path
-		android:fillColor="#FFB0BEC5"
-		android:pathData="M54,69 m-6,0 a6,6 0 1 0 12,0 a6,6 0 1 0 -12,0 z" />
+		android:pathData="M62,61 h6"
+		android:strokeColor="#FF374151"
+		android:strokeWidth="2"
+		android:strokeLineCap="round" />
+
+	<!-- Multiply (×) key: bottom-left -->
 	<path
-		android:fillColor="#FFE07A1E"
-		android:pathData="M70.5,69 m-6,0 a6,6 0 1 0 12,0 a6,6 0 1 0 -12,0 z" />
+		android:fillColor="#FFE2E8F0"
+		android:pathData="M36,70 h14 a4,4 0 0 1 4,4 v6 a4,4 0 0 1 -4,4 h-14 a4,4 0 0 1 -4,-4 v-6 a4,4 0 0 1 4,-4 z" />
+	<path
+		android:pathData="M40.5,74.5 L45.5,79.5 M45.5,74.5 L40.5,79.5"
+		android:strokeColor="#FF374151"
+		android:strokeWidth="2"
+		android:strokeLineCap="round" />
+
+	<!-- Equals (=) key: bottom-right, distinct warm amber accent -->
+	<path
+		android:fillColor="#FFF59E0B"
+		android:pathData="M58,70 h14 a4,4 0 0 1 4,4 v6 a4,4 0 0 1 -4,4 h-14 a4,4 0 0 1 -4,-4 v-6 a4,4 0 0 1 4,-4 z" />
+	<path
+		android:pathData="M62,75.5 h6 M62,78.5 h6"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeWidth="2"
+		android:strokeLineCap="round" />
 </vector>
