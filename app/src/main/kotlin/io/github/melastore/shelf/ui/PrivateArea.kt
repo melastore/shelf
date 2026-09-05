@@ -751,7 +751,12 @@ private fun SettingsScreen(
 					stringResource(R.string.access),
 					stringResource(R.string.access_description),
 				) {
-					EntryMethod.entries.forEach { method ->
+					val methods = if (state.decoy == DecoyType.CALCULATOR) {
+						EntryMethod.entries
+					} else {
+						EntryMethod.entries.filter { it != EntryMethod.DIRECT_KEYPAD }
+					}
+					methods.forEach { method ->
 						SettingsRow(
 							title = method.title(),
 							summary = method.summary(),

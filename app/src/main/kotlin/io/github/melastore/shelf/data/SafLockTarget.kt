@@ -19,7 +19,7 @@ import java.nio.ByteBuffer
  *
  * Always `rw`, never `rwt`: `t` truncates on open and the first write would discard the file.
  */
-class SafLockTarget(private val resolver: ContentResolver, val uri: Uri, override val name: String = "",) : LockTarget {
+class SafLockTarget(val resolver: ContentResolver, val uri: Uri, override val name: String = "",) : LockTarget {
 
 	override fun size(): Long = descriptor("r") { pfd ->
 		pfd.statSize.takeIf { it >= 0 } ?: throw IOException("provider did not report a size for $uri")

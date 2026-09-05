@@ -117,6 +117,10 @@ internal fun StealthGuideDialog(onDismiss: () -> Unit) {
 					body = stringResource(R.string.stealth_guide_entrance_body),
 				)
 				GuideTopic(
+					title = stringResource(R.string.stealth_guide_crash_title),
+					body = stringResource(R.string.stealth_guide_crash_body),
+				)
+				GuideTopic(
 					title = stringResource(R.string.stealth_guide_peek_title),
 					body = stringResource(R.string.stealth_guide_peek_body),
 				)
@@ -168,14 +172,10 @@ internal fun AuthenticationSettingsSection(
 	onRemoveDecoyPin: () -> Unit,
 	onSeedDecoy: () -> Unit,
 ) {
-	SettingsGroup(
-		stringResource(R.string.credentials),
-		stringResource(R.string.credentials_summary),
-	) {
-		val activeLabel = CredentialWords.label(state.credentialKind)
+	SettingsGroup(stringResource(R.string.credentials), stringResource(R.string.credential_kind_summary)) {
 		SettingsRow(
-			title = stringResource(R.string.current_primary_credential),
-			summary = "$activeLabel · ${stringResource(R.string.change_credential_action)}",
+			title = stringResource(R.string.change_vault_pin),
+			summary = CredentialWords.label(state.credentialKind),
 			onClick = onChangePin,
 		)
 		CredentialKind.entries.forEach { kind ->
@@ -201,10 +201,10 @@ internal fun AuthenticationSettingsSection(
 			onClick = onBiometricChange,
 		)
 		SettingsRow(
-			title = stringResource(R.string.duress_protection_title),
-			summary = stringResource(
-				if (state.decoyPinSet) R.string.duress_configured else R.string.duress_not_configured,
+			title = stringResource(
+				if (state.decoyPinSet) R.string.change_decoy_pin else R.string.create_decoy_pin,
 			),
+			summary = stringResource(R.string.decoy_pin_summary),
 			onClick = onSetDecoyPin,
 		)
 		if (state.decoyPinSet) {
@@ -229,8 +229,8 @@ internal fun AutomaticLockSettingsSection(
 	onQuickLockChange: () -> Unit,
 	onAutoHideMode: (AutoHideMode) -> Unit,
 	onFlipToHideChange: () -> Unit,
-	onAllowScreenshotsChange: (() -> Unit)? = null,
-	onHideFromRecentsChange: (() -> Unit)? = null,
+	onAllowScreenshotsChange: () -> Unit,
+	onHideFromRecentsChange: () -> Unit,
 ) {
 	SettingsGroup(
 		stringResource(R.string.auto_hide),
@@ -254,50 +254,20 @@ internal fun AutomaticLockSettingsSection(
 			trailing = { SelectionMark(state.quickLockNotification) },
 			onClick = onQuickLockChange,
 		)
-		if (onHideFromRecentsChange != null) {
-			SettingsRow(
-				title = stringResource(R.string.hide_from_recents),
-				summary = stringResource(R.string.hide_from_recents_summary),
-				trailing = { SelectionMark(state.hideFromRecents) },
-				onClick = onHideFromRecentsChange,
-			)
-		}
-		if (onAllowScreenshotsChange != null) {
-			SettingsRow(
-				title = stringResource(R.string.allow_screenshots),
-				summary = stringResource(R.string.allow_screenshots_summary),
-				dangerous = state.allowScreenshots,
-				trailing = { SelectionMark(state.allowScreenshots) },
-				onClick = onAllowScreenshotsChange,
-			)
-		}
-	}
-}
-
-@Composable
-internal fun ScreenCaptureSettingsSection(
-	state: AppUiState,
-	onAllowScreenshotsChange: () -> Unit,
-	onHideFromRecentsChange: () -> Unit,
-) {
-	SettingsGroup(
-		stringResource(R.string.screen_capture),
-		stringResource(R.string.screen_capture_summary),
-	) {
+		// Same question as auto hide, which is who else gets to see this, so they sit in the one group
+		// rather than under appearance.
+		SettingsRow(
+			title = stringResource(R.string.hide_from_recents),
+			summary = stringResource(R.string.hide_from_recents_summary),
+			trailing = { SelectionMark(state.hideFromRecents) },
+			onClick = onHideFromRecentsChange,
+		)
 		SettingsRow(
 			title = stringResource(R.string.allow_screenshots),
 			summary = stringResource(R.string.allow_screenshots_summary),
 			dangerous = state.allowScreenshots,
 			trailing = { SelectionMark(state.allowScreenshots) },
 			onClick = onAllowScreenshotsChange,
-		)
-		// Same question as the screenshot setting (who else sees this app), so it belongs in the same
-		// group rather than under appearance.
-		SettingsRow(
-			title = stringResource(R.string.hide_from_recents),
-			summary = stringResource(R.string.hide_from_recents_summary),
-			trailing = { SelectionMark(state.hideFromRecents) },
-			onClick = onHideFromRecentsChange,
 		)
 	}
 }

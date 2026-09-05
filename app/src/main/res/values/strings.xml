@@ -281,24 +281,18 @@
 	<string name="decoy_calendar">Calendar</string>
 	<string name="decoy_calculator">Calculator</string>
 	<string name="access">Getting in</string>
-	<string name="access_description">Choose the secret trigger used to open your vault from within the active disguise.</string>
+	<string name="access_description">Five taps in the top-right corner always work. This chooses the second, quieter gesture.</string>
 	<string name="entry_title_hold">Hold the title</string>
 	<string name="entry_title_hold_summary">Press and hold the app name in the toolbar.</string>
 	<string name="entry_corner_knock">Corner taps only</string>
 	<string name="entry_corner_knock_summary">No long-press gesture. Only the five top-right taps open the private space.</string>
 	<string name="entry_natural_hold">Hold a natural control</string>
 	<string name="entry_natural_hold_summary">Hold the progress card, the schedule heading, or the equals key.</string>
-	<string name="entry_direct_keypad">Direct keypad / knock</string>
-	<string name="entry_direct_keypad_summary">Type PIN or tap knock code and press =. No title hold or corner taps.</string>
-	<string name="entry_double_tap_title">Double-tap title</string>
-	<string name="entry_double_tap_title_summary">Quickly tap the app name in the toolbar twice. Discreet and unexpected.</string>
+	<string name="entry_direct_keypad">Type it on the keypad</string>
+	<string name="entry_direct_keypad_summary">Enter your PIN on the calculator and press equals. No gesture at all, and no corner taps either, so the calculator is only a calculator.</string>
+	<string name="entry_double_tap_title">Double tap the title</string>
+	<string name="entry_double_tap_title_summary">Tap the app name in the toolbar twice, quickly.</string>
 	<string name="credentials">Unlocking</string>
-	<string name="credentials_summary">Manage your primary unlocking credential and anti-coercion duress protection.</string>
-	<string name="current_primary_credential">Primary credential</string>
-	<string name="change_credential_action">Change</string>
-	<string name="duress_protection_title">Duress &amp; Coercion Defense</string>
-	<string name="duress_configured">Configured (Secondary PIN active)</string>
-	<string name="duress_not_configured">Not configured</string>
 	<string name="change_vault_pin">Change primary PIN</string>
 	<string name="biometric_unlock">Biometric unlock</string>
 	<string name="biometric_available_summary">Use a fingerprint or another strong biometric, with PIN fallback.</string>
@@ -319,8 +313,6 @@
 	<string name="quick_lock_notification_working">Putting folders out of sight…</string>
 	<string name="quick_lock_notification_retry">Could not finish. Tap Hide to try again.</string>
 	<string name="emergency_hide">Hide</string>
-	<string name="screen_capture">Screen capture</string>
-	<string name="screen_capture_summary">The private space is normally excluded from screenshots, screen recordings, and the recent apps preview.</string>
 	<string name="allow_screenshots">Allow screenshots</string>
 	<string name="allow_screenshots_summary">Turn this on to photograph the folder list. It also lets screen recorders see the private space, so it switches itself off again when the space closes.</string>
 	<string name="hide_from_recents">Hide from recents</string>
@@ -389,7 +381,7 @@
 	<string name="setup_disguise_title">Pick a disguise</string>
 	<string name="setup_disguise_body">This is the name and icon Shelf wears on your home screen. Each one is a working app in its own right.</string>
 	<string name="setup_entry_title">How you will get back in</string>
-	<string name="setup_entry_body">Choose how to secretly enter your private vault from behind your disguise.</string>
+	<string name="setup_entry_body">Five taps in the top-right corner always open the credential prompt. Choose a second, quieter gesture as well.</string>
 	<string name="setup_method_title">How folders are hidden</string>
 	<string name="setup_method_body">Renaming works everywhere and needs no permission. Root and all-files access hide folders more thoroughly, if this phone offers them.</string>
 	<string name="setup_check_root">Check for root</string>
@@ -412,7 +404,7 @@
 	<string name="flip_to_hide_title">Flip down to lock</string>
 	<string name="flip_to_hide_summary">Lock private space and hide folders when the phone is turned face down</string>
 	<string name="populate_decoy_title">Populate decoy items</string>
-	<string name="populate_decoy_summary">Generate realistic mock folders to make the duress vault convincing</string>
+	<string name="populate_decoy_summary">Fills the second space with ordinary looking folders, so it is not obviously empty.</string>
 	<string name="decoy_seeded">Added realistic sample folders to decoy vault.</string>
 	<string name="peek_photos">Peek media</string>
 	<string name="ephemeral_media_title">In-Memory Media</string>
@@ -425,25 +417,27 @@
 	<string name="rewind_10">Rewind 10 seconds</string>
 	<string name="forward_10">Forward 10 seconds</string>
 
-	<!-- Stealth Guide & Tips -->
-	<string name="stealth_guide_title">Stealth &amp; Security Guide</string>
-	<string name="stealth_guide_summary">Learn how to enter undetected, use duress mode, and lock in emergencies.</string>
-	<string name="stealth_guide_button">Read Guide</string>
-	<string name="stealth_guide_close">Got it</string>
-	<string name="stealth_guide_disguise_title">1. Functional Disguises</string>
-	<string name="stealth_guide_disguise_body">Shelf masquerades as an everyday app (Calculator, Calendar, or Habits). It carries out genuine calculations, displays real dates, and logs habits so nobody suspects a vault.</string>
-	<string name="stealth_guide_entrance_title">2. Secret Entrances</string>
-	<string name="stealth_guide_entrance_body">• Calculator: Type your PIN or knock sequence and tap “=” directly.\n• Double-Tap: Quickly double-tap the title bar in the toolbar.\n• Long-Press: Hold the title bar or equals key for 1 second.\n• Fake Crash: When enabled, entering shows a fake “App keeps stopping” dialog. Hold the message to slip inside.</string>
-	<string name="stealth_guide_peek_title">3. Peek Media Privately</string>
-	<string name="stealth_guide_peek_body">Tap any hidden folder to view photos and play full HD videos directly inside the vault. Files are decrypted only in memory and never written to disk, remaining hidden from galleries.</string>
-	<string name="stealth_guide_duress_title">4. Duress Safe (Anti-Coercion)</string>
-	<string name="stealth_guide_duress_body">If forced to unlock your phone, enter your Decoy PIN instead of your real PIN. Shelf opens a harmless fake vault with sample folders, keeping your true private files concealed.</string>
-	<string name="stealth_guide_panic_title">5. Panic Lockdown</string>
-	<string name="stealth_guide_panic_body">Flip your phone face-down on any surface to immediately close the vault and lock down all folders. You can also lock instantly from the notification shade.</string>
-	<string name="stealth_guide_safety_title">6. Safety &amp; Backup</string>
-	<string name="stealth_guide_safety_body">Always unhide your folders or export an encrypted recovery backup in Settings before uninstalling the app or switching devices.</string>
+	<!-- Guide -->
+	<string name="stealth_guide_title">How Shelf hides</string>
+	<string name="stealth_guide_summary">The disguise, the way back in, and what to do if you are made to unlock.</string>
+	<string name="stealth_guide_button">Guide</string>
+	<string name="stealth_guide_close">Close</string>
+	<string name="stealth_guide_disguise_title">The disguise</string>
+	<string name="stealth_guide_disguise_body">Shelf wears the name and icon of a calculator, a calendar, or a habit tracker, and each one is a working app. The sums come out right, the dates are real, the habits are kept. Nothing on the home screen says there is anything else here.</string>
+	<string name="stealth_guide_entrance_title">Getting back in</string>
+	<string name="stealth_guide_entrance_body">Under Getting in you choose the gesture: hold the app name, tap it twice, hold a control the disguise already has, or let the calculator take your PIN on its keypad. Five taps in the top-right corner open the prompt as well, except where the keypad is taking the PIN itself.</string>
+	<string name="stealth_guide_crash_title">The fake crash</string>
+	<string name="stealth_guide_crash_body">With this on, the entry gesture puts up an app-has-stopped dialog instead of the unlock screen, so anyone watching sees the app fail rather than open. Press and hold the message to carry on.</string>
+	<string name="stealth_guide_peek_title">Looking without unhiding</string>
+	<string name="stealth_guide_peek_body">Open a hidden folder to see the photos and videos in it. They are decrypted as they are read and nothing goes back to disk, so the folder stays hidden while you look and no gallery picks it up.</string>
+	<string name="stealth_guide_duress_title">If you are made to unlock</string>
+	<string name="stealth_guide_duress_body">Set a second PIN under Unlocking and give that one instead. It opens a separate space holding nothing of yours, and nothing on screen suggests there is another.</string>
+	<string name="stealth_guide_panic_title">Closing it in a hurry</string>
+	<string name="stealth_guide_panic_body">The quick-hide notification locks everything from the shade without opening the app. Turn on flip to hide and putting the phone face down does the same thing.</string>
+	<string name="stealth_guide_safety_title">Before you uninstall</string>
+	<string name="stealth_guide_safety_body">Unhide your folders first, or export a recovery file from Settings. A folder hidden by an app that is no longer installed stays hidden.</string>
 
-	<!-- Setup Improvements -->
-	<string name="setup_entry_calculator_hint">For Calculator, Direct Keypad lets you simply enter your PIN and tap “=” without any hidden gestures.</string>
-	<string name="setup_method_recommendation">Automatic selects the best and safest hiding engine for your phone. Recommended for all users.</string>
+	<!-- Setup -->
+	<string name="setup_entry_calculator_hint">The calculator can take your PIN on its own keypad. Type it and press equals, and there is no gesture for anyone to find.</string>
+	<string name="setup_method_recommendation">Automatic uses the most thorough method this phone actually offers. Leave it unless you have a reason not to.</string>
 </resources>

@@ -1,6 +1,7 @@
 package io.github.melastore.shelf.data
 
 import java.io.File
+import java.io.IOException
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -87,5 +88,15 @@ class EphemeralMediaDataSourceTest {
 		val source = EphemeralMediaDataSource(target, head, 12345L)
 
 		assertEquals(12345L, source.size)
+	}
+
+	@Test(expected = IOException::class)
+	fun `readAt after close throws IOException`() {
+		val head = ByteArray(50)
+		val f = file(ByteArray(50))
+		val target = FileLockTarget(f)
+		val source = EphemeralMediaDataSource(target, head, 100L)
+		source.close()
+		source.readAt(0L, ByteArray(10), 0, 10)
 	}
 }

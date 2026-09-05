@@ -8,6 +8,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -76,6 +77,7 @@ import io.github.melastore.shelf.data.DecoyType
 import io.github.melastore.shelf.data.EntryMethod
 import io.github.melastore.shelf.data.Habit
 import io.github.melastore.shelf.data.currentStreak
+import io.github.melastore.shelf.security.CredentialRules
 import io.github.melastore.shelf.security.KnockCode
 import java.text.NumberFormat
 import java.time.LocalDate
@@ -95,9 +97,7 @@ fun DecoyScreen(state: AppUiState, viewModel: ShelfViewModel, onSecretEntry: () 
 			DecoyType.CALENDAR -> CalendarDecoy(state, viewModel, onSecretEntry)
 			DecoyType.CALCULATOR -> CalculatorDecoy(state.entryMethod, onSecretEntry, viewModel::tryStealthUnlock)
 		}
-		// With no disguise there is nothing to hide the way in behind and the lock screen offers a
-		// button, so the corner target would be a second route to an open door.
-		if (state.decoy != DecoyType.NONE && state.entryMethod != EntryMethod.DIRECT_KEYPAD) {
+		if (state.decoy != DecoyType.NONE) {
 			// Always live, whatever gesture is configured: the knock is the way back in when the chosen
 			// long press lands on a control that is not on screen. Being locked out of your own private
 			// space is worse than a gesture that is a little easier to stumble on.
@@ -629,7 +629,9 @@ private fun CalculatorDecoy(
 ) {
 	var calculator by remember { mutableStateOf(CalculatorState()) }
 	val knockTaps = remember { mutableStateListOf<Int>() }
-	var rawDigits by remember { mutableStateOf("") }
+	// The keys pressed, not the display. A PIN starting with a zero never reaches the display, which
+	// drops a leading zero the way a calculator has to.
+	var typed by remember { mutableStateOf("") }
 	val haptics = LocalHapticFeedback.current
 	val rows = listOf(
 		listOf("C", "±", "%", "÷"),
@@ -702,30 +704,28 @@ private fun CalculatorDecoy(
 							modifier = Modifier.weight(if (key == "0" && row.size == 3) 2f else 1f),
 							kind = keyKind(key),
 							onClick = {
-								if (key in "0".."9") {
-									rawDigits += key
-								} else if (key == "C") {
-									knockTaps.clear()
-									rawDigits = ""
-								} else if (key in listOf("÷", "×", "−", "+")) {
-									rawDigits = ""
-								} else if (key == "=") {
-									if (knockTaps.size in KnockCode.MIN_TAPS..KnockCode.MAX_TAPS) {
-										onStealthUnlock(KnockCode.encode(knockTaps.toList()))
+								when (key) {
+									"C" -> {
 										knockTaps.clear()
-									} else if (rawDigits.length in 4..16) {
-										onStealthUnlock(rawDigits.toCharArray())
-										rawDigits = ""
-									} else if (calculator.operation == null &&
-										calculator.display.length in 4..16 && calculator.display.all { it.isDigit() }
-									) {
-										onStealthUnlock(calculator.display.toCharArray())
+										typed = ""
 									}
+
+									"÷", "×", "−", "+", ".", "±", "%" -> typed = ""
+
+									"=" -> {
+										stealthUnlock(knockTaps, typed, calculator)?.let(onStealthUnlock)
+										knockTaps.clear()
+										typed = ""
+									}
+
+									// A calculator that stopped taking digits after twelve would be a strange
+									// one, so the entry keeps growing and simply stops being a candidate.
+									else -> if (key.first().isDigit()) typed += key
 								}
 								calculator = calculator.press(key)
 							},
 							onLongClick = onSecretEntry.takeIf {
-								key == "=" && entryMethod == EntryMethod.NATURAL_HOLD
+								key == "=" && (entryMethod == EntryMethod.NATURAL_HOLD || entryMethod == EntryMethod.DIRECT_KEYPAD)
 							},
 						)
 					}
@@ -733,6 +733,27 @@ private fun CalculatorDecoy(
 			}
 			Spacer(Modifier.height(16.dp))
 		}
+	}
+}
+
+/**
+ * What pressing equals should be read as, or null if it is only arithmetic.
+ *
+ * Three ways to offer the same secret: a knock code tapped on the display, the digits actually
+ * pressed, and the number now showing, which is how a PIN arrives when it was worked out rather
+ * than typed. Whether any of them is right is decided elsewhere.
+ */
+private fun stealthUnlock(knockTaps: List<Int>, typed: String, calculator: CalculatorState,): CharArray? {
+	val pinLength = CredentialRules.MIN_PIN..CredentialRules.MAX_PIN
+	return when {
+		knockTaps.size in KnockCode.MIN_TAPS..KnockCode.MAX_TAPS -> KnockCode.encode(knockTaps)
+
+		typed.length in pinLength -> typed.toCharArray()
+
+		calculator.operation == null && calculator.display.length in pinLength &&
+			calculator.display.all { it.isDigit() } -> calculator.display.toCharArray()
+
+		else -> null
 	}
 }
 
@@ -789,36 +810,40 @@ private fun CalculatorState.press(key: String): CalculatorState = when (key) {
 	else -> digit(key.toInt())
 }
 
+/**
+ * The app name in the toolbar, and the way in for the two gestures that live on it.
+ *
+ * No haptic on either. A title that buzzes under a finger is a title worth pressing again, which is
+ * the one thing a hidden gesture cannot afford.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SecretTitle(title: String, entryMethod: EntryMethod, onSecretEntry: () -> Unit) {
-	val haptics = LocalHapticFeedback.current
+	val interactionSource = remember { MutableInteractionSource() }
 	val modifier = when (entryMethod) {
 		EntryMethod.TITLE_HOLD -> Modifier.combinedClickable(
+			interactionSource = interactionSource,
+			indication = null,
 			onClick = {},
-			onLongClick = {
-				haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-				onSecretEntry()
-			},
+			onLongClick = onSecretEntry,
 		)
 
 		EntryMethod.DOUBLE_TAP_TITLE -> Modifier.combinedClickable(
+			interactionSource = interactionSource,
+			indication = null,
 			onClick = {},
-			onDoubleClick = {
-				haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-				onSecretEntry()
-			},
+			onDoubleClick = onSecretEntry,
 		)
 
 		else -> Modifier
 	}
-	Text(
-		title,
-		modifier = modifier,
-		style = MaterialTheme.typography.titleLarge,
-	)
+	Text(title, modifier = modifier, style = MaterialTheme.typography.titleLarge)
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-private fun Modifier.secretHold(enabled: Boolean, onLongClick: () -> Unit): Modifier =
-	if (enabled) combinedClickable(onClick = {}, onLongClick = onLongClick) else this
+private fun Modifier.secretHold(enabled: Boolean, onLongClick: () -> Unit): Modifier = if (enabled) {
+	pointerInput(Unit) {
+		detectTapGestures(onLongPress = { onLongClick() })
+	}
+} else {
+	this
+}

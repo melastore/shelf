@@ -283,7 +283,12 @@ private fun EntryStep(selectedDecoy: DecoyType, selected: EntryMethod, onEntryMe
 		color = MaterialTheme.colorScheme.surfaceContainer,
 	) {
 		Column(Modifier.padding(vertical = 4.dp)) {
-			EntryMethod.entries.forEach { method ->
+			val methods = if (selectedDecoy == DecoyType.CALCULATOR) {
+				EntryMethod.entries
+			} else {
+				EntryMethod.entries.filter { it != EntryMethod.DIRECT_KEYPAD }
+			}
+			methods.forEach { method ->
 				SettingsRow(
 					title = method.title(),
 					summary = method.summary(),

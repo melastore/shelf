@@ -6,11 +6,14 @@ import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.util.LruCache
 import androidx.documentfile.provider.DocumentFile
 import io.github.melastore.shelf.crypto.HeaderCipher
+import io.github.melastore.shelf.crypto.PasswordEnvelope
 import io.github.melastore.shelf.root.StoragePaths
 import java.io.BufferedInputStream
 import java.io.File
+import java.nio.ByteBuffer
 import javax.crypto.SecretKey
 
 enum class EphemeralMediaType { IMAGE, VIDEO }
@@ -24,8 +27,20 @@ data class EphemeralMediaItem(
 
 object EphemeralMediaLoader {
 
+	private val thumbnailCache = object : LruCache<String, Bitmap>(24 * 1024 * 1024) {
+		override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+	}
+
+	fun clearCache() {
+		thumbnailCache.evictAll()
+	}
+
+	private const val SHELF_PREFIX = ".shelf-"
+	private const val MAX_ATOMS = 4
+
 	private val VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "3gp", "mov", "avi", "m4v", "ts", "flv")
 	private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif")
+	private val ISO_ATOMS = setOf("ftyp", "moov", "mdat")
 
 	fun scanMediaItems(
 		path: String,
@@ -35,29 +50,13 @@ object EphemeralMediaLoader {
 		treeUri: String? = null,
 	): List<EphemeralMediaItem> {
 		val targets = targetsUnder(path, context, paths, treeUri)
-		val manifestTarget = targets.firstOrNull { it.name == FolderNameProtector.MANIFEST }
-		val nameMap: Map<String, String>? = if (manifestTarget != null) {
-			val bytes = runCatching { manifestTarget.read(0, manifestTarget.size().toInt()) }.getOrNull()
-			val cred = ContentCredential.copy()
-			if (bytes != null && cred != null) {
-				try {
-					FolderNameProtector.decryptManifest(bytes, cred)
-				} finally {
-					cred.fill(' ')
-				}
-			} else {
-				null
-			}
-		} else {
-			null
-		}
+		val nameMap = targets.firstOrNull { it.name == FolderNameProtector.MANIFEST }?.let(::readNameMap)
 
 		val items = mutableListOf<EphemeralMediaItem>()
 		for (target in targets) {
 			if (target.size() <= 0) continue
-			if (target.name == FolderNameProtector.MANIFEST || target.name.startsWith(".shelf-") || target.name == ".nomedia") {
-				continue
-			}
+			// Shelf's own bookkeeping files all carry the prefix, and .nomedia is a marker, not media.
+			if (target.name.startsWith(SHELF_PREFIX) || target.name == ".nomedia") continue
 			val realName = nameMap?.get(target.name) ?: target.name
 			val trailer = FileLocker.readTrailer(target)
 			val isLocked = trailer != null
@@ -72,7 +71,7 @@ object EphemeralMediaLoader {
 				}
 			} else {
 				runCatching {
-					target.read(0, minOf(FileLocker.SLICE_LENGTH, target.size().toInt()))
+					target.read(0, minOf(FileLocker.SLICE_LENGTH.toLong(), target.size()).toInt())
 				}.getOrNull()
 			}
 			if (sample == null || sample.isEmpty()) continue
@@ -87,6 +86,23 @@ object EphemeralMediaLoader {
 			}
 		}
 		return items
+	}
+
+	/**
+	 * The original names of the files in a protected folder, or null if the manifest cannot be read.
+	 * A folder is only ever browsed with the credential already in hand, so a failure here means a
+	 * manifest from another credential and the opaque names are shown as they are.
+	 */
+	private fun readNameMap(manifest: LockTarget): Map<String, String>? {
+		val size = manifest.size()
+		if (size !in 1..PasswordEnvelope.MAX_ENVELOPE_BYTES.toLong()) return null
+		val bytes = runCatching { manifest.read(0, size.toInt()) }.getOrNull() ?: return null
+		val credential = ContentCredential.copy() ?: return null
+		return try {
+			FolderNameProtector.decryptManifest(bytes, credential)
+		} finally {
+			credential.fill(' ')
+		}
 	}
 
 	private fun isVideo(name: String, sample: ByteArray): Boolean {
@@ -126,26 +142,23 @@ object EphemeralMediaLoader {
 			return true
 		}
 
-		val limit = minOf(sample.size - 4, 1024)
-		for (i in 0 until limit) {
-			if (sample[i] == 'f'.code.toByte() && sample[i + 1] == 't'.code.toByte() &&
-				sample[i + 2] == 'y'.code.toByte() && sample[i + 3] == 'p'.code.toByte()
-			) {
-				return true
-			}
-			if (i == 4 && (
-					(
-						sample[4] == 'm'.code.toByte() && sample[5] == 'o'.code.toByte() &&
-							sample[6] == 'o'.code.toByte() && sample[7] == 'v'.code.toByte()
-						) ||
-						(
-							sample[4] == 'm'.code.toByte() && sample[5] == 'd'.code.toByte() &&
-								sample[6] == 'a'.code.toByte() && sample[7] == 't'.code.toByte()
-							)
-					)
-			) {
-				return true
-			}
+		return hasIsoAtom(sample)
+	}
+
+	/**
+	 * Walks the head of an ISO base media file, which is a chain of four-byte length, four-byte name.
+	 * ftyp is usually first but a leading wide or free atom is legal, so a few links are followed
+	 * before giving up. Searching the sample for the name instead would call any file that happens to
+	 * contain "ftyp" a video.
+	 */
+	private fun hasIsoAtom(sample: ByteArray): Boolean {
+		var offset = 0
+		repeat(MAX_ATOMS) {
+			if (offset < 0 || offset + 8 > sample.size) return false
+			if (String(sample, offset + 4, 4, Charsets.US_ASCII) in ISO_ATOMS) return true
+			val length = ByteBuffer.wrap(sample, offset, 4).int
+			if (length < 8) return false
+			offset += length
 		}
 		return false
 	}
@@ -182,13 +195,31 @@ object EphemeralMediaLoader {
 		return bounds.outWidth > 0 && bounds.outHeight > 0
 	}
 
-	fun loadThumbnail(item: EphemeralMediaItem, keyFor: (ByteArray) -> SecretKey?, maxDimension: Int = 300,): Bitmap? =
-		when (item.type) {
+	/**
+	 * Identifies one file within a scan. The walk descends into subfolders, so names repeat and a
+	 * name is not an identity: two copies of the same photo one folder apart share both name and
+	 * size.
+	 */
+	fun targetId(target: LockTarget): String = when (target) {
+		is FileLockTarget -> target.file.path
+		is SafLockTarget -> target.uri.toString()
+		else -> target.name
+	}
+
+	fun loadThumbnail(item: EphemeralMediaItem, keyFor: (ByteArray) -> SecretKey?, maxDimension: Int = 300): Bitmap? {
+		val cacheKey = "${targetId(item.target)}:${item.target.size()}:${item.type}:$maxDimension"
+		thumbnailCache.get(cacheKey)?.let { return it }
+		val bitmap = when (item.type) {
 			EphemeralMediaType.IMAGE -> loadBitmap(item.target, keyFor, maxDimension)
 			EphemeralMediaType.VIDEO -> loadVideoThumbnail(item.target, keyFor, maxDimension)
 		}
+		if (bitmap != null) {
+			thumbnailCache.put(cacheKey, bitmap)
+		}
+		return bitmap
+	}
 
-	fun loadVideoThumbnail(target: LockTarget, keyFor: (ByteArray) -> SecretKey?, maxDimension: Int = 300,): Bitmap? {
+	fun loadVideoThumbnail(target: LockTarget, keyFor: (ByteArray) -> SecretKey?, maxDimension: Int = 300): Bitmap? {
 		val trailer = FileLocker.readTrailer(target)
 		val (slice, totalSize) = if (trailer != null) {
 			val key = keyFor(trailer.salt) ?: return null
@@ -225,10 +256,11 @@ object EphemeralMediaLoader {
 			try {
 				retriever.release()
 			} catch (_: Exception) {}
+			dataSource.close()
 		}
 	}
 
-	fun loadBitmap(target: LockTarget, keyFor: (ByteArray) -> SecretKey?, maxDimension: Int = 0,): Bitmap? {
+	fun loadBitmap(target: LockTarget, keyFor: (ByteArray) -> SecretKey?, maxDimension: Int = 0): Bitmap? {
 		val trailer = FileLocker.readTrailer(target)
 		val (slice, totalSize) = if (trailer != null) {
 			val key = keyFor(trailer.salt) ?: return null
@@ -240,7 +272,7 @@ object EphemeralMediaLoader {
 			byteArrayOf() to target.size()
 		}
 
-		fun newStream() = BufferedInputStream(EphemeralDecryptedStream(target, slice, totalSize))
+		fun newStream() = BufferedInputStream(EphemeralDecryptedStream(target, slice, totalSize), 64 * 1024)
 
 		val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
 		newStream().use { s -> BitmapFactory.decodeStream(s, null, bounds) }
@@ -256,7 +288,18 @@ object EphemeralMediaLoader {
 			inSampleSize = sampleSize
 			inPreferredConfig = Bitmap.Config.ARGB_8888
 		}
-		return newStream().use { s -> BitmapFactory.decodeStream(s, null, decodeOptions) }
+		val decoded = newStream().use { s -> BitmapFactory.decodeStream(s, null, decodeOptions) } ?: return null
+
+		return if (maxDimension > 0 && (decoded.width > maxDimension || decoded.height > maxDimension)) {
+			val scale = minOf(maxDimension.toFloat() / decoded.width, maxDimension.toFloat() / decoded.height)
+			val targetW = (decoded.width * scale).toInt().coerceAtLeast(1)
+			val targetH = (decoded.height * scale).toInt().coerceAtLeast(1)
+			val scaled = Bitmap.createScaledBitmap(decoded, targetW, targetH, true)
+			if (scaled != decoded) decoded.recycle()
+			scaled
+		} else {
+			decoded
+		}
 	}
 
 	private fun calculateInSampleSize(width: Int, height: Int, reqWidth: Int, reqHeight: Int): Int {
@@ -293,8 +336,6 @@ object EphemeralMediaLoader {
 
 		val saf = SafGrants.folder(context.applicationContext, paths, path)
 			?.let { SafLockTarget.targetsUnder(context.contentResolver, it) }
-		if (!saf.isNullOrEmpty()) return saf
-
-		return saf ?: direct ?: emptyList()
+		return saf.orEmpty()
 	}
 }

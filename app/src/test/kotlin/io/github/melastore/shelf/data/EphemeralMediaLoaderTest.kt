@@ -111,6 +111,46 @@ class EphemeralMediaLoaderTest {
 	}
 
 	@Test
+	fun `does not read an ftyp further into a file as a video`() {
+		val paths = StoragePaths.forTest(temp.root.path, temp.root.path)
+		val folder = temp.newFolder("not_video")
+		val keyFor: (ByteArray) -> SecretKey? = { null }
+
+		val payload = ByteArray(400) + "ftyp".toByteArray(Charsets.US_ASCII) + ByteArray(400)
+		File(folder, "sfn_0123456789abcdef0123456789abcdef").writeBytes(payload)
+
+		val items = EphemeralMediaLoader.scanMediaItems(folder.path, context, paths, keyFor)
+		assertTrue(items.none { it.type == EphemeralMediaType.VIDEO })
+	}
+
+	@Test
+	fun `tells apart two files sharing a name in different subfolders`() {
+		val paths = StoragePaths.forTest(temp.root.path, temp.root.path)
+		val folder = temp.newFolder("trip")
+		val keyFor: (ByteArray) -> SecretKey? = { null }
+
+		val png = byteArrayOf(
+			0x89.toByte(),
+			0x50.toByte(),
+			0x4E.toByte(),
+			0x47.toByte(),
+			0x0D.toByte(),
+			0x0A.toByte(),
+			0x1A.toByte(),
+			0x0A.toByte()
+		) + ByteArray(100)
+		File(folder, "day one").mkdirs()
+		File(folder, "day two").mkdirs()
+		File(folder, "day one/photo.png").writeBytes(png)
+		File(folder, "day two/photo.png").writeBytes(png)
+
+		val items = EphemeralMediaLoader.scanMediaItems(folder.path, context, paths, keyFor)
+		assertEquals(2, items.size)
+		// The grid keys rows by this, and a repeat would take the list down with it.
+		assertEquals(2, items.map { EphemeralMediaLoader.targetId(it.target) }.toSet().size)
+	}
+
+	@Test
 	fun `ignores manifest and shelf internal files`() {
 		val paths = StoragePaths.forTest(temp.root.path, temp.root.path)
 		val folder = temp.newFolder("empty_vault")

@@ -48,5 +48,5 @@ class EphemeralDecryptedStream(
 		return if (readCount > 0) readCount else -1
 	}
 
-	override fun available(): Int = minOf(totalSize - position, Int.MAX_VALUE.toLong()).toInt()
+	override fun available(): Int = (totalSize - position).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
 }

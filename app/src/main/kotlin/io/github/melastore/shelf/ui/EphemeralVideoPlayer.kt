@@ -63,17 +63,20 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun EphemeralVideoPlayerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> SecretKey?, onDismiss: () -> Unit,) {
-	var isPlaying by remember { mutableStateOf(false) }
-	var isPrepared by remember { mutableStateOf(false) }
-	var currentPositionMs by remember { mutableIntStateOf(0) }
-	var durationMs by remember { mutableIntStateOf(0) }
-	var videoAspectRatio by remember { mutableFloatStateOf(16f / 9f) }
-	var showControls by remember { mutableStateOf(true) }
-	var hasError by remember { mutableStateOf(false) }
-	var isDraggingSlider by remember { mutableStateOf(false) }
-	var sliderPositionMs by remember { mutableFloatStateOf(0f) }
+	// All of it keyed on the item, like the player itself. A duration or an error left over from the
+	// last video would drive the controls of the next one.
+	var isPlaying by remember(item) { mutableStateOf(false) }
+	var isPrepared by remember(item) { mutableStateOf(false) }
+	var currentPositionMs by remember(item) { mutableIntStateOf(0) }
+	var durationMs by remember(item) { mutableIntStateOf(0) }
+	var videoAspectRatio by remember(item) { mutableFloatStateOf(16f / 9f) }
+	var showControls by remember(item) { mutableStateOf(true) }
+	var hasError by remember(item) { mutableStateOf(false) }
+	var isDraggingSlider by remember(item) { mutableStateOf(false) }
+	var sliderPositionMs by remember(item) { mutableFloatStateOf(0f) }
+	var surfaceRef by remember(item) { mutableStateOf<Surface?>(null) }
 
-	val mediaPlayer = remember { MediaPlayer() }
+	val mediaPlayer = remember(item) { MediaPlayer() }
 
 	val dataSource = remember(item) {
 		val trailer = FileLocker.readTrailer(item.target)
@@ -99,7 +102,7 @@ fun EphemeralVideoPlayerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 			mediaPlayer.setOnPreparedListener { mp ->
 				durationMs = mp.duration
 				isPrepared = true
-				mp.start()
+				runCatching { mp.start() }
 				isPlaying = true
 			}
 			mediaPlayer.setOnVideoSizeChangedListener { _, width, height ->
@@ -121,19 +124,25 @@ fun EphemeralVideoPlayerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 		}
 
 		onDispose {
-			try {
+			runCatching {
 				if (mediaPlayer.isPlaying) mediaPlayer.stop()
+			}
+			runCatching {
 				mediaPlayer.reset()
 				mediaPlayer.release()
-				dataSource.close()
-			} catch (_: Exception) {}
+			}
+			surfaceRef?.release()
+			surfaceRef = null
+			dataSource.close()
 		}
 	}
 
 	LaunchedEffect(isPlaying, isDraggingSlider) {
 		while (isPlaying && !isDraggingSlider) {
 			if (isPrepared) {
-				currentPositionMs = mediaPlayer.currentPosition
+				runCatching { mediaPlayer.currentPosition }.getOrNull()?.let { pos ->
+					currentPositionMs = pos
+				}
 			}
 			delay(250)
 		}
@@ -173,15 +182,20 @@ fun EphemeralVideoPlayerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 				AndroidView(
 					factory = { ctx ->
 						TextureView(ctx).apply {
+							keepScreenOn = true
 							surfaceTextureListener = object : TextureView.SurfaceTextureListener {
 								override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
-									mediaPlayer.setSurface(Surface(st))
+									val surface = Surface(st)
+									surfaceRef = surface
+									runCatching { mediaPlayer.setSurface(surface) }
 								}
 
 								override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) = Unit
 
 								override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
-									mediaPlayer.setSurface(null)
+									runCatching { mediaPlayer.setSurface(null) }
+									surfaceRef?.release()
+									surfaceRef = null
 									return true
 								}
 
@@ -255,8 +269,9 @@ fun EphemeralVideoPlayerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 						IconButton(
 							onClick = {
 								if (isPrepared) {
-									val target = (mediaPlayer.currentPosition - 10000).coerceAtLeast(0)
-									mediaPlayer.seekTo(target)
+									val current = runCatching { mediaPlayer.currentPosition }.getOrDefault(currentPositionMs)
+									val target = (current - 10000).coerceAtLeast(0)
+									runCatching { mediaPlayer.seekTo(target.toLong(), MediaPlayer.SEEK_CLOSEST) }
 									currentPositionMs = target
 								}
 							},
@@ -274,14 +289,14 @@ fun EphemeralVideoPlayerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 							onClick = {
 								if (isPrepared) {
 									if (isPlaying) {
-										mediaPlayer.pause()
+										runCatching { mediaPlayer.pause() }
 										isPlaying = false
 									} else {
 										if (currentPositionMs >= durationMs && durationMs > 0) {
-											mediaPlayer.seekTo(0)
+											runCatching { mediaPlayer.seekTo(0L, MediaPlayer.SEEK_CLOSEST) }
 											currentPositionMs = 0
 										}
-										mediaPlayer.start()
+										runCatching { mediaPlayer.start() }
 										isPlaying = true
 									}
 								}
@@ -305,8 +320,9 @@ fun EphemeralVideoPlayerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 						IconButton(
 							onClick = {
 								if (isPrepared && durationMs > 0) {
-									val target = (mediaPlayer.currentPosition + 10000).coerceAtMost(durationMs)
-									mediaPlayer.seekTo(target)
+									val current = runCatching { mediaPlayer.currentPosition }.getOrDefault(currentPositionMs)
+									val target = (current + 10000).coerceAtMost(durationMs)
+									runCatching { mediaPlayer.seekTo(target.toLong(), MediaPlayer.SEEK_CLOSEST) }
 									currentPositionMs = target
 								}
 							},
@@ -361,8 +377,9 @@ fun EphemeralVideoPlayerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 							onValueChangeFinished = {
 								isDraggingSlider = false
 								if (isPrepared) {
-									mediaPlayer.seekTo(sliderPositionMs.toInt())
-									currentPositionMs = sliderPositionMs.toInt()
+									val target = sliderPositionMs.toInt()
+									runCatching { mediaPlayer.seekTo(target.toLong(), MediaPlayer.SEEK_CLOSEST) }
+									currentPositionMs = target
 								}
 							},
 							colors = SliderDefaults.colors(

@@ -41,7 +41,6 @@ class FolderNameProtector(
 ) {
 	private val appContext = context.applicationContext
 	private val resolver get() = appContext.contentResolver
-	private val json = Json { ignoreUnknownKeys = false }
 
 	/**
 	 * The File walk is only believed when it actually sees files.
@@ -321,34 +320,13 @@ class FolderNameProtector(
 	}
 
 	private fun readManifest(encrypted: ByteArray): List<NameMapping>? {
-		if (encrypted.size !in 1..PasswordEnvelope.MAX_ENVELOPE_BYTES) return null
 		val password = credential() ?: return null
-		var plain = byteArrayOf()
 		return try {
-			plain = PasswordEnvelope.decrypt(encrypted, password)
-			val manifest = json.decodeFromString(NameManifest.serializer(), plain.toString(Charsets.UTF_8))
-			manifest.files.takeIf { valid(manifest) }
-		} catch (_: Exception) {
-			null
+			parseManifest(encrypted, password)
 		} finally {
 			password.fill(' ')
-			plain.fill(0)
 		}
 	}
-
-	private fun valid(manifest: NameManifest): Boolean {
-		if (manifest.version != VERSION || manifest.files.size !in 1..MAX_FILES) return false
-		if (manifest.files.map { it.original }.toSet().size != manifest.files.size) return false
-		if (manifest.files.map { it.opaque }.toSet().size != manifest.files.size) return false
-		return manifest.files.all { mapping ->
-			safeRelative(mapping.original) && safeRelative(mapping.opaque) &&
-				mapping.original.substringBeforeLast('/', "") == mapping.opaque.substringBeforeLast('/', "") &&
-				OPAQUE.matches(mapping.opaque.substringAfterLast('/'))
-		}
-	}
-
-	private fun safeRelative(path: String): Boolean = path.isNotBlank() && path.length <= MAX_PATH &&
-		'\u0000' !in path && path.split('/').none { it.isBlank() || it == "." || it == ".." }
 
 	private fun opaqueSibling(original: String): String {
 		val parent = original.substringBeforeLast('/', "")
@@ -433,10 +411,10 @@ class FolderNameProtector(
 		name.startsWith(ROOT_RECOVERY_PREFIX)
 
 	@Serializable
-	internal data class NameManifest(val version: Int = VERSION, val files: List<NameMapping>)
+	private data class NameManifest(val version: Int = VERSION, val files: List<NameMapping>)
 
 	@Serializable
-	internal data class NameMapping(val original: String, val opaque: String)
+	private data class NameMapping(val original: String, val opaque: String)
 
 	private data class SafEntry(val path: String, val document: DocumentFile)
 	private data class SafRename(val entry: SafEntry, val name: String)
@@ -455,25 +433,46 @@ class FolderNameProtector(
 		val OPAQUE = Regex("(?:\\.sfn-|sfn_)[a-f0-9]{32}")
 		val UUID_TOKEN = Regex("[a-f0-9]{32}")
 
-		private val manifestJson = Json { ignoreUnknownKeys = true }
+		private val json = Json { ignoreUnknownKeys = false }
 
+		/**
+		 * Opaque name to original name, for a reader that has the manifest bytes and the credential but
+		 * no reason to build a protector. Held to the same checks as [readManifest]: a manifest that
+		 * fails them is not one this app wrote, and the names in it are not shown.
+		 */
 		fun decryptManifest(encrypted: ByteArray, password: CharArray): Map<String, String>? {
+			val files = parseManifest(encrypted, password) ?: return null
+			return files.associate { mapping ->
+				mapping.opaque.substringAfterLast('/') to mapping.original.substringAfterLast('/')
+			}
+		}
+
+		private fun parseManifest(encrypted: ByteArray, password: CharArray): List<NameMapping>? {
 			if (encrypted.size !in 1..PasswordEnvelope.MAX_ENVELOPE_BYTES) return null
 			var plain = byteArrayOf()
 			return try {
 				plain = PasswordEnvelope.decrypt(encrypted, password)
-				val manifest = manifestJson.decodeFromString(
-					NameManifest.serializer(),
-					plain.toString(Charsets.UTF_8),
-				)
-				manifest.files.associate { mapping ->
-					mapping.opaque.substringAfterLast('/') to mapping.original.substringAfterLast('/')
-				}
+				val manifest = json.decodeFromString(NameManifest.serializer(), plain.toString(Charsets.UTF_8))
+				manifest.files.takeIf { valid(manifest) }
 			} catch (_: Exception) {
 				null
 			} finally {
 				plain.fill(0)
 			}
 		}
+
+		private fun valid(manifest: NameManifest): Boolean {
+			if (manifest.version != VERSION || manifest.files.size !in 1..MAX_FILES) return false
+			if (manifest.files.map { it.original }.toSet().size != manifest.files.size) return false
+			if (manifest.files.map { it.opaque }.toSet().size != manifest.files.size) return false
+			return manifest.files.all { mapping ->
+				safeRelative(mapping.original) && safeRelative(mapping.opaque) &&
+					mapping.original.substringBeforeLast('/', "") == mapping.opaque.substringBeforeLast('/', "") &&
+					OPAQUE.matches(mapping.opaque.substringAfterLast('/'))
+			}
+		}
+
+		private fun safeRelative(path: String): Boolean = path.isNotBlank() && path.length <= MAX_PATH &&
+			'\u0000' !in path && path.split('/').none { it.isBlank() || it == "." || it == ".." }
 	}
 }

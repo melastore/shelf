@@ -20,6 +20,7 @@ import io.github.melastore.shelf.data.DecoyType
 import io.github.melastore.shelf.data.DuressEvent
 import io.github.melastore.shelf.data.DuressLog
 import io.github.melastore.shelf.data.EntryMethod
+import io.github.melastore.shelf.data.EphemeralMediaLoader
 import io.github.melastore.shelf.data.FailedUnlock
 import io.github.melastore.shelf.data.FailedUnlockLog
 import io.github.melastore.shelf.data.FolderTarget
@@ -764,6 +765,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 */
 	fun lockVault() {
 		ContentCredential.clear()
+		EphemeralMediaLoader.clearCache()
 		backgroundLock?.cancel()
 		backgroundLock = null
 		awaitingPickerUntil = 0L

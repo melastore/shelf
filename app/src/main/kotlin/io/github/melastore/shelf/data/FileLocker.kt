@@ -22,7 +22,7 @@ interface LockTarget {
 	fun sync()
 }
 
-class FileLockTarget(private val file: File) : LockTarget {
+class FileLockTarget(val file: File) : LockTarget {
 	override val name: String get() = file.name
 	override fun size(): Long = file.length()
 
