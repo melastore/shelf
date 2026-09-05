@@ -28,8 +28,8 @@ android {
 		applicationId = "io.github.melastore.shelf"
 		minSdk = 30
 		targetSdk = 37
-		versionName = "0.7.1"
-		versionCode = 18
+		versionName = "0.7.2"
+		versionCode = 19
 		testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 	}
 

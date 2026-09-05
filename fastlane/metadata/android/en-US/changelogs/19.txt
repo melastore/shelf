@@ -1,0 +1,16 @@
+Look inside a hidden folder without unhiding it, and two new ways in.
+
+- Photos and videos in a hidden folder can be browsed in place. Their real
+  names come back from the folder's own manifest, and nothing is written to
+  disk.
+- The calculator disguise can take your PIN on its keypad. Type it, press
+  equals, and there is no gesture left for anyone to find.
+- Double tapping the app name now opens private space, as an alternative to
+  holding it.
+- Settings has a guide covering the disguise, the way back in, the second PIN,
+  and what to do before uninstalling.
+
+Also fixed: a root-hidden folder is always put back out of sight when the
+viewer closes, a folder holding two files of the same name no longer breaks
+the grid, and a file is no longer taken for video because the bytes "ftyp"
+turn up somewhere inside it.
