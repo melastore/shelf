@@ -15,6 +15,12 @@ Root makes hiding stronger but is not required.
 | --- | --- | --- | --- |
 | ![Private space](fastlane/metadata/android/en-US/images/phoneScreenshots/1.jpg) | ![Momento](fastlane/metadata/android/en-US/images/phoneScreenshots/2.jpg) | ![Settings](fastlane/metadata/android/en-US/images/phoneScreenshots/3.jpg) | ![Recovery](fastlane/metadata/android/en-US/images/phoneScreenshots/4.jpg) |
 
+[What it does](#what-it-does) · [Install](#install) · [Getting in](#getting-in) ·
+[Hiding a folder](#hiding-a-folder) · [Looking inside](#looking-inside-without-unhiding) ·
+[Getting out fast](#getting-out-fast) · [Blending in](#blending-in) ·
+[If you are forced to unlock](#if-you-are-forced-to-unlock) ·
+[Limits](#read-this-before-you-rely-on-it) · [Building](#building)
+
 ## What it does
 
 - **Instant.** Hiding is a permission change or a rename, never a copy. Forty
@@ -23,10 +29,12 @@ Root makes hiding stronger but is not required.
   unmarked quarters. Fingerprint too, once a credential is set.
 - **Three disguises.** A habit tracker, a calendar, or a calculator, each with
   its own name, icon, and colours. Or no disguise at all.
-- **A second credential.** Opens a private space that looks real and holds
-  nothing that matters. The one to hand over if you are ever forced to.
-- **Auto hide.** Puts folders back on its own after the screen turns off, or the
-  moment you leave the app.
+- **Look without unhiding.** Photos, video, audio, PDFs, and text open from a
+  hidden folder and are decrypted as they are read. Nothing goes back to disk.
+- **Ways out in a hurry.** Turn the phone face down, plug in a cable, or tap a
+  notification that carries the disguise's own name.
+- **Two credentials for being made to open it.** One opens a space that holds
+  nothing that matters. The other destroys the keys.
 - **No network, no accounts, no ads.** No analytics and no proprietary
   dependencies. The only optional permission is all-files access.
 
@@ -50,10 +58,17 @@ SHA-256  c0a840767117551defe6282499cf23a10c586a42da67a8bb4f038ef297d6a405
 
 ## Getting in
 
-**Tap the top-right corner five times.** That always works, from any screen.
+**Tap the top-right corner five times.** That always works, on every disguise,
+whatever else you have set.
 
-Settings adds a quieter second way: a long press on the title, or on an
-ordinary-looking control inside the disguise.
+Settings adds a quieter second way: a long press on the title, a double tap on
+it, or a long press on an ordinary-looking control inside the disguise.
+
+The calculator can take your code on its own keypad instead, leaving no gesture
+to find. Type a PIN and press equals. A knock code works there too: tap it on
+the blank space above the keys and hold to open, or type the quarters as 1 to 4,
+left to right and top to bottom, then equals. The keypad has only digits, so it
+is offered for a PIN or a knock code and not for a password or a pattern.
 
 Then enter your credential:
 
@@ -99,10 +114,32 @@ a file manager that finds the folder shows nothing it can open or preview.
 > internal storage or to Download. A folder sitting directly in either of those
 > needs all-files access instead. Anything nested deeper is fine.
 
+## Looking inside without unhiding
+
+Open a hidden folder and Shelf lists what is in it, one file to a row with its
+full name.
+
+| Kind | What happens |
+| --- | --- |
+| **Photos** | Open full screen, pinch to zoom. |
+| **Video** | Plays in place. The screen turns to suit the clip and turns back after. |
+| **Audio** | Plays in place. |
+| **PDF** | Rendered page by page from memory alone. |
+| **Text** | Opens in a reader. |
+
+Everything is decrypted as it is read and nothing goes back to disk. The folder
+stays hidden the whole time and no gallery picks it up. A PDF is never written
+out to be opened, so no other app is handed the file and nothing is left behind.
+
 ## Getting out fast
 
 **Auto hide** closes the private space and puts folders back on its own: after
 the screen turns off, immediately when you leave the app, or never.
+
+Two panic triggers do it without touching the screen:
+
+- **Turn the phone face down.**
+- **Plug in a cable.** Any USB connection, charger included.
 
 You can also turn on a quiet notification with a one-tap hide. It carries the
 disguise's name and says nothing about a private space. It appears only while a
@@ -123,14 +160,19 @@ Three settings decide how much of Shelf anyone else sees.
   system holding a picture of it. Screenshots of the private space are blocked
   already, unless you turn them on for a session.
 
-## The second credential
+## If you are forced to unlock
 
-Optional. It opens a private space that looks and behaves like the real one and
-holds nothing that matters. This is the one to hand over if you are ever forced
-to.
+Two optional credentials, either of which can be given instead of your real one.
 
-Nothing in the app calls it a decoy on any screen you could be made to open. Its
-use is recorded, and your real space tells you about it the next time you get in.
+**A second credential** opens a private space that looks and behaves like the
+real one and holds nothing that matters. Nothing in the app calls it a decoy on
+any screen you could be made to open. Its use is recorded, and your real space
+tells you about it the next time you get in.
+
+**An emergency PIN** destroys the encryption keys and journals the moment it is
+entered, at any unlock prompt. Your folders stay where they are on disk, but
+Shelf can no longer find or unscramble them, and neither can anyone holding the
+phone. There is no undo, and no recovery file will bring them back afterwards.
 
 ## Read this before you rely on it
 

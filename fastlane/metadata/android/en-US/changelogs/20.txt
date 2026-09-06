@@ -1,0 +1,21 @@
+Read documents and play audio without unhiding, and a much faster hide.
+
+- PDFs and text files open alongside photos and video, listed one to a row with
+  their full names. A PDF is rendered from memory alone and never written out,
+  so no other app is ever handed it.
+- Audio in a hidden folder plays in place, decrypted as it streams.
+- Video turns the screen to suit the clip, and turns it back on the way out.
+- An emergency PIN can be set that destroys keys and journals the moment it is
+  entered, for when you are made to unlock.
+- Everything can be locked and hidden as soon as a USB cable is plugged in.
+- Hiding is much faster. A file is opened once for the whole of its lock rather
+  than a dozen times, and several files are worked at once.
+- Locked files no longer share a fixed trailer length, and the times they were
+  last modified survive being locked.
+
+Also fixed: hiding no longer fails on Shelf's own recovery marker, names are
+restored when the manifest was written through a document provider, a folder
+record can be forgotten for good instead of coming back on the next reload,
+browsing a folder whose grant has gone stale no longer closes the app, and the
+calculator no longer offers its keypad to a password or a pattern it could
+never take.

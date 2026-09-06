@@ -25,11 +25,24 @@ Folders you add stay on the list whether or not they are hidden, so putting them
 away again is one tap rather than another trip through the picker. A single
 control at the top hides or unhides all of them at once.
 
+A hidden folder can be opened and read without unhiding it. Photos, video,
+audio, PDFs, and text are listed one to a row under their real names and
+decrypted as they are read, with nothing written back to disk and no gallery
+picking them up. Video turns the screen to suit the clip. A PDF is rendered from
+an anonymous memory descriptor, so no decrypted copy is ever handed to another
+app or left behind.
+
 An optional second credential opens a private space that looks and behaves like
 the real one and contains nothing that matters, the one to give up if you are
 ever made to hand one over. Nothing on screen names it. Shelf records that it
 was used and tells you on your next real unlock, along with any wrong
 credentials someone else tried.
+
+A separate emergency PIN can be set that destroys the encryption keys and
+journals as soon as it is entered at any unlock prompt. The folders stay on disk
+but nothing can find or unscramble them afterwards, including Shelf. Turning the
+phone face down or plugging in a USB cable can also lock everything at once,
+without touching the screen.
 
 Folders can be hidden in three ways. On rooted devices Shelf protects file
 headers and clears permission bits on the backing filesystem. With optional
@@ -39,7 +52,11 @@ uses the system folder picker to rename the folder with a leading dot. Android
 grants no access to the top of internal storage or to Download, so a folder
 directly in one of those needs all-files access instead. All three
 methods replace file names with opaque identifiers and keep the originals in a
-recovery manifest encrypted with your credential. Header protection touches a
+recovery manifest encrypted with your credential. Name and header protection
+needs read and write access to the folder itself, which the rename method gets
+from the grant you give in the system picker. Where that access is missing the
+folder is still hidden, and Shelf says on screen that names or headers could not
+be protected rather than reporting success over files it never touched. Header protection touches a
 fixed 64 KiB per non-empty file rather than copying whole files, so a folder of
 large videos still hides quickly. A hidden-file browser may list a dot-renamed
 folder, but it sees random file names and ordinary previews and opening fail.
