@@ -274,6 +274,41 @@ class MainActivity : ComponentActivity() {
 					}
 				}
 
+				val usbPanicActive = state.usbPanic
+				DisposableEffect(lifecycleOwner, usbPanicActive) {
+					if (!usbPanicActive) return@DisposableEffect onDispose {}
+					val receiver = object : BroadcastReceiver() {
+						override fun onReceive(context: Context, intent: Intent) {
+							val isPower = intent.action == Intent.ACTION_POWER_CONNECTED
+							val isUsb = intent.action == "android.hardware.usb.action.USB_STATE" &&
+								!isInitialStickyBroadcast &&
+								intent.getBooleanExtra("connected", false)
+							if (isPower || isUsb) {
+								window.decorView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+								showCredential = false
+								showFakeCrash = false
+								if (state.screen != Screen.DECOY) {
+									viewModel.lockVault()
+								}
+								viewModel.autoHideAndClose()
+							}
+						}
+					}
+					val filter = IntentFilter().apply {
+						addAction(Intent.ACTION_POWER_CONNECTED)
+						addAction("android.hardware.usb.action.USB_STATE")
+					}
+					ContextCompat.registerReceiver(
+						this@MainActivity,
+						receiver,
+						filter,
+						ContextCompat.RECEIVER_NOT_EXPORTED,
+					)
+					onDispose {
+						runCatching { unregisterReceiver(receiver) }
+					}
+				}
+
 				BackHandler(enabled = state.screen == Screen.VAULT) { viewModel.lockVault() }
 				BackHandler(enabled = state.screen == Screen.SETTINGS) { viewModel.closeSettings() }
 

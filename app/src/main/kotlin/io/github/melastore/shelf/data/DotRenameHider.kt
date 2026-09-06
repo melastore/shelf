@@ -110,6 +110,7 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 			}
 		}
 
+		val originalFolderTime = runCatching { File(target.emulatedPath).lastModified() }.getOrDefault(0L)
 		val renamed = renameFolder(tree, target.emulatedPath, SafPaths.hiddenName(name)) ?: run {
 			names.restore(target.emulatedPath)
 			content.restore(target.emulatedPath)
@@ -118,8 +119,11 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		val finalName = renamed.name
 			?: return@withContext rollbackRename(entry, renamed.uri, name, HideFailure.HiddenNameUnverified)
 		val finalEntry = entry.copy(hiddenPath = SafPaths.sibling(target.emulatedPath, finalName))
+		if (originalFolderTime > 0L) {
+			runCatching { File(finalEntry.hiddenPath).setLastModified(originalFolderTime) }
+		}
 		if (!journal.replace(finalEntry)) {
-			return@withContext rollbackRename(entry, renamed.uri, name, HideFailure.JournalUpdateFailed)
+			return@withContext rollbackRename(finalEntry, renamed.uri, name, HideFailure.JournalUpdateFailed)
 		}
 
 		MediaStorePurge.scan(appContext, contents + target.emulatedPath)
@@ -227,6 +231,7 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 			)
 		}
 
+		val originalFolderTime = runCatching { File(entry.hiddenPath).lastModified() }.getOrDefault(0L)
 		val wanted = SafPaths.nameOf(entry.path)
 		val restored = renameFolder(tree, entry.hiddenPath, wanted) ?: run {
 			content.protect(entry.hiddenPath)
@@ -238,6 +243,9 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		// exists, failing every later attempt too. Assume the name we asked for.
 		val restoredName = restored.name ?: wanted
 		val restoredPath = SafPaths.sibling(entry.path, restoredName)
+		if (originalFolderTime > 0L) {
+			runCatching { File(restoredPath).setLastModified(originalFolderTime) }
+		}
 
 		journal.remove(entry.path)
 		MediaStorePurge.scan(appContext, childPaths(tree, restoredPath) + restoredPath)
@@ -389,10 +397,16 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		originalName: String,
 		failure: HideFailure,
 	): HideResult {
-		val rolledBack = renamed?.let {
-			runCatching { DocumentsContract.renameDocument(resolver, it, originalName) }.getOrNull()
+		val rolledBack = if (renamed != null) {
+			runCatching { DocumentsContract.renameDocument(resolver, renamed, originalName) }.getOrNull() != null
+		} else {
+			runCatching {
+				val hiddenFile = File(entry.hiddenPath)
+				val originalFile = File(entry.path)
+				!originalFile.exists() && hiddenFile.renameTo(originalFile)
+			}.getOrDefault(false)
 		}
-		if (rolledBack != null) {
+		if (rolledBack) {
 			names.restore(entry.path)
 			content.restore(entry.path)
 			journal.remove(entry.path)

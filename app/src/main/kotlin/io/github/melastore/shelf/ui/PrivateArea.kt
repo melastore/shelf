@@ -77,6 +77,7 @@ import io.github.melastore.shelf.data.EntryMethod
 import io.github.melastore.shelf.data.HidingPreference
 import io.github.melastore.shelf.data.SafRecoveryCandidate
 import io.github.melastore.shelf.data.ThemeMode
+import io.github.melastore.shelf.data.worksOnCalculatorKeypad
 import io.github.melastore.shelf.security.CredentialKind
 
 @Composable
@@ -161,11 +162,14 @@ fun PrivateArea(
 			onChangeCredential = viewModel::changeVaultCredential,
 			onSetDecoyCredential = viewModel::setDecoyCredential,
 			onClearDecoyPin = viewModel::clearDecoyPin,
+			onSetBurnerCredential = viewModel::setBurnerPin,
+			onClearBurnerPin = viewModel::clearBurnerPin,
 			onBiometricChange = onBiometricChange,
 			onQuickLockChange = onQuickLockChange,
 			onAllowScreenshotsChange = onAllowScreenshotsChange,
 			onAutoHideMode = viewModel::setAutoHideMode,
 			onFlipToHideChange = viewModel::setFlipToHide,
+			onUsbPanicChange = viewModel::setUsbPanic,
 			onSeedDecoy = viewModel::seedDecoyVault,
 			onForceUnhide = viewModel::forceUnhideAll,
 			onCheckHealth = viewModel::checkHiddenItems,
@@ -653,11 +657,14 @@ private fun SettingsScreen(
 	onChangeCredential: (CredentialKind, CharArray, CharArray) -> Unit,
 	onSetDecoyCredential: (CharArray, CharArray) -> Unit,
 	onClearDecoyPin: (CharArray) -> Unit,
+	onSetBurnerCredential: (CharArray, CharArray) -> Unit,
+	onClearBurnerPin: (CharArray) -> Unit,
 	onBiometricChange: (Boolean) -> Unit,
 	onQuickLockChange: (Boolean) -> Unit,
 	onAllowScreenshotsChange: (Boolean) -> Unit,
 	onAutoHideMode: (AutoHideMode) -> Unit,
 	onFlipToHideChange: (Boolean) -> Unit,
+	onUsbPanicChange: (Boolean) -> Unit,
 	onSeedDecoy: () -> Unit,
 	onForceUnhide: () -> Unit,
 	onCheckHealth: () -> Unit,
@@ -675,6 +682,9 @@ private fun SettingsScreen(
 	var decoyCurrent by remember { mutableStateOf<CharArray?>(null) }
 	var decoyAction by remember { mutableStateOf<DecoyPinAction?>(null) }
 	var removeDecoyPin by remember { mutableStateOf(false) }
+	var burnerCurrent by remember { mutableStateOf<CharArray?>(null) }
+	var burnerAction by remember { mutableStateOf<DecoyPinAction?>(null) }
+	var removeBurnerPin by remember { mutableStateOf(false) }
 	var confirmForce by remember { mutableStateOf(false) }
 	var recoveryCandidate by remember { mutableStateOf<SafRecoveryCandidate?>(null) }
 
@@ -685,6 +695,7 @@ private fun SettingsScreen(
 		onDispose {
 			changeCurrent?.fill(' ')
 			decoyCurrent?.fill(' ')
+			burnerCurrent?.fill(' ')
 		}
 	}
 
@@ -734,7 +745,9 @@ private fun SettingsScreen(
 								icon = { DecoyBadge(decoy) },
 								onClick = {
 									onDecoy(decoy)
-									if (decoy == DecoyType.CALCULATOR) {
+									val keypadUsable = decoy == DecoyType.CALCULATOR &&
+										state.credentialKind.worksOnCalculatorKeypad()
+									if (keypadUsable) {
 										onEntryMethod(EntryMethod.DIRECT_KEYPAD)
 									} else if (state.entryMethod == EntryMethod.DIRECT_KEYPAD) {
 										onEntryMethod(EntryMethod.DOUBLE_TAP_TITLE)
@@ -751,7 +764,10 @@ private fun SettingsScreen(
 					stringResource(R.string.access),
 					stringResource(R.string.access_description),
 				) {
-					val methods = if (state.decoy == DecoyType.CALCULATOR) {
+					// The keypad is only on offer when the stored credential can be entered on it.
+					val methods = if (
+						state.decoy == DecoyType.CALCULATOR && state.credentialKind.worksOnCalculatorKeypad()
+					) {
 						EntryMethod.entries
 					} else {
 						EntryMethod.entries.filter { it != EntryMethod.DIRECT_KEYPAD }
@@ -789,6 +805,8 @@ private fun SettingsScreen(
 					onSetDecoyPin = { decoyAction = DecoyPinAction.SET },
 					onRemoveDecoyPin = { removeDecoyPin = true },
 					onSeedDecoy = onSeedDecoy,
+					onSetBurnerPin = { burnerAction = DecoyPinAction.SET },
+					onRemoveBurnerPin = { removeBurnerPin = true },
 				)
 			}
 
@@ -798,6 +816,7 @@ private fun SettingsScreen(
 					onQuickLockChange = { onQuickLockChange(!state.quickLockNotification) },
 					onAutoHideMode = onAutoHideMode,
 					onFlipToHideChange = { onFlipToHideChange(!state.flipToHide) },
+					onUsbPanicChange = { onUsbPanicChange(!state.usbPanic) },
 					onAllowScreenshotsChange = { onAllowScreenshotsChange(!state.allowScreenshots) },
 					onHideFromRecentsChange = { onHideFromRecents(!state.hideFromRecents) },
 				)
@@ -913,6 +932,60 @@ private fun SettingsScreen(
 				decoyAction = DecoyPinAction.REMOVE
 			},
 			onDismiss = { removeDecoyPin = false },
+		)
+	}
+	burnerAction?.let { action ->
+		if (burnerCurrent == null) {
+			val acceptCurrent: (CharArray) -> Unit = { current ->
+				if (action == DecoyPinAction.SET) {
+					burnerCurrent = current
+				} else {
+					onClearBurnerPin(current)
+					burnerAction = null
+				}
+			}
+			CredentialPrompt(
+				kind = state.credentialKind,
+				title = stringResource(R.string.confirm_primary_pin),
+				subtitle = stringResource(R.string.confirm_primary_pin_summary),
+				confirmLabel = stringResource(R.string.continue_action),
+				onConfirm = acceptCurrent,
+				onDismiss = { burnerAction = null },
+			)
+		}
+	}
+	burnerCurrent?.let { current ->
+		CredentialPrompt(
+			kind = state.credentialKind,
+			title = stringResource(
+				if (state.burnerPinSet) R.string.change_burner_pin else R.string.create_burner_pin,
+			),
+			subtitle = stringResource(R.string.burner_pin_hint),
+			confirmLabel = stringResource(R.string.save),
+			confirmEntry = true,
+			onConfirm = { pin ->
+				onSetBurnerCredential(current, pin)
+				burnerCurrent = null
+				burnerAction = null
+			},
+			onDismiss = {
+				current.fill(' ')
+				burnerCurrent = null
+				burnerAction = null
+			},
+		)
+	}
+	if (removeBurnerPin) {
+		ConfirmDialog(
+			title = stringResource(R.string.remove_burner_pin),
+			body = stringResource(R.string.remove_burner_pin_confirm),
+			confirmLabel = stringResource(R.string.remove),
+			dangerous = true,
+			onConfirm = {
+				removeBurnerPin = false
+				burnerAction = DecoyPinAction.REMOVE
+			},
+			onDismiss = { removeBurnerPin = false },
 		)
 	}
 	if (confirmForce) {

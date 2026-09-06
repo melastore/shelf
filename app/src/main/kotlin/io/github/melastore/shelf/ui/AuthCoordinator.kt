@@ -7,18 +7,21 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-internal enum class CredentialMatch { PRIMARY, DECOY, NONE }
+internal enum class CredentialMatch { PRIMARY, DECOY, BURNER, NONE }
 
 /** Owns credential storage and comparison. The view model keeps UI policy and navigation. */
 internal class AuthCoordinator(filesDir: File, private val preferences: AppPreferences) {
 	private val primaryGate = PassphraseGate(File(filesDir, "gate"))
 	private val decoyGate = PassphraseGate(File(filesDir, "decoy_gate"))
+	private val burnerGate = PassphraseGate(File(filesDir, "burner_gate"))
 
 	suspend fun primaryIsSet(): Boolean = primaryGate.isSet()
 	suspend fun decoyIsSet(): Boolean = decoyGate.isSet()
+	suspend fun burnerIsSet(): Boolean = burnerGate.isSet()
 
 	suspend fun match(input: CharArray): CredentialMatch = withContext(Dispatchers.Default) {
 		when {
+			burnerGate.matches(input) -> CredentialMatch.BURNER
 			primaryGate.matches(input) -> CredentialMatch.PRIMARY
 			decoyGate.matches(input) -> CredentialMatch.DECOY
 			else -> CredentialMatch.NONE
@@ -29,6 +32,8 @@ internal class AuthCoordinator(filesDir: File, private val preferences: AppPrefe
 
 	suspend fun decoyMatches(input: CharArray): Boolean = withContext(Dispatchers.Default) { decoyGate.matches(input) }
 
+	suspend fun burnerMatches(input: CharArray): Boolean = withContext(Dispatchers.Default) { burnerGate.matches(input) }
+
 	suspend fun setPrimary(input: CharArray, kind: CredentialKind) = withContext(Dispatchers.Default) {
 		primaryGate.set(input)
 		preferences.setCredentialKind(kind)
@@ -37,4 +42,8 @@ internal class AuthCoordinator(filesDir: File, private val preferences: AppPrefe
 	suspend fun setDecoy(input: CharArray) = withContext(Dispatchers.Default) { decoyGate.set(input) }
 
 	suspend fun clearDecoy() = withContext(Dispatchers.IO) { decoyGate.clear() }
+
+	suspend fun setBurner(input: CharArray) = withContext(Dispatchers.Default) { burnerGate.set(input) }
+
+	suspend fun clearBurner() = withContext(Dispatchers.IO) { burnerGate.clear() }
 }

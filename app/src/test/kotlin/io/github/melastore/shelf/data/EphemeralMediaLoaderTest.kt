@@ -25,6 +25,25 @@ class EphemeralMediaLoaderTest {
 	private val context: Application get() = ApplicationProvider.getApplicationContext()
 
 	@Test
+	fun `documents are classified by magic and by extension`() = runBlocking {
+		val folder = temp.newFolder("docs")
+		val paths = StoragePaths.forTest(temp.root.path, temp.root.path)
+		val keyFor: (ByteArray) -> SecretKey? = { null }
+
+		File(folder, "manual.pdf").writeBytes("%PDF-1.7\n".toByteArray() + ByteArray(200))
+		// No extension to go on, so this one is decided by looking at the bytes.
+		File(folder, "README").writeBytes("plain notes, nothing binary in here\n".toByteArray())
+		File(folder, "subtitles.srt").writeBytes("1\n00:00:01,000 --> 00:00:04,000\nline\n".toByteArray())
+
+		val items = EphemeralMediaLoader.scanMediaItems(folder.path, context, paths, keyFor)
+		val byName = items.associate { it.name to it.type }
+
+		assertEquals(EphemeralMediaType.PDF, byName["manual.pdf"])
+		assertEquals(EphemeralMediaType.TEXT, byName["README"])
+		assertEquals(EphemeralMediaType.TEXT, byName["subtitles.srt"])
+	}
+
+	@Test
 	fun `scans media items and decodes manifest in hidden folder`() = runBlocking {
 		val password = "testpassphrase".toCharArray()
 		ContentCredential.set(password)
@@ -162,5 +181,45 @@ class EphemeralMediaLoaderTest {
 
 		val items = EphemeralMediaLoader.scanMediaItems(folder.path, context, paths, keyFor)
 		assertTrue(items.isEmpty())
+	}
+
+	@Test
+	fun `loads 0-byte text file as empty string without error`() {
+		val folder = temp.newFolder("empty_text")
+		val file = File(folder, "empty.txt").apply { createNewFile() }
+		val target = FileLockTarget(file)
+		val keyFor: (ByteArray) -> SecretKey? = { null }
+
+		val text = EphemeralMediaLoader.loadText(target, keyFor)
+		assertEquals("", text)
+	}
+
+	@Test
+	fun `audio files are classified by magic and by extension`() = runBlocking {
+		val folder = temp.newFolder("audio_test")
+		val paths = StoragePaths.forTest(temp.root.path, temp.root.path)
+		val keyFor: (ByteArray) -> SecretKey? = { null }
+
+		File(
+			folder,
+			"song.mp3"
+		).writeBytes(byteArrayOf('I'.code.toByte(), 'D'.code.toByte(), '3'.code.toByte()) + ByteArray(200))
+		File(
+			folder,
+			"track.ogg"
+		).writeBytes(byteArrayOf('O'.code.toByte(), 'g'.code.toByte(), 'g'.code.toByte(), 'S'.code.toByte()) + ByteArray(200))
+		File(
+			folder,
+			"sound.flac"
+		).writeBytes(byteArrayOf('f'.code.toByte(), 'L'.code.toByte(), 'a'.code.toByte(), 'C'.code.toByte()) + ByteArray(200))
+		File(folder, "recording.m4a").writeBytes(ByteArray(200))
+
+		val items = EphemeralMediaLoader.scanMediaItems(folder.path, context, paths, keyFor)
+		val byName = items.associate { it.name to it.type }
+
+		assertEquals(EphemeralMediaType.AUDIO, byName["song.mp3"])
+		assertEquals(EphemeralMediaType.AUDIO, byName["track.ogg"])
+		assertEquals(EphemeralMediaType.AUDIO, byName["sound.flac"])
+		assertEquals(EphemeralMediaType.AUDIO, byName["recording.m4a"])
 	}
 }

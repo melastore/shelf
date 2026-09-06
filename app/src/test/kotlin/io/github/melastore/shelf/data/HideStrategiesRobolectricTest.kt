@@ -146,6 +146,26 @@ class HideStrategiesRobolectricTest {
 		assertTrue(File(paths.emulatedRoot, "Download/.Clips").isDirectory)
 	}
 
+	@Test
+	fun `dot rename rolls back folder on mount when journal update fails`() = runBlocking {
+		val paths = testPaths(FakeRoot())
+		val journalFile = File(temporaryFolder.root, "failing-journal.json")
+		val journal = object : Journal(journalFile) {
+			override suspend fun replace(entry: HiddenEntry): Boolean = false
+		}
+		val source = File(paths.emulatedRoot, "Download/RollbackTest").apply { mkdirs() }
+		File(source, "clip.mp4").writeText("x")
+		val hider = DotRenameHider(context, journal, paths)
+
+		val result = hider.hide(FolderTarget(source.path, "RollbackTest", null))
+
+		assertTrue(result is HideResult.Failed)
+		assertEquals(HideFailure.JournalUpdateFailed, (result as HideResult.Failed).failure)
+		assertTrue("Folder must be restored to original name", source.isDirectory)
+		assertTrue("Hidden folder must not exist", !File(paths.emulatedRoot, "Download/.RollbackTest").exists())
+		assertTrue(journal.read().isEmpty())
+	}
+
 	/**
 	 * A build can answer isExternalStorageManager true, resolve the appop to allowed, and still hand
 	 * the process a view in which the folder is empty and cannot be renamed. Going ahead protects

@@ -40,11 +40,13 @@ import io.github.melastore.shelf.data.SafPaths
 import io.github.melastore.shelf.data.SafRecoveryCandidate
 import io.github.melastore.shelf.data.ShelfCore
 import io.github.melastore.shelf.data.ThemeMode
+import io.github.melastore.shelf.data.worksOnCalculatorKeypad
 import io.github.melastore.shelf.security.BiometricAuth
 import io.github.melastore.shelf.security.CredentialFault
 import io.github.melastore.shelf.security.CredentialKind
 import io.github.melastore.shelf.security.CredentialRules
 import io.github.melastore.shelf.security.EmergencyCredentialStore
+import io.github.melastore.shelf.security.KnockCode
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -94,6 +96,7 @@ data class AppUiState(
 	/** A count and nothing else. It outlives the private space, so it must not name any folder. */
 	val exposedFolders: Int = 0,
 	val decoyPinSet: Boolean = false,
+	val burnerPinSet: Boolean = false,
 	val decoy: DecoyType = DecoyType.HABITS,
 	val entryMethod: EntryMethod = EntryMethod.TITLE_HOLD,
 	val hidingPreference: HidingPreference = HidingPreference.AUTO,
@@ -108,6 +111,7 @@ data class AppUiState(
 	val hideFromRecents: Boolean = false,
 	val themeMode: ThemeMode = ThemeMode.SYSTEM,
 	val flipToHide: Boolean = true,
+	val usbPanic: Boolean = false,
 	/** Set when an operation stopped to ask for access to a folder above the target. */
 	val accessNeededFor: Uri? = null,
 	/** Where the folder picker opens, so the first hide does not start at an empty Recents list. */
@@ -219,6 +223,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					autoHideMode = settings.autoHideMode,
 					quickLockNotification = settings.quickLockNotification,
 					decoyPinSet = auth.decoyIsSet(),
+					burnerPinSet = auth.burnerIsSet(),
 					decoy = settings.decoy,
 					entryMethod = settings.entryMethod,
 					hidingPreference = settings.hidingPreference,
@@ -226,6 +231,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					hideFromRecents = settings.hideFromRecents,
 					themeMode = settings.themeMode,
 					flipToHide = settings.flipToHide,
+					usbPanic = settings.usbPanic,
 					setupStep = if (credentialSet) 0 else preferences.setupStep(),
 					habits = habits,
 					calendarEvents = events,
@@ -289,6 +295,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			ContentCredential.set(credential)
 			withContext(Dispatchers.IO) { preferences.clearSetupStep() }
 			_state.update { it.copy(credentialSet = true, credentialKind = kind, setupStep = 0) }
+			keepEntryReachable(kind)
 			openVault()
 		} finally {
 			credential.fill(' ')
@@ -318,6 +325,10 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					openDecoyVault(System.currentTimeMillis())
 				}
 
+				CredentialMatch.BURNER -> {
+					nukeAndWipe()
+				}
+
 				CredentialMatch.NONE -> recordFailedUnlock()
 			}
 		} catch (e: Exception) {
@@ -337,14 +348,29 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			input.fill(' ')
 			return@launch
 		}
+		// A knock code can be typed as well as tapped, and a calculator swallows the leading zero of
+		// the stored form, so the one-based spelling is tried too.
+		val alias = KnockCode.fromOneBased(input)
 		try {
 			val uptime = SystemClock.elapsedRealtime()
 			val blockedUntil = withContext(Dispatchers.IO) { preferences.blockedUntil(uptime) }
 			if (uptime < blockedUntil) return@launch
-			when (auth.match(input)) {
+			// Keep the spelling that matched, not the keys pressed: that is what folders are sealed
+			// under.
+			var matched = CredentialMatch.NONE
+			var credential = input
+			for (candidate in listOfNotNull(input, alias)) {
+				val result = auth.match(candidate)
+				if (result != CredentialMatch.NONE) {
+					matched = result
+					credential = candidate
+					break
+				}
+			}
+			when (matched) {
 				CredentialMatch.PRIMARY -> {
 					withContext(Dispatchers.IO) { preferences.clearFailedUnlocks() }
-					ContentCredential.set(input)
+					ContentCredential.set(credential)
 					openVault()
 				}
 
@@ -353,12 +379,45 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					openDecoyVault(System.currentTimeMillis())
 				}
 
+				CredentialMatch.BURNER -> {
+					nukeAndWipe()
+				}
+
 				CredentialMatch.NONE -> Unit
 			}
 		} catch (_: Exception) {
 		} finally {
 			input.fill(' ')
+			alias?.fill(' ')
 			authenticationMutex.unlock()
+		}
+	}
+
+	private suspend fun nukeAndWipe() = withContext(Dispatchers.IO) {
+		ContentCredential.clear()
+		EmergencyCredentialStore.clear(getApplication())
+		preferences.clearFailedUnlocks()
+		auth.clearBurner()
+		auth.clearDecoy()
+		val app = getApplication<Application>()
+		app.filesDir.listFiles()?.forEach { file ->
+			if (file.name.contains("journal") || file.name.contains("gate") || file.name.contains("recovery") ||
+				file.name.contains("vault")
+			) {
+				file.delete()
+			}
+		}
+		withContext(Dispatchers.Main) {
+			_state.update {
+				it.copy(
+					screen = Screen.DECOY,
+					credentialSet = false,
+					burnerPinSet = false,
+					decoyPinSet = false,
+					folders = emptyList(),
+					fakeCrash = true,
+				)
+			}
 		}
 	}
 
@@ -395,6 +454,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			withContext(Dispatchers.IO) { EmergencyCredentialStore.clear(getApplication()) }
 			auth.setPrimary(next, kind)
 			ContentCredential.set(next)
+			keepEntryReachable(kind)
 			_state.update {
 				it.copy(
 					credentialKind = kind,
@@ -442,6 +502,40 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		} finally {
 			current.fill(' ')
 		}
+	}
+
+	fun setBurnerPin(current: CharArray, credential: CharArray) = launchBusy {
+		try {
+			validate(_state.value.credentialKind, credential)?.let { return@launchBusy fail(it) }
+			if (!auth.primaryMatches(current)) {
+				return@launchBusy fail(uiMessage(R.string.primary_credential_incorrect))
+			}
+			if (auth.primaryMatches(credential)) {
+				return@launchBusy fail(uiMessage(R.string.primary_decoy_pin_different))
+			}
+			auth.setBurner(credential)
+			_state.update { it.copy(burnerPinSet = true, message = uiMessage(R.string.burner_pin_saved)) }
+		} finally {
+			current.fill(' ')
+			credential.fill(' ')
+		}
+	}
+
+	fun clearBurnerPin(current: CharArray) = launchBusy {
+		try {
+			if (!auth.primaryMatches(current)) {
+				return@launchBusy fail(uiMessage(R.string.primary_credential_incorrect))
+			}
+			auth.clearBurner()
+			_state.update { it.copy(burnerPinSet = false, message = uiMessage(R.string.burner_pin_removed)) }
+		} finally {
+			current.fill(' ')
+		}
+	}
+
+	fun setUsbPanic(enabled: Boolean) = viewModelScope.launch {
+		withContext(Dispatchers.IO) { preferences.setUsbPanic(enabled) }
+		_state.update { it.copy(usbPanic = enabled) }
 	}
 
 	/**
@@ -867,6 +961,18 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		_state.update { it.copy(entryMethod = method, message = uiMessage(R.string.entry_gesture_changed)) }
 	}
 
+	/**
+	 * Puts the entrance back within reach of the credential just set. The keypad takes the title
+	 * gesture and the corner taps with it, so a credential that cannot be typed there leaves no way
+	 * in. Here rather than in the screens because a lockout has no way back.
+	 */
+	private suspend fun keepEntryReachable(kind: CredentialKind) {
+		if (_state.value.entryMethod != EntryMethod.DIRECT_KEYPAD) return
+		if (kind.worksOnCalculatorKeypad()) return
+		withContext(Dispatchers.IO) { preferences.setEntryMethod(EntryMethod.DOUBLE_TAP_TITLE) }
+		_state.update { it.copy(entryMethod = EntryMethod.DOUBLE_TAP_TITLE) }
+	}
+
 	fun setHidingPreference(preference: HidingPreference) = viewModelScope.launch {
 		withContext(Dispatchers.IO) { preferences.setHidingPreference(preference) }
 		_state.update { it.copy(hidingPreference = preference) }
@@ -1288,8 +1394,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 */
 	fun forgetEntry(folder: VaultFolder) = launchBusy {
 		guard {
-			folder.entry?.let { journal.remove(it.path) }
-			registry.remove(folder.path)
+			// By path, not folder.entry: that is null while a journalled folder is exposed, and the
+			// row left behind is adopted straight back on the next reload.
+			folderCoordinator.forget(folder.path)
 		}
 		reloadVault(uiMessage(R.string.folder_record_removed, folder.displayName))
 	}

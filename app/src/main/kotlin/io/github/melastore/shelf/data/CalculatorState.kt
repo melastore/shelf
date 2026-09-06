@@ -9,21 +9,24 @@ data class CalculatorState(
 	val accumulator: BigDecimal? = null,
 	val operation: CalculatorOperation? = null,
 	val replaceDisplay: Boolean = false,
+	val expression: String = "",
 ) {
 	fun digit(value: Int): CalculatorState {
 		require(value in 0..9)
+		val nextExpr = if (replaceDisplay && operation == null) "" else expression
 		val next = when {
 			replaceDisplay || display == "0" || display == "Error" -> value.toString()
 			display.length >= MAX_DISPLAY -> display
 			else -> display + value
 		}
-		return copy(display = next, replaceDisplay = false)
+		return copy(display = next, replaceDisplay = false, expression = nextExpr)
 	}
 
 	fun decimal(): CalculatorState {
-		if (display == "Error") return copy(display = "0.", replaceDisplay = false)
-		if (replaceDisplay) return copy(display = "0.", replaceDisplay = false)
-		return if ('.' in display) this else copy(display = "$display.")
+		val nextExpr = if (replaceDisplay && operation == null) "" else expression
+		if (display == "Error") return copy(display = "0.", replaceDisplay = false, expression = nextExpr)
+		if (replaceDisplay) return copy(display = "0.", replaceDisplay = false, expression = nextExpr)
+		return if ('.' in display) this else copy(display = "$display.", expression = nextExpr)
 	}
 
 	fun clear(): CalculatorState = CalculatorState()
@@ -47,6 +50,7 @@ data class CalculatorState(
 				accumulator = resolved,
 				operation = next,
 				replaceDisplay = true,
+				expression = "${format(resolved)} ${next.symbol}",
 			)
 		}
 	}
@@ -54,16 +58,27 @@ data class CalculatorState(
 	/** Applies the pending operation. Named for the key, not for [Any.equals]. */
 	fun evaluate(): CalculatorState {
 		val current = displayNumber() ?: return CalculatorState(display = "Error", replaceDisplay = true)
-		val result = calculate(accumulator, current, operation) ?: return CalculatorState(
-			display = "Error",
+		if (operation != null && accumulator != null) {
+			val result = calculate(accumulator, current, operation) ?: return CalculatorState(
+				display = "Error",
+				replaceDisplay = true,
+			)
+			return CalculatorState(
+				display = format(result),
+				replaceDisplay = true,
+				expression = "${format(accumulator)} ${operation.symbol} ${format(current)} =",
+			)
+		}
+		return CalculatorState(
+			display = format(current),
 			replaceDisplay = true,
+			expression = "${format(current)} =",
 		)
-		return CalculatorState(display = format(result), replaceDisplay = true)
 	}
 
 	private fun displayNumber(): BigDecimal? = display.toBigDecimalOrNull()
 
-	private fun calculate(left: BigDecimal?, right: BigDecimal, operation: CalculatorOperation?,): BigDecimal? {
+	private fun calculate(left: BigDecimal?, right: BigDecimal, operation: CalculatorOperation?): BigDecimal? {
 		if (left == null || operation == null) return right
 		return when (operation) {
 			CalculatorOperation.ADD -> left + right
@@ -94,4 +109,9 @@ data class CalculatorState(
 	}
 }
 
-enum class CalculatorOperation { ADD, SUBTRACT, MULTIPLY, DIVIDE }
+enum class CalculatorOperation(val symbol: String) {
+	ADD("+"),
+	SUBTRACT("−"),
+	MULTIPLY("×"),
+	DIVIDE("÷"),
+}

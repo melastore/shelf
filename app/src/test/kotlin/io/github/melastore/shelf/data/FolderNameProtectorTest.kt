@@ -137,6 +137,19 @@ class FolderNameProtectorTest {
 		password.fill(' ')
 	}
 
+	@Test
+	fun `a manifest this view cannot read leaves the folder to the provider`() = runBlocking {
+		val root = temp.newFolder("provider-written")
+		File(root, "clip.mp4").writeBytes("payload".toByteArray())
+		// Stands in for a manifest written through a document provider: it stats fine and will not
+		// open. There is no grant in this test, so the fall-through has nowhere left to go.
+		File(root, FolderNameProtector.MANIFEST).writeBytes(ByteArray(0))
+		val password = "48261357".toCharArray()
+
+		assertEquals(NameProtectionResult.AccessUnavailable, protector(root, password).protect(root.path))
+		password.fill(' ')
+	}
+
 	private fun protector(root: File, password: CharArray) = FolderNameProtector(
 		context,
 		paths(root),

@@ -7,7 +7,9 @@ import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
 import io.github.melastore.shelf.data.AutoHideMode
 import io.github.melastore.shelf.data.ContentCredential
+import io.github.melastore.shelf.data.EntryMethod
 import io.github.melastore.shelf.security.CredentialKind
+import io.github.melastore.shelf.security.KnockCode
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -35,6 +37,126 @@ class ShelfViewModelRobolectricTest {
 		application.getSharedPreferences("biometric_credential", Application.MODE_PRIVATE)
 			.edit().clear().commit()
 		ContentCredential.clear()
+	}
+
+	@Test
+	fun `a knock code typed one-based opens the vault under its stored spelling`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setVaultCredential(CredentialKind.KNOCK, KnockCode.encode(listOf(0, 0, 3, 3)))
+			await { viewModel.state.value.screen == Screen.VAULT }
+			viewModel.lockVault()
+			await { viewModel.state.value.screen != Screen.VAULT }
+			ContentCredential.clear()
+
+			// The quarters counted one to four, which is what a calculator can actually show.
+			viewModel.tryStealthUnlock("1144".toCharArray())
+			await { viewModel.state.value.screen == Screen.VAULT }
+
+			// The folders were sealed under the zero-based form, so that is what has to be held.
+			// Keeping the keys that were pressed would open the vault and then fail every folder.
+			assertEquals("0033", ContentCredential.copy()?.concatToString())
+		} finally {
+			store.clear()
+		}
+	}
+
+	@Test
+	fun `a wrong one-based code opens nothing`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setVaultCredential(CredentialKind.KNOCK, KnockCode.encode(listOf(0, 0, 3, 3)))
+			await { viewModel.state.value.screen == Screen.VAULT }
+			viewModel.lockVault()
+			await { viewModel.state.value.screen != Screen.VAULT }
+
+			viewModel.tryStealthUnlock("1244".toCharArray())
+
+			shadowOf(Looper.getMainLooper()).idle()
+			assertTrue(viewModel.state.value.screen != Screen.VAULT)
+		} finally {
+			store.clear()
+		}
+	}
+
+	@Test
+	fun `a knock credential opens from the calculator keypad as digits`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			// Top-left, top-left, bottom-right, bottom-right.
+			viewModel.setVaultCredential(CredentialKind.KNOCK, KnockCode.encode(listOf(0, 0, 3, 3)))
+			await { viewModel.state.value.screen == Screen.VAULT }
+			viewModel.lockVault()
+			await { viewModel.state.value.screen != Screen.VAULT }
+
+			// The same quarters typed on the keys. A knock code is stored as the digits of the
+			// quarters it taps, so the keypad reaches it without knowing it is a knock code at all.
+			viewModel.tryStealthUnlock("0033".toCharArray())
+
+			await { viewModel.state.value.screen == Screen.VAULT }
+		} finally {
+			store.clear()
+		}
+	}
+
+	@Test
+	fun `a credential the calculator keypad cannot take moves the entrance off the keypad`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setEntryMethod(EntryMethod.DIRECT_KEYPAD)
+			await { viewModel.state.value.entryMethod == EntryMethod.DIRECT_KEYPAD }
+
+			viewModel.setVaultCredential(CredentialKind.PASSWORD, "a real password".toCharArray())
+			// The vault opens after the guard runs, so this is the barrier, not credentialSet.
+			await { viewModel.state.value.screen == Screen.VAULT }
+
+			// The keypad takes digits and takes the title gesture and corner taps away with it, so a
+			// password left there is a vault with no entrance at all.
+			assertEquals(EntryMethod.DOUBLE_TAP_TITLE, viewModel.state.value.entryMethod)
+		} finally {
+			store.clear()
+		}
+	}
+
+	@Test
+	fun `a PIN is left on the keypad entrance`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setEntryMethod(EntryMethod.DIRECT_KEYPAD)
+			await { viewModel.state.value.entryMethod == EntryMethod.DIRECT_KEYPAD }
+
+			viewModel.setVaultCredential(CredentialKind.PIN, "4826".toCharArray())
+			await { viewModel.state.value.screen == Screen.VAULT }
+
+			assertEquals(EntryMethod.DIRECT_KEYPAD, viewModel.state.value.entryMethod)
+		} finally {
+			store.clear()
+		}
 	}
 
 	@Test

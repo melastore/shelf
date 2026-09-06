@@ -632,6 +632,7 @@ private fun CalculatorDecoy(
 	// The keys pressed, not the display. A PIN starting with a zero never reaches the display, which
 	// drops a leading zero the way a calculator has to.
 	var typed by remember { mutableStateOf("") }
+	var lastOperand by remember { mutableStateOf("") }
 	val haptics = LocalHapticFeedback.current
 	val rows = listOf(
 		listOf("C", "±", "%", "÷"),
@@ -682,16 +683,32 @@ private fun CalculatorDecoy(
 					},
 				contentAlignment = Alignment.BottomEnd,
 			) {
-				Text(
-					calculator.display,
-					modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 28.dp),
-					style = MaterialTheme.typography.displayLarge,
-					fontSize = 64.sp,
-					fontWeight = FontWeight.Light,
-					textAlign = TextAlign.End,
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis,
-				)
+				Column(
+					modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp),
+					horizontalAlignment = Alignment.End,
+				) {
+					if (calculator.expression.isNotEmpty()) {
+						Text(
+							text = calculator.expression,
+							style = MaterialTheme.typography.titleMedium,
+							color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+							textAlign = TextAlign.End,
+							maxLines = 1,
+							overflow = TextOverflow.Ellipsis,
+						)
+						Spacer(Modifier.height(4.dp))
+					}
+					Text(
+						text = calculator.display,
+						modifier = Modifier.fillMaxWidth(),
+						style = MaterialTheme.typography.displayLarge,
+						fontSize = if (calculator.display.length > 9) 48.sp else 64.sp,
+						fontWeight = FontWeight.Light,
+						textAlign = TextAlign.End,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis,
+					)
+				}
 			}
 			rows.forEach { row ->
 				Row(
@@ -708,21 +725,37 @@ private fun CalculatorDecoy(
 									"C" -> {
 										knockTaps.clear()
 										typed = ""
+										lastOperand = ""
+										calculator = calculator.press(key)
 									}
 
-									"÷", "×", "−", "+", ".", "±", "%" -> typed = ""
+									"÷", "×", "−", "+" -> {
+										lastOperand = typed
+										typed = ""
+										calculator = calculator.press(key)
+									}
+
+									".", "±", "%" -> {
+										typed = ""
+										calculator = calculator.press(key)
+									}
 
 									"=" -> {
-										stealthUnlock(knockTaps, typed, calculator)?.let(onStealthUnlock)
+										val next = calculator.press(key)
+										stealthUnlock(knockTaps, typed, lastOperand, next)?.let(onStealthUnlock)
 										knockTaps.clear()
 										typed = ""
+										lastOperand = ""
+										calculator = next
 									}
 
 									// A calculator that stopped taking digits after twelve would be a strange
 									// one, so the entry keeps growing and simply stops being a candidate.
-									else -> if (key.first().isDigit()) typed += key
+									else -> {
+										if (key.first().isDigit()) typed += key
+										calculator = calculator.press(key)
+									}
 								}
-								calculator = calculator.press(key)
 							},
 							onLongClick = onSecretEntry.takeIf {
 								key == "=" && (entryMethod == EntryMethod.NATURAL_HOLD || entryMethod == EntryMethod.DIRECT_KEYPAD)
@@ -739,19 +772,26 @@ private fun CalculatorDecoy(
 /**
  * What pressing equals should be read as, or null if it is only arithmetic.
  *
- * Three ways to offer the same secret: a knock code tapped on the display, the digits actually
- * pressed, and the number now showing, which is how a PIN arrives when it was worked out rather
- * than typed. Whether any of them is right is decided elsewhere.
+ * Four ways to offer the same secret: a knock code tapped on the display, direct digits entered
+ * before equals (PIN=), digits before an operator (PIN+=), and the evaluated result worked out
+ * to the secret PIN. Whether any of them is right is decided elsewhere.
  */
-private fun stealthUnlock(knockTaps: List<Int>, typed: String, calculator: CalculatorState,): CharArray? {
+private fun stealthUnlock(
+	knockTaps: List<Int>,
+	typed: String,
+	lastOperand: String,
+	evaluatedCalculator: CalculatorState,
+): CharArray? {
 	val pinLength = CredentialRules.MIN_PIN..CredentialRules.MAX_PIN
 	return when {
 		knockTaps.size in KnockCode.MIN_TAPS..KnockCode.MAX_TAPS -> KnockCode.encode(knockTaps)
 
 		typed.length in pinLength -> typed.toCharArray()
 
-		calculator.operation == null && calculator.display.length in pinLength &&
-			calculator.display.all { it.isDigit() } -> calculator.display.toCharArray()
+		lastOperand.length in pinLength && typed.isEmpty() -> lastOperand.toCharArray()
+
+		evaluatedCalculator.display.length in pinLength &&
+			evaluatedCalculator.display.all { it.isDigit() } -> evaluatedCalculator.display.toCharArray()
 
 		else -> null
 	}

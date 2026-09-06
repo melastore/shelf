@@ -59,6 +59,71 @@ class SafLockTarget(val resolver: ContentResolver, val uri: Uri, override val na
 
 	override fun sync() = descriptor("rw") { pfd -> pfd.fileDescriptor.sync() }
 
+	override fun lastModified(): Long = runCatching {
+		resolver.query(
+			uri,
+			arrayOf(android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED),
+			null,
+			null,
+			null,
+		)?.use { cursor ->
+			if (cursor.moveToFirst()) {
+				val index = cursor.getColumnIndex(android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+				if (index >= 0) cursor.getLong(index) else 0L
+			} else {
+				0L
+			}
+		} ?: 0L
+	}.getOrDefault(0L)
+
+	override fun <T> withSession(mode: String, block: (LockTarget) -> T): T =
+		resolver.openFileDescriptor(uri, mode)?.use { pfd -> block(OpenDocument(pfd)) }
+			?: throw IOException("could not open $uri for $mode")
+
+	/**
+	 * One descriptor, serving every call until the session ends. The streams are never closed: both
+	 * wrap the descriptor the session owns, and closing either would shut it for what follows.
+	 */
+	private inner class OpenDocument(private val pfd: ParcelFileDescriptor) : LockTarget {
+		override val name: String get() = this@SafLockTarget.name
+
+		private val input by lazy { FileInputStream(pfd.fileDescriptor) }
+		private val output by lazy { FileOutputStream(pfd.fileDescriptor) }
+
+		override fun size(): Long =
+			pfd.statSize.takeIf { it >= 0 } ?: throw IOException("provider did not report a size for $uri")
+
+		override fun read(offset: Long, length: Int): ByteArray {
+			val channel = input.channel
+			val buffer = ByteBuffer.allocate(length)
+			var position = offset
+			while (buffer.hasRemaining()) {
+				val read = channel.read(buffer, position)
+				if (read < 0) throw IOException("unexpected end of $uri at $position")
+				position += read
+			}
+			return buffer.array()
+		}
+
+		override fun write(offset: Long, bytes: ByteArray) {
+			val channel = output.channel
+			val buffer = ByteBuffer.wrap(bytes)
+			var position = offset
+			while (buffer.hasRemaining()) {
+				position += channel.write(buffer, position)
+			}
+		}
+
+		override fun truncate(size: Long) {
+			output.channel.truncate(size)
+		}
+
+		override fun sync() = pfd.fileDescriptor.sync()
+		override fun lastModified(): Long = this@SafLockTarget.lastModified()
+		override fun setLastModified(time: Long): Boolean = this@SafLockTarget.setLastModified(time)
+		override fun <T> withSession(mode: String, block: (LockTarget) -> T): T = block(this)
+	}
+
 	private inline fun <T> descriptor(mode: String, block: (ParcelFileDescriptor) -> T): T =
 		resolver.openFileDescriptor(uri, mode)?.use(block)
 			?: throw IOException("could not open $uri for $mode")

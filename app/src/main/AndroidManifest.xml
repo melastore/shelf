@@ -32,8 +32,14 @@
 			whatever the target's own export state is. Exporting it as well only offers other apps a
 			component to start directly.
 		-->
+		<!--
+			Handles rotation itself. The player turns the screen to suit the video, and a recreated
+			activity would take the decrypted media in RAM down with it and drop the owner back at
+			the lock screen mid-video.
+		-->
 		<activity
 			android:name=".ui.MainActivity"
+			android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
 			android:exported="false" />
 		<receiver android:name=".ui.QuickLockReceiver" android:exported="false" />
 

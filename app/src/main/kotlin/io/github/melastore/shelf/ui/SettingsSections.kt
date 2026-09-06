@@ -117,6 +117,10 @@ internal fun StealthGuideDialog(onDismiss: () -> Unit) {
 					body = stringResource(R.string.stealth_guide_entrance_body),
 				)
 				GuideTopic(
+					title = stringResource(R.string.stealth_guide_calculator_title),
+					body = stringResource(R.string.stealth_guide_calculator_body),
+				)
+				GuideTopic(
 					title = stringResource(R.string.stealth_guide_crash_title),
 					body = stringResource(R.string.stealth_guide_crash_body),
 				)
@@ -171,6 +175,8 @@ internal fun AuthenticationSettingsSection(
 	onSetDecoyPin: () -> Unit,
 	onRemoveDecoyPin: () -> Unit,
 	onSeedDecoy: () -> Unit,
+	onSetBurnerPin: () -> Unit,
+	onRemoveBurnerPin: () -> Unit,
 ) {
 	SettingsGroup(stringResource(R.string.credentials), stringResource(R.string.credential_kind_summary)) {
 		SettingsRow(
@@ -220,6 +226,21 @@ internal fun AuthenticationSettingsSection(
 				onClick = onRemoveDecoyPin,
 			)
 		}
+		SettingsRow(
+			title = stringResource(
+				if (state.burnerPinSet) R.string.change_burner_pin else R.string.create_burner_pin,
+			),
+			summary = stringResource(R.string.burner_pin_summary),
+			onClick = onSetBurnerPin,
+		)
+		if (state.burnerPinSet) {
+			SettingsRow(
+				title = stringResource(R.string.remove_burner_pin),
+				summary = stringResource(R.string.remove_burner_pin_summary),
+				dangerous = true,
+				onClick = onRemoveBurnerPin,
+			)
+		}
 	}
 }
 
@@ -229,6 +250,7 @@ internal fun AutomaticLockSettingsSection(
 	onQuickLockChange: () -> Unit,
 	onAutoHideMode: (AutoHideMode) -> Unit,
 	onFlipToHideChange: () -> Unit,
+	onUsbPanicChange: () -> Unit,
 	onAllowScreenshotsChange: () -> Unit,
 	onHideFromRecentsChange: () -> Unit,
 ) {
@@ -241,6 +263,12 @@ internal fun AutomaticLockSettingsSection(
 			summary = stringResource(R.string.flip_to_hide_summary),
 			trailing = { SelectionMark(state.flipToHide) },
 			onClick = onFlipToHideChange,
+		)
+		SettingsRow(
+			title = stringResource(R.string.usb_panic_title),
+			summary = stringResource(R.string.usb_panic_summary),
+			trailing = { SelectionMark(state.usbPanic) },
+			onClick = onUsbPanicChange,
 		)
 		ChoiceRow(
 			title = stringResource(R.string.auto_hide_choose),

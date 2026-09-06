@@ -112,13 +112,20 @@ class FolderContentProtector(
 	 * at face value reports success over every file that was never touched.
 	 */
 	private fun targets(path: String): List<LockTarget>? {
-		val direct = File(path).takeIf(::canWalkAsFile)?.let(ContentLocker::targetsUnder)
+		val direct = File(path).takeIf(::canWalkAsFile)?.let(ContentLocker::targetsUnder)?.let(::lockable)
 		if (!direct.isNullOrEmpty()) return direct
 
 		val saf = SafGrants.folder(appContext, paths, path)
 			?.let { SafLockTarget.targetsUnder(resolver, it) }
+			?.let(::lockable)
 		if (!saf.isNullOrEmpty()) return saf
 
 		return saf ?: direct
 	}
+
+	/**
+	 * Drops Shelf's own files from a walk. The recovery marker is written before this runs, as root
+	 * at mode 600, so a provider will not open it: left in, it rolls back the hide that created it.
+	 */
+	private fun lockable(targets: List<LockTarget>): List<LockTarget> = targets.filterNot { isShelfBookkeeping(it.name) }
 }

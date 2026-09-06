@@ -54,7 +54,7 @@ class FolderNameProtector(
 		File(path).takeIf { canWalkAsFile(it) && it.listFiles().orEmpty().isNotEmpty() }
 
 	suspend fun protect(path: String): NameProtectionResult = withContext(Dispatchers.IO) {
-		walkable(path)?.let { return@withContext protectFile(it) }
+		walkable(path)?.takeIf(::ownsManifest)?.let { return@withContext protectFile(it) }
 		safRoot(path)?.let(::protectSaf) ?: NameProtectionResult.AccessUnavailable
 	}
 
@@ -68,10 +68,20 @@ class FolderNameProtector(
 	 */
 	suspend fun restore(path: String): NameProtectionResult = withContext(Dispatchers.IO) {
 		val direct = File(path).takeIf { canWalkAsFile(it) }
-		// A manifest in the File view is proof that view is the one that wrote it.
-		if (direct != null && File(direct, MANIFEST).isFile) return@withContext restoreFile(direct)
+		if (direct != null && ownsManifest(direct)) return@withContext restoreFile(direct)
 		safRoot(path)?.let { return@withContext restoreSaf(it) }
 		direct?.let { restoreFile(it) } ?: NameProtectionResult.AccessUnavailable
+	}
+
+	/**
+	 * Whether the File view wrote the manifest, and so has to put the names back. Reading it is the
+	 * proof, not stat-ing it: a manifest written through a provider stats fine over the mount and
+	 * still refuses to open, because FUSE answers `isFile` from the directory entry and the open from
+	 * the media database. No manifest at all is the File view's to take.
+	 */
+	private fun ownsManifest(root: File): Boolean {
+		val manifest = File(root, MANIFEST)
+		return !manifest.isFile || readFile(manifest) != null
 	}
 
 	private fun protectFile(root: File): NameProtectionResult {
@@ -407,8 +417,7 @@ class FolderNameProtector(
 		return true
 	}
 
-	private fun reserved(name: String): Boolean = name == MANIFEST || name == MANIFEST_TEMP ||
-		name.startsWith(ROOT_RECOVERY_PREFIX)
+	private fun reserved(name: String): Boolean = isShelfBookkeeping(name)
 
 	@Serializable
 	private data class NameManifest(val version: Int = VERSION, val files: List<NameMapping>)
@@ -423,7 +432,6 @@ class FolderNameProtector(
 		const val VERSION = 1
 		const val MANIFEST = ".shelf-names-v1"
 		const val MANIFEST_TEMP = ".shelf-names-v1.tmp"
-		const val ROOT_RECOVERY_PREFIX = ".shelf-recovery-v1-"
 		const val MIME = "application/octet-stream"
 		const val OPAQUE_PREFIX = "sfn_"
 		const val MAX_FILES = ContentLocker.MAX_FILES

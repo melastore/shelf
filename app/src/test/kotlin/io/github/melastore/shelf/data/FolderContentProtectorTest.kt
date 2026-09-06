@@ -53,6 +53,25 @@ class FolderContentProtectorTest {
 	}
 
 	@Test
+	fun `shelf's own bookkeeping files are never part of the lock set`() = runBlocking {
+		val root = temp.newFolder("marked")
+		val photo = File(root, "one.jpg").apply { writeBytes(ByteArray(9_000) { it.toByte() }) }
+		// What RootChmodHider drops in before protecting, at mode 600 and owned by root on a device.
+		val marker = File(root, ".shelf-recovery-v1-2770-10181-1023").apply { writeBytes(ByteArray(0)) }
+		val manifest = File(root, ".shelf-names-v1").apply { writeBytes(ByteArray(64) { it.toByte() }) }
+		val manifestBefore = manifest.readBytes()
+		val password = "48261357".toCharArray()
+		val protector = FolderContentProtector(context, paths(root), credential = { password.copyOf() })
+
+		assertEquals(ContentProtectionResult.Done(1), protector.protect(root.path))
+
+		assertTrue(FileLocker.isLocked(FileLockTarget(photo)))
+		assertEquals(0L, marker.length())
+		assertArrayEquals(manifestBefore, manifest.readBytes())
+		password.fill(' ')
+	}
+
+	@Test
 	fun `locked content is not restored without the primary credential`() = runBlocking {
 		val root = temp.newFolder("locked")
 		val file = File(root, "private.jpg").apply { writeBytes(ByteArray(4_000) { it.toByte() }) }

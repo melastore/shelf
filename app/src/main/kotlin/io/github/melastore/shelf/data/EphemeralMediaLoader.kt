@@ -16,7 +16,7 @@ import java.io.File
 import java.nio.ByteBuffer
 import javax.crypto.SecretKey
 
-enum class EphemeralMediaType { IMAGE, VIDEO }
+enum class EphemeralMediaType { IMAGE, VIDEO, AUDIO, TEXT, PDF }
 
 data class EphemeralMediaItem(
 	val name: String,
@@ -25,22 +25,36 @@ data class EphemeralMediaItem(
 	val type: EphemeralMediaType = EphemeralMediaType.IMAGE,
 )
 
+/** A row's picture and the duration shown beside it. A null [bitmap] means nothing would decode. */
+data class EphemeralThumbnail(val bitmap: Bitmap?, val durationMs: Long = 0L)
+
 object EphemeralMediaLoader {
 
-	private val thumbnailCache = object : LruCache<String, Bitmap>(24 * 1024 * 1024) {
-		override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+	private val thumbnailCache = object : LruCache<String, EphemeralThumbnail>(24 * 1024 * 1024) {
+		override fun sizeOf(key: String, value: EphemeralThumbnail): Int = value.bitmap?.byteCount ?: 1
 	}
 
 	fun clearCache() {
 		thumbnailCache.evictAll()
 	}
 
-	private const val SHELF_PREFIX = ".shelf-"
 	private const val MAX_ATOMS = 4
 
 	private val VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "3gp", "mov", "avi", "m4v", "ts", "flv")
+	private val AUDIO_EXTENSIONS = setOf("mp3", "m4a", "ogg", "wav", "flac", "aac", "opus", "wma", "mid")
 	private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif")
 	private val ISO_ATOMS = setOf("ftyp", "moov", "mdat")
+	private val TEXT_EXTENSIONS = setOf(
+		"txt", "md", "log", "csv", "tsv", "json", "xml", "html", "htm", "css", "srt", "vtt", "ass",
+		"ini", "cfg", "conf", "yml", "yaml", "toml", "properties", "sql", "sh", "bat", "kt", "java",
+		"py", "js", "ts", "c", "h", "cpp", "hpp", "rs", "go", "rb", "php", "lua", "m3u", "m3u8",
+	)
+
+	/** A megabyte of text is more than anyone reads on a phone, and all of it sits in RAM. */
+	const val MAX_TEXT_BYTES = 1024 * 1024
+
+	/** A PDF is held whole in memory to render, so the ceiling is memory, not patience. */
+	const val MAX_PDF_BYTES = 64 * 1024 * 1024
 
 	fun scanMediaItems(
 		path: String,
@@ -54,9 +68,11 @@ object EphemeralMediaLoader {
 
 		val items = mutableListOf<EphemeralMediaItem>()
 		for (target in targets) {
-			if (target.size() <= 0) continue
-			// Shelf's own bookkeeping files all carry the prefix, and .nomedia is a marker, not media.
-			if (target.name.startsWith(SHELF_PREFIX) || target.name == ".nomedia") continue
+			// sizeOrZero, not size: a stale grant throws here, and one such file used to end the scan.
+			val size = target.sizeOrZero()
+			if (size <= 0) continue
+			// The walk already drops Shelf's own files; .nomedia is a marker, not media.
+			if (isShelfBookkeeping(target.name) || target.name == ".nomedia") continue
 			val realName = nameMap?.get(target.name) ?: target.name
 			val trailer = FileLocker.readTrailer(target)
 			val isLocked = trailer != null
@@ -71,18 +87,24 @@ object EphemeralMediaLoader {
 				}
 			} else {
 				runCatching {
-					target.read(0, minOf(FileLocker.SLICE_LENGTH.toLong(), target.size()).toInt())
+					target.read(0, minOf(FileLocker.SLICE_LENGTH.toLong(), size).toInt())
 				}.getOrNull()
 			}
 			if (sample == null || sample.isEmpty()) continue
 
-			if (isVideo(realName, sample)) {
-				items += EphemeralMediaItem(realName, target, isLocked, EphemeralMediaType.VIDEO)
-				continue
+			// Extension and magic settle a file outright. The bitmap decoder is a guess and says yes
+			// far too readily, so it only sees what nothing else has claimed.
+			val type = when {
+				isPdf(realName, sample) -> EphemeralMediaType.PDF
+				isVideo(realName, sample) -> EphemeralMediaType.VIDEO
+				isAudio(realName, sample) -> EphemeralMediaType.AUDIO
+				isImageByHeader(realName, sample) -> EphemeralMediaType.IMAGE
+				isText(realName, sample) -> EphemeralMediaType.TEXT
+				decodesAsBitmap(sample) -> EphemeralMediaType.IMAGE
+				else -> null
 			}
-
-			if (isImage(realName, sample)) {
-				items += EphemeralMediaItem(realName, target, isLocked, EphemeralMediaType.IMAGE)
+			if (type != null) {
+				items += EphemeralMediaItem(realName, target, isLocked, type)
 			}
 		}
 		return items
@@ -94,7 +116,7 @@ object EphemeralMediaLoader {
 	 * manifest from another credential and the opaque names are shown as they are.
 	 */
 	private fun readNameMap(manifest: LockTarget): Map<String, String>? {
-		val size = manifest.size()
+		val size = manifest.sizeOrZero()
 		if (size !in 1..PasswordEnvelope.MAX_ENVELOPE_BYTES.toLong()) return null
 		val bytes = runCatching { manifest.read(0, size.toInt()) }.getOrNull() ?: return null
 		val credential = ContentCredential.copy() ?: return null
@@ -163,7 +185,75 @@ object EphemeralMediaLoader {
 		return false
 	}
 
-	private fun isImage(name: String, sample: ByteArray): Boolean {
+	private fun isPdf(name: String, sample: ByteArray): Boolean {
+		if (name.substringAfterLast('.', "").lowercase() == "pdf") return true
+		return sample.size >= 5 && sample[0] == '%'.code.toByte() && sample[1] == 'P'.code.toByte() &&
+			sample[2] == 'D'.code.toByte() && sample[3] == 'F'.code.toByte() && sample[4] == '-'.code.toByte()
+	}
+
+	private fun isAudio(name: String, sample: ByteArray): Boolean {
+		val ext = name.substringAfterLast('.', "").lowercase()
+		if (ext in AUDIO_EXTENSIONS) return true
+		if (ext in IMAGE_EXTENSIONS || ext in VIDEO_EXTENSIONS) return false
+		if (sample.size < 4) return false
+
+		// ID3v2 tag (MP3)
+		if (sample[0] == 'I'.code.toByte() && sample[1] == 'D'.code.toByte() && sample[2] == '3'.code.toByte()) {
+			return true
+		}
+		// OggS (OGG / OPUS)
+		if (sample[0] == 'O'.code.toByte() && sample[1] == 'g'.code.toByte() &&
+			sample[2] == 'g'.code.toByte() && sample[3] == 'S'.code.toByte()
+		) {
+			return true
+		}
+		// fLaC (FLAC)
+		if (sample[0] == 'f'.code.toByte() && sample[1] == 'L'.code.toByte() &&
+			sample[2] == 'a'.code.toByte() && sample[3] == 'C'.code.toByte()
+		) {
+			return true
+		}
+		// RIFF ... WAVE (WAV)
+		if (sample.size >= 12 &&
+			sample[0] == 'R'.code.toByte() && sample[1] == 'I'.code.toByte() &&
+			sample[2] == 'F'.code.toByte() && sample[3] == 'F'.code.toByte() &&
+			sample[8] == 'W'.code.toByte() && sample[9] == 'A'.code.toByte() &&
+			sample[10] == 'V'.code.toByte() && sample[11] == 'E'.code.toByte()
+		) {
+			return true
+		}
+		// MP3 frame sync (11 bits set: 0xFF 0xE0..0xFF)
+		if (sample[0] == 0xFF.toByte() && (sample[1].toInt() and 0xE0) == 0xE0) {
+			return true
+		}
+		return false
+	}
+
+	/**
+	 * Text by extension, or by the bytes when there is no extension. An extension naming some other
+	 * kind is taken at its word: sniffing would offer a font as a document.
+	 */
+	private fun isText(name: String, sample: ByteArray): Boolean {
+		val ext = name.substringAfterLast('.', "").lowercase()
+		if (ext in TEXT_EXTENSIONS) return true
+		if (ext.isNotEmpty()) return false
+		return looksLikeText(sample)
+	}
+
+	private fun looksLikeText(sample: ByteArray): Boolean {
+		if (sample.isEmpty()) return false
+		val examined = minOf(sample.size, 4_096)
+		var printable = 0
+		for (i in 0 until examined) {
+			val b = sample[i].toInt() and 0xFF
+			// A NUL is the one byte no text file of any encoding carries in its body.
+			if (b == 0) return false
+			if (b >= 0x20 || b == 0x09 || b == 0x0A || b == 0x0D) printable++
+		}
+		return printable * 100 / examined >= 95
+	}
+
+	private fun isImageByHeader(name: String, sample: ByteArray): Boolean {
 		val ext = name.substringAfterLast('.', "").lowercase()
 		if (ext in IMAGE_EXTENSIONS) return true
 		if (ext in VIDEO_EXTENSIONS) return false
@@ -187,9 +277,11 @@ object EphemeralMediaLoader {
 		) {
 			return true
 		}
-		if (sample.size >= 2 && sample[0] == 'B'.code.toByte() && sample[1] == 'M'.code.toByte()) {
-			return true
-		}
+		return sample.size >= 2 && sample[0] == 'B'.code.toByte() && sample[1] == 'M'.code.toByte()
+	}
+
+	/** The last resort: a format with no header this knows, offered to the platform decoder. */
+	private fun decodesAsBitmap(sample: ByteArray): Boolean {
 		val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
 		BitmapFactory.decodeByteArray(sample, 0, sample.size, bounds)
 		return bounds.outWidth > 0 && bounds.outHeight > 0
@@ -206,52 +298,80 @@ object EphemeralMediaLoader {
 		else -> target.name
 	}
 
-	fun loadThumbnail(item: EphemeralMediaItem, keyFor: (ByteArray) -> SecretKey?, maxDimension: Int = 300): Bitmap? {
-		val cacheKey = "${targetId(item.target)}:${item.target.size()}:${item.type}:$maxDimension"
+	fun loadThumbnail(
+		item: EphemeralMediaItem,
+		keyFor: (ByteArray) -> SecretKey?,
+		maxDimension: Int = 300,
+	): EphemeralThumbnail {
+		val cacheKey = "${targetId(item.target)}:${item.target.sizeOrZero()}:${item.type}:$maxDimension"
 		thumbnailCache.get(cacheKey)?.let { return it }
-		val bitmap = when (item.type) {
-			EphemeralMediaType.IMAGE -> loadBitmap(item.target, keyFor, maxDimension)
+		val loaded = when (item.type) {
+			EphemeralMediaType.IMAGE -> EphemeralThumbnail(loadBitmap(item.target, keyFor, maxDimension))
 			EphemeralMediaType.VIDEO -> loadVideoThumbnail(item.target, keyFor, maxDimension)
+			EphemeralMediaType.AUDIO -> loadAudioThumbnail(item.target, keyFor, maxDimension)
+			EphemeralMediaType.PDF -> EphemeralThumbnail(loadPdfThumbnail(item.target, keyFor, maxDimension))
+			EphemeralMediaType.TEXT -> EphemeralThumbnail(null)
 		}
-		if (bitmap != null) {
-			thumbnailCache.put(cacheKey, bitmap)
+		// Misses are not cached: retrievers fail for reasons that pass, and a cached null is a row
+		// that stays blank until the viewer closes.
+		if (loaded.bitmap != null) {
+			thumbnailCache.put(cacheKey, loaded)
 		}
-		return bitmap
+		return loaded
 	}
 
-	fun loadVideoThumbnail(target: LockTarget, keyFor: (ByteArray) -> SecretKey?, maxDimension: Int = 300): Bitmap? {
-		val trailer = FileLocker.readTrailer(target)
-		val (slice, totalSize) = if (trailer != null) {
-			val key = keyFor(trailer.salt) ?: return null
-			val decryptedSlice = runCatching {
-				HeaderCipher.open(trailer.cipherText, trailer.nonce, trailer.tag, key)
-			}.getOrNull() ?: return null
-			decryptedSlice to trailer.originalSize
-		} else {
-			byteArrayOf() to target.size()
-		}
+	/**
+	 * The decrypted head slice and the file's real length, or null when the credential in hand does
+	 * not open it. An unlocked file has no slice and answers with its own size.
+	 */
+	fun plaintextHead(target: LockTarget, keyFor: (ByteArray) -> SecretKey?): Pair<ByteArray, Long>? {
+		val trailer = FileLocker.readTrailer(target) ?: return byteArrayOf() to target.sizeOrZero()
+		val key = keyFor(trailer.salt) ?: return null
+		val slice = runCatching {
+			HeaderCipher.open(trailer.cipherText, trailer.nonce, trailer.tag, key)
+		}.getOrNull() ?: return null
+		return slice to trailer.originalSize
+	}
+
+	/** Plaintext bytes from the head of a file, never more than [maxBytes], without touching disk. */
+	fun readPlaintext(target: LockTarget, keyFor: (ByteArray) -> SecretKey?, maxBytes: Int): ByteArray? {
+		val (slice, totalSize) = plaintextHead(target, keyFor) ?: return null
+		if (totalSize < 0) return null
+		if (totalSize == 0L) return byteArrayOf()
+		val limit = minOf(totalSize, maxBytes.toLong()).toInt()
+		val out = ByteArray(limit)
+		var filled = 0
+		return runCatching {
+			BufferedInputStream(EphemeralDecryptedStream(target, slice, totalSize), 64 * 1024).use { stream ->
+				while (filled < limit) {
+					val read = stream.read(out, filled, limit - filled)
+					if (read <= 0) break
+					filled += read
+				}
+			}
+			if (filled == limit) out else out.copyOf(filled)
+		}.getOrNull()
+	}
+
+	fun loadVideoThumbnail(
+		target: LockTarget,
+		keyFor: (ByteArray) -> SecretKey?,
+		maxDimension: Int = 300,
+	): EphemeralThumbnail {
+		val (slice, totalSize) = plaintextHead(target, keyFor) ?: return EphemeralThumbnail(null)
+		if (totalSize <= 0) return EphemeralThumbnail(null)
 
 		val dataSource = EphemeralMediaDataSource(target, slice, totalSize)
 		val retriever = MediaMetadataRetriever()
 		return try {
 			retriever.setDataSource(dataSource)
-			val frame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-				?: retriever.frameAtTime
-			if (frame != null && maxDimension > 0 && (frame.width > maxDimension || frame.height > maxDimension)) {
-				val scale = minOf(maxDimension.toFloat() / frame.width, maxDimension.toFloat() / frame.height)
-				val scaled = Bitmap.createScaledBitmap(
-					frame,
-					(frame.width * scale).toInt().coerceAtLeast(1),
-					(frame.height * scale).toInt().coerceAtLeast(1),
-					true,
-				)
-				if (scaled != frame) frame.recycle()
-				scaled
-			} else {
-				frame
-			}
+			val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+				?.toLongOrNull()
+				?.coerceAtLeast(0L)
+				?: 0L
+			EphemeralThumbnail(scaled(frameFrom(retriever, durationMs), maxDimension), durationMs)
 		} catch (_: Exception) {
-			null
+			EphemeralThumbnail(null)
 		} finally {
 			try {
 				retriever.release()
@@ -260,17 +380,70 @@ object EphemeralMediaLoader {
 		}
 	}
 
-	fun loadBitmap(target: LockTarget, keyFor: (ByteArray) -> SecretKey?, maxDimension: Int = 0): Bitmap? {
-		val trailer = FileLocker.readTrailer(target)
-		val (slice, totalSize) = if (trailer != null) {
-			val key = keyFor(trailer.salt) ?: return null
-			val decryptedSlice = runCatching {
-				HeaderCipher.open(trailer.cipherText, trailer.nonce, trailer.tag, key)
-			}.getOrNull() ?: return null
-			decryptedSlice to trailer.originalSize
-		} else {
-			byteArrayOf() to target.size()
+	fun loadAudioThumbnail(
+		target: LockTarget,
+		keyFor: (ByteArray) -> SecretKey?,
+		maxDimension: Int = 300,
+	): EphemeralThumbnail {
+		val (slice, totalSize) = plaintextHead(target, keyFor) ?: return EphemeralThumbnail(null)
+		if (totalSize <= 0) return EphemeralThumbnail(null)
+
+		val dataSource = EphemeralMediaDataSource(target, slice, totalSize)
+		val retriever = MediaMetadataRetriever()
+		return try {
+			retriever.setDataSource(dataSource)
+			val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+				?.toLongOrNull()
+				?.coerceAtLeast(0L)
+				?: 0L
+			val artBytes = retriever.embeddedPicture
+			val artBitmap = artBytes?.let {
+				BitmapFactory.decodeByteArray(it, 0, it.size)?.let { bmp -> scaled(bmp, maxDimension) }
+			}
+			EphemeralThumbnail(artBitmap, durationMs)
+		} catch (_: Exception) {
+			EphemeralThumbnail(null)
+		} finally {
+			try {
+				retriever.release()
+			} catch (_: Exception) {}
+			dataSource.close()
 		}
+	}
+
+	/**
+	 * A frame worth showing, most to least likely. A tenth in first, since plenty of video opens on
+	 * black and a black thumbnail looks like none. A non-sync frame last: it costs a decode from the
+	 * previous keyframe, but for some files it is the only frame there is.
+	 */
+	private fun frameFrom(retriever: MediaMetadataRetriever, durationMs: Long): Bitmap? {
+		val offsets = if (durationMs > 0) listOf(durationMs * 1000 / 10, 0L) else listOf(0L)
+		for (offset in offsets) {
+			runCatching {
+				retriever.getFrameAtTime(offset, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+			}.getOrNull()?.let { return it }
+		}
+		return runCatching {
+			retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST) ?: retriever.frameAtTime
+		}.getOrNull()
+	}
+
+	private fun scaled(frame: Bitmap?, maxDimension: Int): Bitmap? {
+		if (frame == null || maxDimension <= 0) return frame
+		if (frame.width <= maxDimension && frame.height <= maxDimension) return frame
+		val scale = minOf(maxDimension.toFloat() / frame.width, maxDimension.toFloat() / frame.height)
+		val out = Bitmap.createScaledBitmap(
+			frame,
+			(frame.width * scale).toInt().coerceAtLeast(1),
+			(frame.height * scale).toInt().coerceAtLeast(1),
+			true,
+		)
+		if (out != frame) frame.recycle()
+		return out
+	}
+
+	fun loadBitmap(target: LockTarget, keyFor: (ByteArray) -> SecretKey?, maxDimension: Int = 0): Bitmap? {
+		val (slice, totalSize) = plaintextHead(target, keyFor) ?: return null
 
 		fun newStream() = BufferedInputStream(EphemeralDecryptedStream(target, slice, totalSize), 64 * 1024)
 
@@ -301,6 +474,16 @@ object EphemeralMediaLoader {
 			decoded
 		}
 	}
+
+	/** The whole file as text, or null if it will not decode. Truncated at [MAX_TEXT_BYTES]. */
+	fun loadText(target: LockTarget, keyFor: (ByteArray) -> SecretKey?): String? =
+		readPlaintext(target, keyFor, MAX_TEXT_BYTES)?.toString(Charsets.UTF_8)
+
+	fun loadPdf(target: LockTarget, keyFor: (ByteArray) -> SecretKey?): EphemeralPdf? =
+		readPlaintext(target, keyFor, MAX_PDF_BYTES)?.let(EphemeralPdf::open)
+
+	private fun loadPdfThumbnail(target: LockTarget, keyFor: (ByteArray) -> SecretKey?, maxDimension: Int,): Bitmap? =
+		loadPdf(target, keyFor)?.use { it.renderPage(0, maxDimension) }
 
 	private fun calculateInSampleSize(width: Int, height: Int, reqWidth: Int, reqHeight: Int): Int {
 		var inSampleSize = 1

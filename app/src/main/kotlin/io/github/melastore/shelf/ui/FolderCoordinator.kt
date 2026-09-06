@@ -44,6 +44,18 @@ internal class FolderCoordinator(
 		}
 	}
 
+	/**
+	 * Drops every record of [emulatedPath], journal row included, hidden or not. Both or neither:
+	 * [load] adopts a journal row the registry has no entry for, so clearing one side alone puts the
+	 * folder back in the list on the next reload and it can never be removed.
+	 */
+	suspend fun forget(emulatedPath: String) {
+		journal.read()
+			.filter { paths.toEmulated(it.path) == emulatedPath }
+			.forEach { journal.remove(it.path) }
+		registry.remove(emulatedPath)
+	}
+
 	suspend fun availableMethods(checkRoot: Boolean): Set<HideMethod> = hider.availableMethods(checkRoot)
 	suspend fun activeMethod(preference: HidingPreference): HideMethod? = hider.activeMethod(preference)
 	fun selectedMethod(preference: HidingPreference, available: Set<HideMethod>): HideMethod? =

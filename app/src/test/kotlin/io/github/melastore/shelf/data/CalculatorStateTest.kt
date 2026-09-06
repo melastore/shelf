@@ -54,4 +54,33 @@ class CalculatorStateTest {
 
 		assertEquals("-0.5", state.display)
 	}
+
+	@Test
+	fun `expression displays operator and operands during calculation`() {
+		val state = CalculatorState()
+			.digit(1)
+			.digit(2)
+			.operator(CalculatorOperation.ADD)
+			.digit(5)
+
+		assertEquals("12 +", state.expression)
+		assertEquals("5", state.display)
+
+		val evaluated = state.evaluate()
+		assertEquals("12 + 5 =", evaluated.expression)
+		assertEquals("17", evaluated.display)
+	}
+
+	@Test
+	fun `clear resets expression and display`() {
+		val state = CalculatorState()
+			.digit(9)
+			.operator(CalculatorOperation.MULTIPLY)
+			.digit(9)
+			.evaluate()
+			.clear()
+
+		assertEquals("", state.expression)
+		assertEquals("0", state.display)
+	}
 }

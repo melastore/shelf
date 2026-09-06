@@ -1,9 +1,11 @@
 package io.github.melastore.shelf.ui
 
+import android.content.pm.ActivityInfo
 import android.graphics.SurfaceTexture
 import android.media.MediaPlayer
 import android.view.Surface
 import android.view.TextureView
+import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -40,6 +42,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,8 +61,11 @@ import io.github.melastore.shelf.crypto.HeaderCipher
 import io.github.melastore.shelf.data.EphemeralMediaDataSource
 import io.github.melastore.shelf.data.EphemeralMediaItem
 import io.github.melastore.shelf.data.FileLocker
+import io.github.melastore.shelf.data.sizeOrZero
 import javax.crypto.SecretKey
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 @Composable
 fun EphemeralVideoPlayerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> SecretKey?, onDismiss: () -> Unit,) {
@@ -77,26 +83,64 @@ fun EphemeralVideoPlayerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 	var surfaceRef by remember(item) { mutableStateOf<Surface?>(null) }
 
 	val mediaPlayer = remember(item) { MediaPlayer() }
-
-	val dataSource = remember(item) {
-		val trailer = FileLocker.readTrailer(item.target)
-		val (slice, totalSize) = if (trailer != null) {
-			val key = keyFor(trailer.salt)
-			val decryptedSlice = if (key != null) {
-				runCatching {
-					HeaderCipher.open(trailer.cipherText, trailer.nonce, trailer.tag, key)
-				}.getOrNull()
-			} else {
-				null
+	DisposableEffect(mediaPlayer) {
+		onDispose {
+			runCatching {
+				if (mediaPlayer.isPlaying) mediaPlayer.stop()
 			}
-			(decryptedSlice ?: byteArrayOf()) to trailer.originalSize
-		} else {
-			byteArrayOf() to item.target.size()
+			runCatching {
+				mediaPlayer.reset()
+				mediaPlayer.release()
+			}
+			surfaceRef?.release()
+			surfaceRef = null
 		}
-		EphemeralMediaDataSource(item.target, slice, totalSize)
 	}
 
-	DisposableEffect(item) {
+	// Follow the video: a landscape clip turns the screen, a portrait one leaves it. The original is
+	// read during composition, before anything below changes it, so closing restores what the app
+	// was on rather than what the last clip wanted.
+	val activity = LocalActivity.current
+	val enteringOrientation = remember(activity) { activity?.requestedOrientation }
+	LaunchedEffect(activity, isPrepared, videoAspectRatio) {
+		if (activity != null && isPrepared) {
+			activity.requestedOrientation = if (videoAspectRatio >= 1f) {
+				ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+			} else {
+				ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+			}
+		}
+	}
+	DisposableEffect(activity) {
+		onDispose {
+			enteringOrientation?.let { activity?.requestedOrientation = it }
+		}
+	}
+
+	// Opening the source reads the trailer over a provider and derives a key from it. Both are far
+	// too slow for composition and hung the frame the player appeared on. The spinner covers it.
+	val dataSource = produceState<EphemeralMediaDataSource?>(null, item) {
+		value = withContext(Dispatchers.IO) {
+			val trailer = FileLocker.readTrailer(item.target)
+			val (slice, totalSize) = if (trailer != null) {
+				val key = keyFor(trailer.salt)
+				val decryptedSlice = if (key != null) {
+					runCatching {
+						HeaderCipher.open(trailer.cipherText, trailer.nonce, trailer.tag, key)
+					}.getOrNull()
+				} else {
+					null
+				}
+				(decryptedSlice ?: byteArrayOf()) to trailer.originalSize
+			} else {
+				byteArrayOf() to item.target.sizeOrZero()
+			}
+			EphemeralMediaDataSource(item.target, slice, totalSize)
+		}
+	}.value
+
+	DisposableEffect(dataSource) {
+		if (dataSource == null) return@DisposableEffect onDispose { }
 		try {
 			mediaPlayer.setDataSource(dataSource)
 			mediaPlayer.setOnPreparedListener { mp ->
@@ -129,10 +173,7 @@ fun EphemeralVideoPlayerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 			}
 			runCatching {
 				mediaPlayer.reset()
-				mediaPlayer.release()
 			}
-			surfaceRef?.release()
-			surfaceRef = null
 			dataSource.close()
 		}
 	}
@@ -349,12 +390,12 @@ fun EphemeralVideoPlayerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 						) {
 							val displayedPos = if (isDraggingSlider) sliderPositionMs.toInt() else currentPositionMs
 							Text(
-								text = formatTimestamp(displayedPos),
+								text = formatTimestamp(displayedPos.toLong()),
 								style = MaterialTheme.typography.bodySmall,
 								color = Color.White,
 							)
 							Text(
-								text = formatTimestamp(durationMs),
+								text = formatTimestamp(durationMs.toLong()),
 								style = MaterialTheme.typography.bodySmall,
 								color = Color.White.copy(alpha = 0.7f),
 							)
@@ -395,7 +436,7 @@ fun EphemeralVideoPlayerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 	}
 }
 
-private fun formatTimestamp(ms: Int): String {
+internal fun formatTimestamp(ms: Long): String {
 	val totalSeconds = (ms / 1000).coerceAtLeast(0)
 	val minutes = totalSeconds / 60
 	val seconds = totalSeconds % 60

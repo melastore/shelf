@@ -89,6 +89,19 @@ object KnockCode {
 		if (encoded.any { it < '0' || it > '0' + QUARTERS - 1 }) return false
 		return isValid(encoded.map { it - '0' })
 	}
+
+	/**
+	 * The same code counted one to four, or null if [typed] is not that shape.
+	 *
+	 * Stored codes stay zero-based: the digits are the credential and the key headers are sealed
+	 * under, so renumbering would lock existing owners out of their folders. But a calculator drops
+	 * a leading zero, so a code starting top-left shows nothing for the first press. One-based is
+	 * accepted on the keypad and translated back before it reaches a gate; nothing is stored in it.
+	 */
+	fun fromOneBased(typed: CharArray): CharArray? {
+		if (typed.isEmpty() || typed.any { it < '1' || it > '0' + QUARTERS }) return null
+		return CharArray(typed.size) { typed[it] - 1 }
+	}
 }
 
 /**

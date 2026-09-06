@@ -6,7 +6,12 @@ import java.nio.file.Files
 import javax.crypto.SecretKey
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 /** What one pass over a folder managed. [failed] is the part the user has to be told about. */
@@ -35,30 +40,40 @@ class ContentLocker(private val slice: Int = FileLocker.SLICE_LENGTH) {
 	suspend fun lock(targets: List<LockTarget>, passphrase: CharArray): LockSummary = withContext(Dispatchers.IO) {
 		val salt = HeaderCipher.newSalt()
 		val key = HeaderCipher.deriveKey(passphrase, salt)
-		var summary = LockSummary()
-		for (target in targets) {
-			coroutineContext.ensureActive()
-			summary = summary.record(FileLocker.lock(target, key, salt))
-		}
-		summary
+		targets.summarise { FileLocker.lock(it, key, salt) }
 	}
 
 	suspend fun unlock(targets: List<LockTarget>, passphrase: CharArray): LockSummary = withContext(Dispatchers.IO) {
 		// Files locked in one pass share a salt, so this derives once in the normal case and still
-		// copes with a folder assembled over several passes.
+		// copes with a folder assembled over several passes. Guarded because the pass runs several
+		// files at once, which also stops two of them paying for the same derivation.
 		val keys = mutableMapOf<String, SecretKey>()
 		val keyFor: (ByteArray) -> SecretKey = { salt ->
-			keys.getOrPut(salt.joinToString("") { "%02x".format(it) }) {
-				HeaderCipher.deriveKey(passphrase, salt)
+			synchronized(keys) {
+				keys.getOrPut(salt.joinToString("") { "%02x".format(it) }) {
+					HeaderCipher.deriveKey(passphrase, salt)
+				}
 			}
 		}
 
-		var summary = LockSummary()
-		for (target in targets) {
-			coroutineContext.ensureActive()
-			summary = summary.record(FileLocker.unlock(target, keyFor))
-		}
-		summary
+		targets.summarise { FileLocker.unlock(it, keyFor) }
+	}
+
+	/**
+	 * Applies [work] to every target, several at a time, and adds up what happened. The time goes on
+	 * Binder round trips to a document provider, not on the CPU, so waiting on several at once is
+	 * most of the speed. Order does not matter: the summary is a set of counts.
+	 */
+	private suspend fun List<LockTarget>.summarise(work: (LockTarget) -> LockOutcome): LockSummary = coroutineScope {
+		val gate = Semaphore(PARALLEL_FILES)
+		map { target ->
+			async {
+				gate.withPermit {
+					coroutineContext.ensureActive()
+					work(target)
+				}
+			}
+		}.awaitAll().fold(LockSummary()) { summary, outcome -> summary.record(outcome) }
 	}
 
 	private fun LockSummary.record(outcome: LockOutcome): LockSummary = when (outcome) {
@@ -76,6 +91,10 @@ class ContentLocker(private val slice: Int = FileLocker.SLICE_LENGTH) {
 	}
 
 	companion object {
+		// Latency, not cores: files wait on a provider rather than compute. Capped because each one
+		// in flight holds a 64KB slice in memory.
+		private const val PARALLEL_FILES = 6
+
 		const val MAX_FILES = 20_000
 
 		private fun File.isSymbolicLink(): Boolean = Files.isSymbolicLink(toPath())

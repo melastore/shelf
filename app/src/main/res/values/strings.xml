@@ -412,10 +412,26 @@
 	<string name="no_media_found">No media found in this folder</string>
 	<string name="media_loading">Decrypting previews…</string>
 	<string name="video_playback_error">Unable to play video</string>
+	<string name="audio_playback_error">Unable to play audio</string>
+	<string name="document_open_failed">Unable to open this document</string>
+	<string name="image_open_failed">Unable to open this image</string>
+	<string name="document_truncated">Long file, showing the beginning only.</string>
+	<string name="document_page_of">Page %1$d of %2$d</string>
 	<string name="play">Play</string>
 	<string name="pause">Pause</string>
 	<string name="rewind_10">Rewind 10 seconds</string>
 	<string name="forward_10">Forward 10 seconds</string>
+	<string name="create_burner_pin">Set emergency wipe PIN</string>
+	<string name="change_burner_pin">Change emergency wipe PIN</string>
+	<string name="burner_pin_summary">Entering this PIN permanently destroys encryption keys and journals under duress</string>
+	<string name="remove_burner_pin">Remove emergency wipe PIN</string>
+	<string name="remove_burner_pin_summary">Disables the emergency destruction PIN</string>
+	<string name="burner_pin_hint">Pick a distinct emergency PIN. Entering it at any unlock prompt wipes keys and journals.</string>
+	<string name="remove_burner_pin_confirm">The emergency wipe PIN will be removed and will no longer trigger a wipe.</string>
+	<string name="burner_pin_saved">Emergency wipe PIN saved.</string>
+	<string name="burner_pin_removed">Emergency wipe PIN removed.</string>
+	<string name="usb_panic_title">Lock on USB connect</string>
+	<string name="usb_panic_summary">Immediately lock and hide all folders when a USB cable or charger is plugged in</string>
 
 	<!-- Guide -->
 	<string name="stealth_guide_title">How Shelf hides</string>
@@ -425,11 +441,13 @@
 	<string name="stealth_guide_disguise_title">The disguise</string>
 	<string name="stealth_guide_disguise_body">Shelf wears the name and icon of a calculator, a calendar, or a habit tracker, and each one is a working app. The sums come out right, the dates are real, the habits are kept. Nothing on the home screen says there is anything else here.</string>
 	<string name="stealth_guide_entrance_title">Getting back in</string>
-	<string name="stealth_guide_entrance_body">Under Getting in you choose the gesture: hold the app name, tap it twice, hold a control the disguise already has, or let the calculator take your PIN on its keypad. Five taps in the top-right corner open the prompt as well, except where the keypad is taking the PIN itself.</string>
+	<string name="stealth_guide_entrance_body">Under Getting in you choose the gesture: hold the app name, tap it twice, hold a control the disguise already has, or let the calculator take your code on its keypad. Five taps in the top-right corner open the prompt as well, except where the keypad is taking the code itself.\n\nThe keypad has only digits on it, so it can take a PIN or a knock code and nothing else. Choose the calculator and those are the two you are offered; if your code is a password or a pattern the gesture stays instead, because a keypad you cannot type your code on is no way in at all.</string>
+	<string name="stealth_guide_calculator_title">The calculator keypad</string>
+	<string name="stealth_guide_calculator_body">The blank space above the keys is four unmarked quarters. Tap your knock code out there and then hold anywhere in it to open. Nothing shows on screen while you tap, so a watcher sees you resting a finger on an empty calculator.\n\nA knock code can be typed on the keys instead. Count the quarters 1 to 4, left to right and top to bottom, then press equals: top-left is 1, top-right 2, bottom-left 3, bottom-right 4. A PIN is simply typed and equals. Typing is easier to read over your shoulder than tapping, so the quarters are the quieter way in.</string>
 	<string name="stealth_guide_crash_title">The fake crash</string>
 	<string name="stealth_guide_crash_body">With this on, the entry gesture puts up an app-has-stopped dialog instead of the unlock screen, so anyone watching sees the app fail rather than open. Press and hold the message to carry on.</string>
 	<string name="stealth_guide_peek_title">Looking without unhiding</string>
-	<string name="stealth_guide_peek_body">Open a hidden folder to see the photos and videos in it. They are decrypted as they are read and nothing goes back to disk, so the folder stays hidden while you look and no gallery picks it up.</string>
+	<string name="stealth_guide_peek_body">Open a hidden folder to see what is in it, one file to a row with its full name: photos, video, PDFs and text. They are decrypted as they are read and nothing goes back to disk, so the folder stays hidden while you look and no gallery picks it up.\n\nVideo plays in place and turns the screen to suit the clip. A PDF is rendered from memory alone, never written out to be opened, so no other app is handed it and nothing is left behind afterwards.</string>
 	<string name="stealth_guide_duress_title">If you are made to unlock</string>
 	<string name="stealth_guide_duress_body">Set a second PIN under Unlocking and give that one instead. It opens a separate space holding nothing of yours, and nothing on screen suggests there is another.</string>
 	<string name="stealth_guide_panic_title">Closing it in a hurry</string>
@@ -438,6 +456,7 @@
 	<string name="stealth_guide_safety_body">Unhide your folders first, or export a recovery file from Settings. A folder hidden by an app that is no longer installed stays hidden.</string>
 
 	<!-- Setup -->
-	<string name="setup_entry_calculator_hint">The calculator can take your PIN on its own keypad. Type it and press equals, and there is no gesture for anyone to find.</string>
+	<string name="setup_credential_keypad_hint">The calculator takes your code on its own keypad, so it has to be one you can tap out there: a PIN on the keys, or a knock code on the display. A password or a pattern would leave no way in.</string>
+	<string name="setup_entry_calculator_hint">The calculator can take your code on its own keypad. Type it and press equals, and there is no gesture for anyone to find. A knock code also works on the blank space above the keys: tap the quarters, then hold.</string>
 	<string name="setup_method_recommendation">Automatic uses the most thorough method this phone actually offers. Leave it unless you have a reason not to.</string>
 </resources>

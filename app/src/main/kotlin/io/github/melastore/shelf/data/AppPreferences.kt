@@ -13,6 +13,13 @@ enum class DecoyType { NONE, HABITS, CALENDAR, CALCULATOR }
 
 enum class EntryMethod { TITLE_HOLD, CORNER_KNOCK, NATURAL_HOLD, DIRECT_KEYPAD, DOUBLE_TAP_TITLE }
 
+/**
+ * Whether this kind can be entered on the calculator keypad. A knock code counts: it is tapped on
+ * the display, not the keys. Choosing the calculator disguise drops the title gesture and the corner
+ * taps, so the wrong answer here locks the owner out with nothing to fall back on.
+ */
+fun CredentialKind.worksOnCalculatorKeypad(): Boolean = this == CredentialKind.PIN || this == CredentialKind.KNOCK
+
 enum class HidingPreference { AUTO, ROOT, ALL_FILES, SAF }
 
 /**
@@ -40,6 +47,7 @@ data class AppSettings(
 	val hideFromRecents: Boolean,
 	val themeMode: ThemeMode,
 	val flipToHide: Boolean = true,
+	val usbPanic: Boolean = false,
 )
 
 /** Small, non-sensitive settings. Secrets live in [io.github.melastore.shelf.security.PassphraseGate]. */
@@ -60,6 +68,7 @@ class AppPreferences(context: Context) {
 		hideFromRecents = values.getBoolean(KEY_HIDE_FROM_RECENTS, false),
 		themeMode = enumValue(KEY_THEME, ThemeMode.SYSTEM),
 		flipToHide = values.getBoolean(KEY_FLIP_TO_HIDE, true),
+		usbPanic = values.getBoolean(KEY_USB_PANIC, false),
 	)
 
 	fun setDecoy(value: DecoyType) = putString(KEY_DECOY, value.name)
@@ -148,6 +157,12 @@ class AppPreferences(context: Context) {
 	}
 
 	fun flipToHide(): Boolean = values.getBoolean(KEY_FLIP_TO_HIDE, true)
+
+	fun setUsbPanic(value: Boolean) {
+		values.edit(commit = true) { putBoolean(KEY_USB_PANIC, value) }
+	}
+
+	fun usbPanic(): Boolean = values.getBoolean(KEY_USB_PANIC, false)
 
 	fun autoHideMode(): AutoHideMode {
 		if (values.contains(KEY_AUTO_HIDE)) return enumValue(KEY_AUTO_HIDE, AutoHideMode.IMMEDIATE)
@@ -239,6 +254,7 @@ class AppPreferences(context: Context) {
 		const val KEY_HIDE_FROM_RECENTS = "hide_from_recents"
 		const val KEY_THEME = "theme_mode"
 		const val KEY_FLIP_TO_HIDE = "flip_to_hide"
+		const val KEY_USB_PANIC = "usb_panic"
 		const val KEY_FAILED_UNLOCKS = "failed_unlocks"
 		const val KEY_LOCKOUTS = "lockouts"
 		const val KEY_BLOCKED_UNTIL = "blocked_until"

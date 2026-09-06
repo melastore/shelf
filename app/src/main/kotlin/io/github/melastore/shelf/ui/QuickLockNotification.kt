@@ -122,7 +122,10 @@ object QuickLockNotification {
 			.setVisibility(NotificationCompat.VISIBILITY_SECRET)
 			.setOngoing(working)
 			.apply {
-				if (!working) addAction(0, context.getString(R.string.emergency_hide), action)
+				if (!working) {
+					setContentIntent(action)
+					addAction(0, context.getString(R.string.emergency_hide), action)
+				}
 			}
 			.build()
 	}

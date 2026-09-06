@@ -55,6 +55,7 @@ import io.github.melastore.shelf.data.DecoyType
 import io.github.melastore.shelf.data.EntryMethod
 import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.HidingPreference
+import io.github.melastore.shelf.data.worksOnCalculatorKeypad
 import io.github.melastore.shelf.security.CredentialKind
 
 private enum class SetupStep { WELCOME, DISGUISE, ENTRY, METHOD, STORAGE, NOTIFICATIONS, CREDENTIAL }
@@ -120,12 +121,22 @@ fun FirstRunSetup(
 				) {
 					when (current) {
 						SetupStep.WELCOME -> WelcomeStep()
+
 						SetupStep.DISGUISE -> DisguiseStep(state.decoy, onDecoy, onEntryMethod)
+
 						SetupStep.ENTRY -> EntryStep(state.decoy, state.entryMethod, onEntryMethod)
+
 						SetupStep.METHOD -> MethodStep(state, onHidingPreference, onCheckMethods)
+
 						SetupStep.STORAGE -> StorageStep(state, onRequestAllFiles)
+
 						SetupStep.NOTIFICATIONS -> NotificationStep(state.quickLockNotification, onRequestNotifications)
-						SetupStep.CREDENTIAL -> CredentialStep(onCreateCredential)
+
+						SetupStep.CREDENTIAL -> CredentialStep(
+							keypadEntry = state.decoy == DecoyType.CALCULATOR &&
+								state.entryMethod == EntryMethod.DIRECT_KEYPAD,
+							onCreateCredential = onCreateCredential,
+						)
 					}
 					Spacer(Modifier.height(24.dp))
 				}
@@ -410,16 +421,22 @@ private fun NotificationStep(enabled: Boolean, onRequestNotifications: () -> Uni
 }
 
 @Composable
-private fun CredentialStep(onCreateCredential: (CredentialKind, CharArray) -> Unit) {
-	var kind by remember { mutableStateOf(CredentialKind.PIN) }
+private fun CredentialStep(keypadEntry: Boolean, onCreateCredential: (CredentialKind, CharArray) -> Unit) {
+	// Only what the calculator's keys and display can actually take, when that is the way in.
+	val options = CredentialKind.entries.filter { !keypadEntry || it.worksOnCalculatorKeypad() }
+	var kind by remember(keypadEntry) { mutableStateOf(options.first()) }
 	var setting by remember { mutableStateOf(false) }
 
 	StepTitle(
 		stringResource(R.string.setup_credential_title),
 		stringResource(R.string.setup_credential_body),
 	)
+	if (keypadEntry) {
+		NoticeCard(stringResource(R.string.setup_credential_keypad_hint))
+		Spacer(Modifier.height(16.dp))
+	}
 	Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-		CredentialKind.entries.forEach { option ->
+		options.forEach { option ->
 			SettingsRow(
 				title = CredentialWords.label(option),
 				summary = CredentialWords.hint(option),

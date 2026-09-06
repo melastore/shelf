@@ -3,6 +3,7 @@ package io.github.melastore.shelf.ui
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -12,15 +13,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -66,6 +65,7 @@ import io.github.melastore.shelf.data.ContentCredential
 import io.github.melastore.shelf.data.EphemeralMediaItem
 import io.github.melastore.shelf.data.EphemeralMediaLoader
 import io.github.melastore.shelf.data.EphemeralMediaType
+import io.github.melastore.shelf.data.EphemeralThumbnail
 import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.ShelfCore
 import io.github.melastore.shelf.root.RootShell
@@ -84,24 +84,28 @@ fun EphemeralMediaViewer(folder: VaultFolder, onDismiss: () -> Unit,) {
 	var previewItem by remember { mutableStateOf<EphemeralMediaItem?>(null) }
 	val keyCache = remember { mutableMapOf<String, SecretKey>() }
 
+	// Thumbnails derive in parallel on the IO pool, so the cache is guarded. The lock also stops a
+	// folder's worth of them paying for the same PBKDF2 derivation.
 	val keyFor: (ByteArray) -> SecretKey? = remember {
 		{ salt: ByteArray ->
 			val saltKey = salt.contentToString()
-			val cached = keyCache[saltKey]
-			if (cached != null) {
-				cached
-			} else {
-				val cred = ContentCredential.copy()
-				if (cred != null) {
-					try {
-						val derived = HeaderCipher.deriveKey(cred, salt)
-						keyCache[saltKey] = derived
-						derived
-					} finally {
-						cred.fill(' ')
-					}
+			synchronized(keyCache) {
+				val cached = keyCache[saltKey]
+				if (cached != null) {
+					cached
 				} else {
-					null
+					val cred = ContentCredential.copy()
+					if (cred != null) {
+						try {
+							val derived = HeaderCipher.deriveKey(cred, salt)
+							keyCache[saltKey] = derived
+							derived
+						} finally {
+							cred.fill(' ')
+						}
+					} else {
+						null
+					}
 				}
 			}
 		}
@@ -109,7 +113,7 @@ fun EphemeralMediaViewer(folder: VaultFolder, onDismiss: () -> Unit,) {
 
 	DisposableEffect(Unit) {
 		onDispose {
-			keyCache.clear()
+			synchronized(keyCache) { keyCache.clear() }
 		}
 	}
 
@@ -125,17 +129,23 @@ fun EphemeralMediaViewer(folder: VaultFolder, onDismiss: () -> Unit,) {
 			?: rootEntry?.path?.let(ShelfCore.paths::toEmulated)
 			?: folder.path
 		try {
+			// A folder that cannot be walked shows as empty. Thrown from here it reaches the main
+			// dispatcher, which is a crash rather than a message.
 			val scanned = withContext(Dispatchers.IO) {
 				if (rootEntry != null) {
 					RootShell.run("chmod 755 ${RootShell.quote(rootEntry.path)}")
 				}
-				EphemeralMediaLoader.scanMediaItems(
-					actualPath,
-					context,
-					ShelfCore.paths,
-					keyFor,
-					entry?.treeUri,
-				)
+				try {
+					EphemeralMediaLoader.scanMediaItems(
+						actualPath,
+						context,
+						ShelfCore.paths,
+						keyFor,
+						entry?.treeUri,
+					)
+				} catch (_: Exception) {
+					emptyList()
+				}
 			}
 			mediaItems = scanned
 			loading = false
@@ -203,15 +213,12 @@ fun EphemeralMediaViewer(folder: VaultFolder, onDismiss: () -> Unit,) {
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
 
-					else -> LazyVerticalGrid(
-						columns = GridCells.Adaptive(100.dp),
+					else -> LazyColumn(
 						modifier = Modifier.fillMaxSize(),
-						contentPadding = PaddingValues(12.dp),
-						horizontalArrangement = Arrangement.spacedBy(8.dp),
-						verticalArrangement = Arrangement.spacedBy(8.dp),
+						contentPadding = PaddingValues(vertical = 8.dp),
 					) {
 						items(mediaItems, key = { EphemeralMediaLoader.targetId(it.target) }) { item ->
-							MediaThumbnail(item = item, keyFor = keyFor, onClick = { previewItem = item })
+							MediaRow(item = item, keyFor = keyFor, onClick = { previewItem = item })
 						}
 					}
 				}
@@ -219,78 +226,121 @@ fun EphemeralMediaViewer(folder: VaultFolder, onDismiss: () -> Unit,) {
 		}
 
 		previewItem?.let { preview ->
-			if (preview.type == EphemeralMediaType.VIDEO) {
-				EphemeralVideoPlayerDialog(
-					item = preview,
-					keyFor = keyFor,
-					onDismiss = { previewItem = null },
-				)
-			} else {
-				MediaPreviewDialog(
-					item = preview,
-					keyFor = keyFor,
-					onDismiss = { previewItem = null },
-				)
+			val dismiss = { previewItem = null }
+			when (preview.type) {
+				EphemeralMediaType.VIDEO ->
+					EphemeralVideoPlayerDialog(item = preview, keyFor = keyFor, onDismiss = dismiss)
+
+				EphemeralMediaType.AUDIO ->
+					EphemeralAudioPlayerDialog(item = preview, keyFor = keyFor, onDismiss = dismiss)
+
+				EphemeralMediaType.PDF ->
+					EphemeralPdfViewerDialog(item = preview, keyFor = keyFor, onDismiss = dismiss)
+
+				EphemeralMediaType.TEXT ->
+					EphemeralTextViewerDialog(item = preview, keyFor = keyFor, onDismiss = dismiss)
+
+				EphemeralMediaType.IMAGE ->
+					MediaPreviewDialog(item = preview, keyFor = keyFor, onDismiss = dismiss)
 			}
 		}
 	}
 }
 
 @Composable
-private fun MediaThumbnail(item: EphemeralMediaItem, keyFor: (ByteArray) -> SecretKey?, onClick: () -> Unit) {
-	val bitmapState = produceState<Bitmap?>(initialValue = null, item) {
+private fun MediaRow(item: EphemeralMediaItem, keyFor: (ByteArray) -> SecretKey?, onClick: () -> Unit) {
+	val thumbnail = produceState<EphemeralThumbnail?>(initialValue = null, item) {
 		value = withContext(Dispatchers.IO) {
 			EphemeralMediaLoader.loadThumbnail(item, keyFor, maxDimension = 300)
 		}
-	}
+	}.value
 	val isVideo = item.type == EphemeralMediaType.VIDEO
-	Surface(
+	val bitmap = thumbnail?.bitmap
+	val badge = when (item.type) {
+		EphemeralMediaType.TEXT -> R.drawable.ic_text_badge
+		EphemeralMediaType.PDF -> R.drawable.ic_pdf_badge
+		EphemeralMediaType.IMAGE -> R.drawable.ic_image_badge
+		EphemeralMediaType.VIDEO -> R.drawable.ic_video_badge
+		EphemeralMediaType.AUDIO -> R.drawable.ic_audio_badge
+	}
+	// Documents never render a tile, and an image that would not decode is still worth opening.
+	val openable = thumbnail != null
+	Row(
 		modifier = Modifier
-			.aspectRatio(1f)
-			.clip(RoundedCornerShape(8.dp))
-			.clickable(enabled = bitmapState.value != null || isVideo, onClick = onClick),
-		color = MaterialTheme.colorScheme.surfaceContainer,
+			.fillMaxWidth()
+			.clickable(enabled = openable, onClick = onClick)
+			.padding(horizontal = 12.dp, vertical = 8.dp),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(12.dp),
 	) {
-		Box(Modifier.fillMaxSize()) {
-			val bmp = bitmapState.value
-			if (bmp != null) {
-				Image(
-					bitmap = bmp.asImageBitmap(),
-					contentDescription = item.name,
-					contentScale = ContentScale.Crop,
-					modifier = Modifier.fillMaxSize(),
-				)
-			} else if (isVideo) {
-				Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-					Icon(
-						painter = painterResource(R.drawable.ic_video_badge),
+		Surface(
+			modifier = Modifier
+				.size(width = 104.dp, height = 64.dp)
+				.clip(RoundedCornerShape(6.dp)),
+			color = MaterialTheme.colorScheme.surfaceContainer,
+		) {
+			Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+				when {
+					bitmap != null -> Image(
+						bitmap = bitmap.asImageBitmap(),
 						contentDescription = item.name,
+						contentScale = ContentScale.Crop,
+						modifier = Modifier.fillMaxSize(),
+					)
+
+					thumbnail == null -> CircularProgressIndicator(
+						modifier = Modifier.size(18.dp),
+						strokeWidth = 2.dp,
+					)
+
+					// Nothing decoded, which is the normal case for text. The row still opens.
+					else -> Icon(
+						painter = painterResource(badge),
+						contentDescription = null,
 						tint = MaterialTheme.colorScheme.onSurfaceVariant,
-						modifier = Modifier.size(28.dp),
+						modifier = Modifier.size(24.dp),
 					)
 				}
-			} else {
-				Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-					CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+				if (isVideo && bitmap != null) {
+					Box(
+						modifier = Modifier
+							.padding(4.dp)
+							.align(Alignment.BottomStart)
+							.clip(RoundedCornerShape(4.dp))
+							.background(Color.Black.copy(alpha = 0.6f))
+							.padding(horizontal = 4.dp, vertical = 2.dp),
+					) {
+						Icon(
+							painter = painterResource(R.drawable.ic_video_badge),
+							contentDescription = null,
+							tint = Color.White,
+							modifier = Modifier.size(11.dp),
+						)
+					}
 				}
 			}
-			if (isVideo && bmp != null) {
-				Box(
-					modifier = Modifier
-						.padding(6.dp)
-						.align(Alignment.BottomStart)
-						.clip(RoundedCornerShape(4.dp))
-						.background(Color.Black.copy(alpha = 0.6f))
-						.padding(horizontal = 5.dp, vertical = 2.dp),
-					contentAlignment = Alignment.Center,
-				) {
-					Icon(
-						painter = painterResource(R.drawable.ic_video_badge),
-						contentDescription = null,
-						tint = Color.White,
-						modifier = Modifier.size(12.dp),
-					)
-				}
+		}
+
+		Column(
+			modifier = Modifier.weight(1f),
+			verticalArrangement = Arrangement.spacedBy(2.dp),
+		) {
+			// One line that scrolls, not several that stop: these names run to a couple of hundred
+			// characters, so any fixed number of lines still ends in an ellipsis.
+			Text(
+				text = item.name,
+				style = MaterialTheme.typography.bodyMedium,
+				maxLines = 1,
+				softWrap = false,
+				modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
+			)
+			val duration = thumbnail?.durationMs ?: 0L
+			if (duration > 0) {
+				Text(
+					text = formatTimestamp(duration),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
 			}
 		}
 	}
@@ -298,10 +348,13 @@ private fun MediaThumbnail(item: EphemeralMediaItem, keyFor: (ByteArray) -> Secr
 
 @Composable
 private fun MediaPreviewDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> SecretKey?, onDismiss: () -> Unit,) {
+	var settled by remember(item) { mutableStateOf(false) }
 	val bitmapState = produceState<Bitmap?>(initialValue = null, item) {
-		value = withContext(Dispatchers.IO) {
+		val loaded = withContext(Dispatchers.IO) {
 			EphemeralMediaLoader.loadBitmap(item.target, keyFor, maxDimension = 2048)
 		}
+		value = loaded
+		settled = true
 	}
 	var scale by remember { mutableFloatStateOf(1f) }
 	var offset by remember { mutableStateOf(Offset.Zero) }
@@ -347,8 +400,8 @@ private fun MediaPreviewDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 				},
 		) {
 			val bmp = bitmapState.value
-			if (bmp != null) {
-				Image(
+			when {
+				bmp != null -> Image(
 					bitmap = bmp.asImageBitmap(),
 					contentDescription = item.name,
 					contentScale = ContentScale.Fit,
@@ -362,9 +415,17 @@ private fun MediaPreviewDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 							translationY = offset.y,
 						),
 				)
-			} else {
-				Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+
+				!settled -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
 					CircularProgressIndicator()
+				}
+
+				else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+					Text(
+						stringResource(R.string.image_open_failed),
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
 				}
 			}
 

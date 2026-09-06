@@ -8,17 +8,17 @@ import kotlinx.serialization.builtins.ListSerializer
  * at mode 000 carries no hint of what its permissions were, so losing this makes the change
  * permanent. An entry is committed before the change is applied and cleared only after a restore.
  */
-class Journal(file: File) {
+open class Journal(file: File) {
 
 	private val store = AtomicJsonList(file, ListSerializer(HiddenEntry.serializer()))
 
-	suspend fun read(): List<HiddenEntry> = store.read()
+	open suspend fun read(): List<HiddenEntry> = store.read()
 
 	/**
 	 * Records [entry], or returns false if the folder is already journalled. Overwriting would
 	 * replace the real permissions with the 000 a second hide reads back, leaving nothing to restore.
 	 */
-	suspend fun addNew(entry: HiddenEntry): Boolean = store.mutate { current ->
+	open suspend fun addNew(entry: HiddenEntry): Boolean = store.mutate { current ->
 		if (current.any { it.path == entry.path }) {
 			current to false
 		} else {
@@ -26,12 +26,12 @@ class Journal(file: File) {
 		}
 	}
 
-	suspend fun remove(path: String) = store.update { current ->
+	open suspend fun remove(path: String) = store.update { current ->
 		current.filterNot { it.path == path }
 	}
 
 	/** Updates an existing record once a provider reports the name it actually used. */
-	suspend fun replace(entry: HiddenEntry): Boolean = store.mutate { current ->
+	open suspend fun replace(entry: HiddenEntry): Boolean = store.mutate { current ->
 		if (current.none { it.path == entry.path }) {
 			current to false
 		} else {
