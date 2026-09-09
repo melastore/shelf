@@ -110,7 +110,7 @@ data class AppUiState(
 	val fakeCrash: Boolean = false,
 	val hideFromRecents: Boolean = false,
 	val themeMode: ThemeMode = ThemeMode.SYSTEM,
-	val flipToHide: Boolean = true,
+	val flipToHide: Boolean = false,
 	val usbPanic: Boolean = false,
 	/** Set when an operation stopped to ask for access to a folder above the target. */
 	val accessNeededFor: Uri? = null,
@@ -192,7 +192,10 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			}
 		}
 		viewModelScope.launch {
-			QuickLockSignal.completions.collect { refreshExposure() }
+			QuickLockSignal.completions.collect {
+				autoHideRequested = false
+				refreshExposure()
+			}
 		}
 		refreshExposure()
 		viewModelScope.launch {
@@ -397,12 +400,16 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		ContentCredential.clear()
 		EmergencyCredentialStore.clear(getApplication())
 		preferences.clearFailedUnlocks()
+		preferences.setBiometricEnabled(false)
+		BiometricAuth.reset(getApplication())
+		auth.clearPrimary()
 		auth.clearBurner()
 		auth.clearDecoy()
 		val app = getApplication<Application>()
 		app.filesDir.listFiles()?.forEach { file ->
 			if (file.name.contains("journal") || file.name.contains("gate") || file.name.contains("recovery") ||
-				file.name.contains("vault")
+				file.name.contains("vault") || file.name.contains("folders") || file.name.contains("duress") ||
+				file.name.contains("attempts")
 			) {
 				file.delete()
 			}
@@ -414,6 +421,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					credentialSet = false,
 					burnerPinSet = false,
 					decoyPinSet = false,
+					biometricEnabled = false,
 					folders = emptyList(),
 					fakeCrash = true,
 				)
@@ -434,7 +442,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			}
 			val valid = auth.primaryMatches(current)
 			if (!valid) return@launchBusy fail(uiMessage(R.string.current_credential_incorrect))
-			if (auth.decoyMatches(next)) {
+			if (auth.decoyMatches(next) || auth.burnerMatches(next)) {
 				return@launchBusy fail(uiMessage(R.string.primary_decoy_pin_different))
 			}
 			val biometricWasEnabled = _state.value.biometricEnabled
@@ -450,6 +458,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			val kindChanged = kind != _state.value.credentialKind
 			val decoyDropped = kindChanged && _state.value.decoyPinSet
 			if (decoyDropped) auth.clearDecoy()
+			val burnerDropped = kindChanged && _state.value.burnerPinSet
+			if (burnerDropped) auth.clearBurner()
 
 			withContext(Dispatchers.IO) { EmergencyCredentialStore.clear(getApplication()) }
 			auth.setPrimary(next, kind)
@@ -459,10 +469,11 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				it.copy(
 					credentialKind = kind,
 					decoyPinSet = it.decoyPinSet && !decoyDropped,
+					burnerPinSet = it.burnerPinSet && !burnerDropped,
 					biometricEnabled = if (biometricWasEnabled) false else it.biometricEnabled,
 					message = uiMessage(
 						when {
-							decoyDropped -> R.string.primary_pin_changed_second_removed
+							decoyDropped || burnerDropped -> R.string.primary_pin_changed_second_removed
 							biometricWasEnabled -> R.string.primary_pin_changed_biometric_disabled
 							else -> R.string.primary_pin_changed
 						},
@@ -481,7 +492,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			if (!auth.primaryMatches(current)) {
 				return@launchBusy fail(uiMessage(R.string.primary_credential_incorrect))
 			}
-			if (auth.primaryMatches(credential)) {
+			if (auth.primaryMatches(credential) || auth.burnerMatches(credential)) {
 				return@launchBusy fail(uiMessage(R.string.primary_decoy_pin_different))
 			}
 			auth.setDecoy(credential)
@@ -510,7 +521,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			if (!auth.primaryMatches(current)) {
 				return@launchBusy fail(uiMessage(R.string.primary_credential_incorrect))
 			}
-			if (auth.primaryMatches(credential)) {
+			if (auth.primaryMatches(credential) || auth.decoyMatches(credential)) {
 				return@launchBusy fail(uiMessage(R.string.primary_decoy_pin_different))
 			}
 			auth.setBurner(credential)
@@ -1019,11 +1030,15 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		awaitingPickerUntil = 0L
 	}
 
-	fun onMovedToBackground() {
+	fun onMovedToBackground(screenOff: Boolean = false) {
 		val awaitingPicker = SystemClock.elapsedRealtime() < awaitingPickerUntil
 		awaitingPickerUntil = 0L
 		backgroundLock?.cancel()
 		if (!awaitingPicker) applyPendingDisguise()
+		if (screenOff && _state.value.autoHideMode != AutoHideMode.NEVER) {
+			autoHideAndClose()
+			return
+		}
 		if (_state.value.autoHideMode != AutoHideMode.IMMEDIATE) return
 		// A picker briefly interrupts an immediate hide, or no folder could ever be picked. If it is
 		// abandoned, the grace period still ends by closing and hiding everything.
@@ -1060,19 +1075,27 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	}
 
 	/** Screen-off covers both non-never choices. Immediate has usually already fired from onStop. */
-	fun onScreenTurnedOff() = viewModelScope.launch {
-		val mode = withContext(Dispatchers.IO) { preferences.autoHideMode() }
-		if (mode != AutoHideMode.NEVER) autoHideAndClose()
+	fun onScreenTurnedOff() {
+		if (_state.value.autoHideMode != AutoHideMode.NEVER) autoHideAndClose()
 	}
 
 	fun onScreenTurnedOn() = Unit
 
 	/**
-	 * Hands closing and hiding to a receiver that can finish after Android destroys this view model.
-	 * The receiver takes a lease on the session credential before telling this screen to close.
+	 * Closes the private space and puts exposed folders back out of sight.
+	 * The vault UI is locked immediately so returning to the app never shows private contents,
+	 * while the emergency credential store ensures background workers can complete re-hiding on storage.
 	 */
 	fun autoHideAndClose() {
 		if ((_state.value.screen == Screen.DECOY && _state.value.exposedFolders == 0) || autoHideRequested) return
+		if (_state.value.exposedFolders > 0) {
+			val credential = ContentCredential.copy()
+			if (credential != null) {
+				EmergencyCredentialStore.arm(getApplication(), credential)
+				credential.fill(' ')
+			}
+		}
+		lockVault()
 		autoHideRequested = true
 		QuickLockNotification.requestHide(getApplication())
 	}
@@ -1324,7 +1347,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	private suspend fun restoreEntry(entry: HiddenEntry) {
 		when (val result = folderCoordinator.restore(entry)) {
 			is HideResult.Ok -> reloadVault(
-				uiMessage(R.string.folder_restored_named, entry.displayName),
+				uiMessage(R.string.folder_restored_named, result.entry.displayName),
 				result.warning,
 			)
 

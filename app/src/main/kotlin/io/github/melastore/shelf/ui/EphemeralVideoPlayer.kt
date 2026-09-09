@@ -57,11 +57,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
 import io.github.melastore.shelf.R
-import io.github.melastore.shelf.crypto.HeaderCipher
 import io.github.melastore.shelf.data.EphemeralMediaDataSource
 import io.github.melastore.shelf.data.EphemeralMediaItem
-import io.github.melastore.shelf.data.FileLocker
-import io.github.melastore.shelf.data.sizeOrZero
+import io.github.melastore.shelf.data.EphemeralMediaLoader
 import javax.crypto.SecretKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -121,21 +119,13 @@ fun EphemeralVideoPlayerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 	// too slow for composition and hung the frame the player appeared on. The spinner covers it.
 	val dataSource = produceState<EphemeralMediaDataSource?>(null, item) {
 		value = withContext(Dispatchers.IO) {
-			val trailer = FileLocker.readTrailer(item.target)
-			val (slice, totalSize) = if (trailer != null) {
-				val key = keyFor(trailer.salt)
-				val decryptedSlice = if (key != null) {
-					runCatching {
-						HeaderCipher.open(trailer.cipherText, trailer.nonce, trailer.tag, key)
-					}.getOrNull()
-				} else {
-					null
-				}
-				(decryptedSlice ?: byteArrayOf()) to trailer.originalSize
+			val head = EphemeralMediaLoader.plaintextHead(item.target, keyFor)
+			if (head == null) {
+				withContext(Dispatchers.Main) { hasError = true }
+				null
 			} else {
-				byteArrayOf() to item.target.sizeOrZero()
+				EphemeralMediaDataSource(item.target, head.first, head.second)
 			}
-			EphemeralMediaDataSource(item.target, slice, totalSize)
 		}
 	}.value
 

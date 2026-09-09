@@ -39,6 +39,8 @@ internal class AuthCoordinator(filesDir: File, private val preferences: AppPrefe
 		preferences.setCredentialKind(kind)
 	}
 
+	suspend fun clearPrimary() = withContext(Dispatchers.IO) { primaryGate.clear() }
+
 	suspend fun setDecoy(input: CharArray) = withContext(Dispatchers.Default) { decoyGate.set(input) }
 
 	suspend fun clearDecoy() = withContext(Dispatchers.IO) { decoyGate.clear() }

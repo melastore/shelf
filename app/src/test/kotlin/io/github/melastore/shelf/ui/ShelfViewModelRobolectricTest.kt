@@ -10,9 +10,11 @@ import io.github.melastore.shelf.data.ContentCredential
 import io.github.melastore.shelf.data.EntryMethod
 import io.github.melastore.shelf.security.CredentialKind
 import io.github.melastore.shelf.security.KnockCode
+import java.io.File
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -235,6 +237,92 @@ class ShelfViewModelRobolectricTest {
 	}
 
 	@Test
+	fun `auto hide after screen off closes the private space`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setVaultCredential(CredentialKind.PIN, "4826".toCharArray())
+			await { viewModel.state.value.screen == Screen.VAULT }
+			viewModel.setAutoHideMode(AutoHideMode.SCREEN_OFF)
+			await { viewModel.state.value.autoHideMode == AutoHideMode.SCREEN_OFF }
+
+			viewModel.onScreenTurnedOff()
+
+			await { viewModel.state.value.screen == Screen.DECOY }
+			assertEquals(Screen.DECOY, viewModel.state.value.screen)
+		} finally {
+			store.clear()
+			ContentCredential.clear()
+		}
+	}
+
+	@Test
+	fun `moving to background when screen is off closes the private space in screen off mode`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setVaultCredential(CredentialKind.PIN, "4826".toCharArray())
+			await { viewModel.state.value.screen == Screen.VAULT }
+			viewModel.setAutoHideMode(AutoHideMode.SCREEN_OFF)
+			await { viewModel.state.value.autoHideMode == AutoHideMode.SCREEN_OFF }
+
+			viewModel.onMovedToBackground(screenOff = true)
+
+			await { viewModel.state.value.screen == Screen.DECOY }
+			assertEquals(Screen.DECOY, viewModel.state.value.screen)
+		} finally {
+			store.clear()
+			ContentCredential.clear()
+		}
+	}
+
+	@Test
+	fun `moving to background when screen is on keeps the private space open in screen off mode`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setVaultCredential(CredentialKind.PIN, "4826".toCharArray())
+			await { viewModel.state.value.screen == Screen.VAULT }
+			viewModel.setAutoHideMode(AutoHideMode.SCREEN_OFF)
+			await { viewModel.state.value.autoHideMode == AutoHideMode.SCREEN_OFF }
+
+			viewModel.onMovedToBackground(screenOff = false)
+
+			assertEquals(Screen.VAULT, viewModel.state.value.screen)
+		} finally {
+			store.clear()
+			ContentCredential.clear()
+		}
+	}
+
+	@Test
+	fun `flip to hide is disabled by default`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			assertFalse(viewModel.state.value.flipToHide)
+		} finally {
+			store.clear()
+		}
+	}
+
+	@Test
 	fun `allowing screenshots lasts only until the private space closes`() {
 		val store = ViewModelStore()
 		val viewModel = ViewModelProvider(
@@ -332,6 +420,9 @@ class ShelfViewModelRobolectricTest {
 			viewModel.setDecoyCredential("4826".toCharArray(), "9999".toCharArray())
 			await { viewModel.state.value.decoyPinSet }
 
+			viewModel.setBurnerPin("4826".toCharArray(), "1234".toCharArray())
+			await { viewModel.state.value.burnerPinSet }
+
 			viewModel.changeVaultCredential(
 				CredentialKind.PATTERN,
 				"4826".toCharArray(),
@@ -340,6 +431,73 @@ class ShelfViewModelRobolectricTest {
 			await { viewModel.state.value.credentialKind == CredentialKind.PATTERN }
 
 			assertTrue("the unusable second credential should be gone", !viewModel.state.value.decoyPinSet)
+			assertTrue("the unusable burner credential should be gone", !viewModel.state.value.burnerPinSet)
+		} finally {
+			store.clear()
+			ContentCredential.clear()
+		}
+	}
+
+	@Test
+	fun `burner and decoy and primary credentials must be mutually exclusive`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setVaultCredential(CredentialKind.PIN, "4826".toCharArray())
+			await { viewModel.state.value.screen == Screen.VAULT }
+
+			// Setting decoy PIN matching primary PIN fails
+			viewModel.setDecoyCredential("4826".toCharArray(), "4826".toCharArray())
+			await { viewModel.state.value.message != null }
+			assertFalse(viewModel.state.value.decoyPinSet)
+			viewModel.consumeMessage()
+
+			// Setting decoy PIN to 9999 succeeds
+			viewModel.setDecoyCredential("4826".toCharArray(), "9999".toCharArray())
+			await { viewModel.state.value.decoyPinSet }
+			viewModel.consumeMessage()
+
+			// Setting burner PIN matching decoy PIN (9999) fails
+			viewModel.setBurnerPin("4826".toCharArray(), "9999".toCharArray())
+			await { viewModel.state.value.message != null }
+			assertFalse(viewModel.state.value.burnerPinSet)
+			viewModel.consumeMessage()
+
+			// Setting burner PIN matching primary PIN (4826) fails
+			viewModel.setBurnerPin("4826".toCharArray(), "4826".toCharArray())
+			await { viewModel.state.value.message != null }
+			assertFalse(viewModel.state.value.burnerPinSet)
+			viewModel.consumeMessage()
+
+			// Setting burner PIN to distinct 1234 succeeds
+			viewModel.setBurnerPin("4826".toCharArray(), "1234".toCharArray())
+			await { viewModel.state.value.burnerPinSet }
+			viewModel.consumeMessage()
+
+			// Setting decoy PIN matching existing burner PIN (1234) fails
+			viewModel.setDecoyCredential("4826".toCharArray(), "1234".toCharArray())
+			await { viewModel.state.value.message != null }
+			viewModel.consumeMessage()
+
+			// Changing primary credential to match burner PIN (1234) fails
+			viewModel.changeVaultCredential(CredentialKind.PIN, "4826".toCharArray(), "1234".toCharArray())
+			await { viewModel.state.value.message != null }
+			viewModel.consumeMessage()
+
+			// Changing primary credential to match decoy PIN (9999) fails
+			viewModel.changeVaultCredential(CredentialKind.PIN, "4826".toCharArray(), "9999".toCharArray())
+			await { viewModel.state.value.message != null }
+			viewModel.consumeMessage()
+
+			// Changing primary credential to a distinct PIN (5555) succeeds
+			viewModel.changeVaultCredential(CredentialKind.PIN, "4826".toCharArray(), "5555".toCharArray())
+			await { viewModel.state.value.message != null }
+			assertTrue(viewModel.state.value.decoyPinSet)
+			assertTrue(viewModel.state.value.burnerPinSet)
 		} finally {
 			store.clear()
 			ContentCredential.clear()
@@ -363,6 +521,42 @@ class ShelfViewModelRobolectricTest {
 			await { viewModel.state.value.message != null }
 
 			assertEquals(Screen.DECOY, viewModel.state.value.screen)
+		} finally {
+			store.clear()
+			ContentCredential.clear()
+		}
+	}
+
+	@Test
+	fun `unlocking with burner PIN nukes vault and wipes credentials and data`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setVaultCredential(CredentialKind.PIN, "4826".toCharArray())
+			await { viewModel.state.value.screen == Screen.VAULT }
+
+			viewModel.setBurnerPin("4826".toCharArray(), "1234".toCharArray())
+			await { viewModel.state.value.burnerPinSet }
+			viewModel.consumeMessage()
+
+			viewModel.lockVault()
+			await { viewModel.state.value.screen == Screen.DECOY }
+
+			viewModel.unlockVault("1234".toCharArray())
+			await { viewModel.state.value.fakeCrash }
+
+			assertFalse(viewModel.state.value.credentialSet)
+			assertFalse(viewModel.state.value.burnerPinSet)
+			assertFalse(viewModel.state.value.decoyPinSet)
+			assertFalse(viewModel.state.value.biometricEnabled)
+			assertEquals(Screen.DECOY, viewModel.state.value.screen)
+			assertTrue(viewModel.state.value.fakeCrash)
+			assertFalse(File(application.filesDir, "gate").exists())
+			assertFalse(File(application.filesDir, "burner_gate").exists())
 		} finally {
 			store.clear()
 			ContentCredential.clear()

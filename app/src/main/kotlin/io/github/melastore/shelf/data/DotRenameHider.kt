@@ -190,7 +190,8 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 			journal.remove(entry.path)
 			return@withContext HideResult.Ok(entry)
 		}
-		when (val nameRestore = names.restore(entry.hiddenPath)) {
+		val nameRestore = names.restore(entry.hiddenPath)
+		when (nameRestore) {
 			is NameProtectionResult.Done, NameProtectionResult.NoFiles -> Unit
 
 			NameProtectionResult.CredentialRequired -> return@withContext HideResult.Failed(
@@ -213,22 +214,28 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		when (val contentRestore = content.restore(entry.hiddenPath)) {
 			is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> Unit
 
-			ContentProtectionResult.CredentialRequired -> return@withContext HideResult.Failed(
-				HideFailure.ContentCredentialRequired,
-			)
+			ContentProtectionResult.CredentialRequired -> {
+				if (nameRestore is NameProtectionResult.Done) names.protect(entry.hiddenPath)
+				return@withContext HideResult.Failed(HideFailure.ContentCredentialRequired)
+			}
 
-			ContentProtectionResult.WrongCredential -> return@withContext HideResult.Failed(
-				HideFailure.ContentCredentialIncorrect,
-			)
+			ContentProtectionResult.WrongCredential -> {
+				if (nameRestore is NameProtectionResult.Done) names.protect(entry.hiddenPath)
+				return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
+			}
 
-			is ContentProtectionResult.Failed -> return@withContext HideResult.Failed(
-				HideFailure.ContentRestoreFailed(contentRestore.count),
-			)
+			is ContentProtectionResult.Failed -> {
+				if (nameRestore is NameProtectionResult.Done) names.protect(entry.hiddenPath)
+				return@withContext HideResult.Failed(HideFailure.ContentRestoreFailed(contentRestore.count))
+			}
 
-			ContentProtectionResult.AccessUnavailable -> return@withContext HideResult.NeedsAccess(
-				SafPaths.parentOf(entry.path),
-				entry.displayName,
-			)
+			ContentProtectionResult.AccessUnavailable -> {
+				if (nameRestore is NameProtectionResult.Done) names.protect(entry.hiddenPath)
+				return@withContext HideResult.NeedsAccess(
+					SafPaths.parentOf(entry.path),
+					entry.displayName,
+				)
+			}
 		}
 
 		val originalFolderTime = runCatching { File(entry.hiddenPath).lastModified() }.getOrDefault(0L)
@@ -251,7 +258,12 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		MediaStorePurge.scan(appContext, childPaths(tree, restoredPath) + restoredPath)
 		val warning = HideWarning.RestoredWithDifferentName(restoredName)
 			.takeIf { restoredName != SafPaths.nameOf(entry.path) }
-		HideResult.Ok(entry, warning)
+		val finalEntry = if (restoredPath != entry.path) {
+			entry.copy(path = restoredPath, displayName = restoredName)
+		} else {
+			entry
+		}
+		HideResult.Ok(finalEntry, warning)
 	}
 
 	override suspend fun health(entry: HiddenEntry): HiddenHealth = withContext(Dispatchers.IO) {

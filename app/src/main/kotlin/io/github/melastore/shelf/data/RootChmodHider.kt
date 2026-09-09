@@ -147,7 +147,8 @@ class RootChmodHider(
 				HideFailure.RestoreFailed(entry.displayName, restored.stderr.joinToString().ifBlank { null }),
 			)
 		}
-		when (val nameRestore = names.restore(paths.toEmulated(entry.path))) {
+		val nameRestore = names.restore(paths.toEmulated(entry.path))
+		when (nameRestore) {
 			is NameProtectionResult.Done, NameProtectionResult.NoFiles -> Unit
 
 			NameProtectionResult.CredentialRequired -> {
@@ -174,21 +175,25 @@ class RootChmodHider(
 			is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> Unit
 
 			ContentProtectionResult.CredentialRequired -> {
+				if (nameRestore is NameProtectionResult.Done) names.protect(paths.toEmulated(entry.path))
 				root.run("chmod 000 ${RootShell.quote(entry.path)}")
 				return HideResult.Failed(HideFailure.ContentCredentialRequired)
 			}
 
 			ContentProtectionResult.WrongCredential -> {
+				if (nameRestore is NameProtectionResult.Done) names.protect(paths.toEmulated(entry.path))
 				root.run("chmod 000 ${RootShell.quote(entry.path)}")
 				return HideResult.Failed(HideFailure.ContentCredentialIncorrect)
 			}
 
 			is ContentProtectionResult.Failed -> {
+				if (nameRestore is NameProtectionResult.Done) names.protect(paths.toEmulated(entry.path))
 				root.run("chmod 000 ${RootShell.quote(entry.path)}")
 				return HideResult.Failed(HideFailure.ContentRestoreFailed(contentRestore.count))
 			}
 
 			ContentProtectionResult.AccessUnavailable -> {
+				if (nameRestore is NameProtectionResult.Done) names.protect(paths.toEmulated(entry.path))
 				root.run("chmod 000 ${RootShell.quote(entry.path)}")
 				return HideResult.Failed(HideFailure.ContentRestoreFailed(0))
 			}

@@ -15,6 +15,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import android.view.WindowManager
@@ -67,7 +68,7 @@ class MainActivity : ComponentActivity() {
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
 		ContextCompat.registerReceiver(
-			this,
+			applicationContext,
 			screenReceiver,
 			IntentFilter(Intent.ACTION_SCREEN_OFF).apply { addAction(Intent.ACTION_SCREEN_ON) },
 			ContextCompat.RECEIVER_NOT_EXPORTED,
@@ -287,9 +288,6 @@ class MainActivity : ComponentActivity() {
 								window.decorView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
 								showCredential = false
 								showFakeCrash = false
-								if (state.screen != Screen.DECOY) {
-									viewModel.lockVault()
-								}
 								viewModel.autoHideAndClose()
 							}
 						}
@@ -394,7 +392,9 @@ class MainActivity : ComponentActivity() {
 		if (!isChangingConfigurations) {
 			biometricPrompt?.cancel()
 			biometricPrompt = null
-			viewModel.onMovedToBackground()
+			val powerManager = getSystemService(PowerManager::class.java)
+			val screenOff = powerManager?.isInteractive == false
+			viewModel.onMovedToBackground(screenOff)
 		}
 	}
 
@@ -427,7 +427,7 @@ class MainActivity : ComponentActivity() {
 	override fun onDestroy() {
 		biometricPrompt?.cancel()
 		biometricPrompt = null
-		unregisterReceiver(screenReceiver)
+		runCatching { applicationContext.unregisterReceiver(screenReceiver) }
 		super.onDestroy()
 	}
 }

@@ -157,7 +157,8 @@ class PrivateMoveHider(
 					HideFailure.HiddenFolderMissing(entry.displayName, entry.hiddenPath),
 				)
 			}
-			when (val restored = names.restore(original.path)) {
+			val nameRestore = names.restore(original.path)
+			when (nameRestore) {
 				is NameProtectionResult.Done, NameProtectionResult.NoFiles -> Unit
 
 				NameProtectionResult.CredentialRequired -> return@withContext HideResult.Failed(
@@ -169,7 +170,7 @@ class PrivateMoveHider(
 				)
 
 				is NameProtectionResult.Failed -> return@withContext HideResult.Failed(
-					HideFailure.NameRestoreFailed(restored.count),
+					HideFailure.NameRestoreFailed(nameRestore.count),
 				)
 
 				NameProtectionResult.AccessUnavailable -> return@withContext HideResult.Failed(
@@ -179,21 +180,25 @@ class PrivateMoveHider(
 			when (val restored = content.restore(original.path)) {
 				is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> Unit
 
-				ContentProtectionResult.CredentialRequired -> return@withContext HideResult.Failed(
-					HideFailure.ContentCredentialRequired,
-				)
+				ContentProtectionResult.CredentialRequired -> {
+					if (nameRestore is NameProtectionResult.Done) names.protect(original.path)
+					return@withContext HideResult.Failed(HideFailure.ContentCredentialRequired)
+				}
 
-				ContentProtectionResult.WrongCredential -> return@withContext HideResult.Failed(
-					HideFailure.ContentCredentialIncorrect,
-				)
+				ContentProtectionResult.WrongCredential -> {
+					if (nameRestore is NameProtectionResult.Done) names.protect(original.path)
+					return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
+				}
 
-				is ContentProtectionResult.Failed -> return@withContext HideResult.Failed(
-					HideFailure.ContentRestoreFailed(restored.count),
-				)
+				is ContentProtectionResult.Failed -> {
+					if (nameRestore is NameProtectionResult.Done) names.protect(original.path)
+					return@withContext HideResult.Failed(HideFailure.ContentRestoreFailed(restored.count))
+				}
 
-				ContentProtectionResult.AccessUnavailable -> return@withContext HideResult.Failed(
-					HideFailure.AllFilesRequired(entry.displayName),
-				)
+				ContentProtectionResult.AccessUnavailable -> {
+					if (nameRestore is NameProtectionResult.Done) names.protect(original.path)
+					return@withContext HideResult.Failed(HideFailure.AllFilesRequired(entry.displayName))
+				}
 			}
 			journal.remove(entry.path)
 			cleanupRecoveryDirectory(hidden)
@@ -205,7 +210,8 @@ class PrivateMoveHider(
 				HideFailure.DestinationExists(entry.displayName, entry.path),
 			)
 		}
-		when (val restored = names.restore(hidden.path)) {
+		val nameRestore = names.restore(hidden.path)
+		when (nameRestore) {
 			is NameProtectionResult.Done, NameProtectionResult.NoFiles -> Unit
 
 			NameProtectionResult.CredentialRequired -> return@withContext HideResult.Failed(
@@ -217,7 +223,7 @@ class PrivateMoveHider(
 			)
 
 			is NameProtectionResult.Failed -> return@withContext HideResult.Failed(
-				HideFailure.NameRestoreFailed(restored.count),
+				HideFailure.NameRestoreFailed(nameRestore.count),
 			)
 
 			NameProtectionResult.AccessUnavailable -> return@withContext HideResult.Failed(
@@ -227,26 +233,30 @@ class PrivateMoveHider(
 		when (val restored = content.restore(hidden.path)) {
 			is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> Unit
 
-			ContentProtectionResult.CredentialRequired -> return@withContext HideResult.Failed(
-				HideFailure.ContentCredentialRequired,
-			)
+			ContentProtectionResult.CredentialRequired -> {
+				if (nameRestore is NameProtectionResult.Done) names.protect(hidden.path)
+				return@withContext HideResult.Failed(HideFailure.ContentCredentialRequired)
+			}
 
-			ContentProtectionResult.WrongCredential -> return@withContext HideResult.Failed(
-				HideFailure.ContentCredentialIncorrect,
-			)
+			ContentProtectionResult.WrongCredential -> {
+				if (nameRestore is NameProtectionResult.Done) names.protect(hidden.path)
+				return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
+			}
 
-			is ContentProtectionResult.Failed -> return@withContext HideResult.Failed(
-				HideFailure.ContentRestoreFailed(restored.count),
-			)
+			is ContentProtectionResult.Failed -> {
+				if (nameRestore is NameProtectionResult.Done) names.protect(hidden.path)
+				return@withContext HideResult.Failed(HideFailure.ContentRestoreFailed(restored.count))
+			}
 
-			ContentProtectionResult.AccessUnavailable -> return@withContext HideResult.Failed(
-				HideFailure.AllFilesRequired(entry.displayName),
-			)
+			ContentProtectionResult.AccessUnavailable -> {
+				if (nameRestore is NameProtectionResult.Done) names.protect(hidden.path)
+				return@withContext HideResult.Failed(HideFailure.AllFilesRequired(entry.displayName))
+			}
 		}
 		original.parentFile?.mkdirs()
 		if (!hidden.renameTo(original)) {
 			content.protect(hidden.path)
-			names.protect(hidden.path)
+			if (nameRestore is NameProtectionResult.Done) names.protect(hidden.path)
 			return@withContext HideResult.Failed(
 				HideFailure.MoveBackFailed(entry.displayName, entry.path),
 			)

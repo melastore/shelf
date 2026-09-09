@@ -27,6 +27,11 @@ class AppPreferencesAutoHideTest {
 	}
 
 	@Test
+	fun `new installs default flip to hide to false`() {
+		assertEquals(false, AppPreferences(application).flipToHide())
+	}
+
+	@Test
 	fun `legacy immediate background lock migrates to immediate auto hide`() {
 		application.getSharedPreferences("settings", Application.MODE_PRIVATE).edit()
 			.putString("lock_timeout", "IMMEDIATE")

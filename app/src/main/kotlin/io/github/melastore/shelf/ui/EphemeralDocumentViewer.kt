@@ -191,6 +191,10 @@ private fun PdfPage(document: EphemeralPdf, index: Int, widthPx: Int) {
 		value = withContext(Dispatchers.IO) { document.renderPage(index, widthPx) }
 	}.value
 
+	DisposableEffect(page) {
+		onDispose { page?.recycle() }
+	}
+
 	Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
 		Surface(
 			modifier = Modifier.fillMaxWidth(),

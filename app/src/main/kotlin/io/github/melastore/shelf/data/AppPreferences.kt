@@ -46,7 +46,7 @@ data class AppSettings(
 	val fakeCrash: Boolean,
 	val hideFromRecents: Boolean,
 	val themeMode: ThemeMode,
-	val flipToHide: Boolean = true,
+	val flipToHide: Boolean = false,
 	val usbPanic: Boolean = false,
 )
 
@@ -67,7 +67,7 @@ class AppPreferences(context: Context) {
 		fakeCrash = values.getBoolean(KEY_FAKE_CRASH, false),
 		hideFromRecents = values.getBoolean(KEY_HIDE_FROM_RECENTS, false),
 		themeMode = enumValue(KEY_THEME, ThemeMode.SYSTEM),
-		flipToHide = values.getBoolean(KEY_FLIP_TO_HIDE, true),
+		flipToHide = values.getBoolean(KEY_FLIP_TO_HIDE, false),
 		usbPanic = values.getBoolean(KEY_USB_PANIC, false),
 	)
 
@@ -156,7 +156,7 @@ class AppPreferences(context: Context) {
 		values.edit(commit = true) { putBoolean(KEY_FLIP_TO_HIDE, value) }
 	}
 
-	fun flipToHide(): Boolean = values.getBoolean(KEY_FLIP_TO_HIDE, true)
+	fun flipToHide(): Boolean = values.getBoolean(KEY_FLIP_TO_HIDE, false)
 
 	fun setUsbPanic(value: Boolean) {
 		values.edit(commit = true) { putBoolean(KEY_USB_PANIC, value) }

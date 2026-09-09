@@ -64,11 +64,27 @@ internal class FolderCoordinator(
 		val interrupted = journal.read().firstOrNull { paths.toEmulated(it.path) == target.emulatedPath }
 		return hider.rehide(target, preference, interrupted)
 	}
-	suspend fun restore(entry: HiddenEntry): HideResult = hider.restore(entry)
+	suspend fun restore(entry: HiddenEntry): HideResult {
+		val result = hider.restore(entry)
+		if (result is HideResult.Ok) {
+			val oldPath = paths.toEmulated(entry.path)
+			val newPath = paths.toEmulated(result.entry.path)
+			if (newPath != oldPath || result.entry.displayName != entry.displayName) {
+				registry.remove(oldPath)
+				registry.put(newPath, result.entry.displayName)
+			}
+		}
+		return result
+	}
 	suspend fun health(entry: HiddenEntry): HiddenHealth = hider.health(entry)
 	suspend fun recoveryCandidates(parentTree: Uri): List<SafRecoveryCandidate> = hider.recoveryCandidates(parentTree)
-	suspend fun recover(candidate: SafRecoveryCandidate, restoredName: String): HideResult =
-		hider.recover(candidate, restoredName)
+	suspend fun recover(candidate: SafRecoveryCandidate, restoredName: String): HideResult {
+		val result = hider.recover(candidate, restoredName)
+		if (result is HideResult.Ok) {
+			registry.put(paths.toEmulated(result.entry.path), result.entry.displayName)
+		}
+		return result
+	}
 	suspend fun recoverEverything(): Int = hider.recoverEverything()
 	suspend fun recoverOrphans(method: HideMethod): Int = hider.recoverOrphans(method)
 }

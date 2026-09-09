@@ -356,6 +356,11 @@ private fun MediaPreviewDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 		value = loaded
 		settled = true
 	}
+	DisposableEffect(bitmapState.value) {
+		onDispose {
+			bitmapState.value?.recycle()
+		}
+	}
 	var scale by remember { mutableFloatStateOf(1f) }
 	var offset by remember { mutableStateOf(Offset.Zero) }
 
