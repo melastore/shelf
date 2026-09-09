@@ -1,0 +1,22 @@
+Screen-off hiding that keeps working after Shelf is closed, and a faster hide.
+
+- Turning the screen off now hides folders even once Android has closed Shelf
+  in the background. The listener used to belong to the app's window, so it
+  went away with it, and screen-off did nothing from then on.
+- Hiding no longer has to finish inside the few seconds Android gives a
+  background task. It runs as a proper background job that holds the device
+  awake, so a large folder is never left half hidden.
+- Keep the quiet notification switched on if you use screen-off auto hide.
+  Android only delivers screen-off to a listener a running app holds, and the
+  notification is what keeps Shelf's around.
+- Hiding is faster. MediaStore rows are cleared in one pass rather than four,
+  file names are changed several at a time, and a hide no longer opens and
+  walks the folder more times than it needs.
+- New setting: scrambling file headers and names can be turned off. That is the
+  per-file part of a hide and all of its cost on a large folder. With it off a
+  root hide still puts the folder out of reach of every app, and hiding is
+  instant. Folders hidden with it on still come back the same way.
+
+Also fixed: the folder list no longer blocks the decoy for several seconds
+while it counts what is exposed, and a hide is no longer skipped when that
+count has not finished yet.
