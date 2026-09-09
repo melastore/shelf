@@ -1,0 +1,17 @@
+Hiding again on screen-off, and a restore that leaves nothing half-open.
+
+- Turning the screen off locks private space and hides everything, whichever
+  auto-hide setting you chose. The lock happens before the hiding starts, so
+  coming back never shows the contents.
+- A restore that stops partway puts name protection back rather than leaving
+  real names on disk.
+- A folder restored under a different name keeps that name in the list instead
+  of the old one.
+- Wiping now clears biometric unlock, the credential itself, and the folder
+  records, so nothing survives it.
+- Turning the phone face down no longer hides by default. Turn it on under
+  Panic if you want it.
+
+Also fixed: photos, PDF pages, and audio no longer hold their decoded memory
+after the viewer closes, a second PIN can no longer be set to the same code as
+another, and changing the credential type clears the emergency PIN as well.
