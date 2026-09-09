@@ -213,14 +213,16 @@ class MainActivity : ComponentActivity() {
 				// nothing to do, and the notification would only announce the app for no reason.
 				val offerHide = state.quickLockNotification && state.exposedFolders > 0
 				LaunchedEffect(offerHide, notificationLabel, notificationIcon) {
-					if (offerHide) {
-						QuickLockNotification.show(
-							this@MainActivity,
-							notificationLabel,
-							notificationIcon,
-						)
-					} else {
-						QuickLockNotification.cancel(this@MainActivity)
+					if (!offerHide) {
+						QuickLockNotification.stopWatch(this@MainActivity)
+						return@LaunchedEffect
+					}
+					// Started from here because this is the foreground: a service asking to become
+					// foreground later, from the screen-off receiver, is refused. It owns the
+					// notification once it is up, and the plain one covers a refused start.
+					val identity = QuickLockIdentity(notificationLabel, notificationIcon)
+					if (!QuickLockNotification.startWatch(this@MainActivity, identity)) {
+						QuickLockNotification.show(this@MainActivity, notificationLabel, notificationIcon)
 					}
 				}
 

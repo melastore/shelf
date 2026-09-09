@@ -7,10 +7,13 @@ import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import io.github.melastore.shelf.R
+import io.github.melastore.shelf.data.AutoHideMode
 import io.github.melastore.shelf.data.ContentCredential
 import io.github.melastore.shelf.data.ShelfCore
 import io.github.melastore.shelf.security.EmergencyCredentialStore
@@ -73,9 +76,15 @@ object QuickLockNotification {
 	private const val EXTRA_LABEL = "label"
 	private const val EXTRA_ICON = "icon"
 
+	internal const val ACTION_WATCH = "io.github.melastore.shelf.action.WATCH"
+	internal const val ACTION_HIDE = "io.github.melastore.shelf.action.HIDE"
+
 	fun show(context: Context, label: String, smallIcon: Int) {
 		manager(context).notify(ID, notification(context, label, smallIcon, working = false))
 	}
+
+	internal fun idle(context: Context, identity: QuickLockIdentity) =
+		notification(context, identity.label, identity.icon, working = false)
 
 	internal fun showWorking(context: Context, identity: QuickLockIdentity) =
 		notification(context, identity.label, identity.icon, working = true)
@@ -149,6 +158,28 @@ object QuickLockNotification {
 		context.sendBroadcast(hideIntent(context, identity(context)))
 	}
 
+	/**
+	 * Puts the hide machinery in the foreground for as long as a folder is exposed.
+	 *
+	 * Screen-off is a registered-only broadcast, so no manifest receiver can catch it and the
+	 * listener has to be one this process holds. Tying that to the activity meant automatic hiding
+	 * stopped working the moment Android reclaimed the process, which is most of the time the setting
+	 * is meant to cover. Being foreground already also settles the other half: recent releases refuse
+	 * a foreground start from a receiver, which pushed the whole hide into a broadcast's window.
+	 *
+	 * Call it from the foreground. Returns false if the start was refused, so the caller can fall
+	 * back to the plain notification.
+	 */
+	internal fun startWatch(context: Context, identity: QuickLockIdentity): Boolean = runCatching {
+		ContextCompat.startForegroundService(context, serviceIntent(context, identity, ACTION_WATCH))
+		true
+	}.getOrDefault(false)
+
+	fun stopWatch(context: Context) {
+		runCatching { context.stopService(Intent(context, QuickLockService::class.java)) }
+		cancel(context)
+	}
+
 	internal fun identity(context: Context): QuickLockIdentity {
 		val (label, icon) = ShelfCore.preferences.decoy().identity()
 		return QuickLockIdentity(context.getString(label), icon)
@@ -165,8 +196,8 @@ object QuickLockNotification {
 	private fun hideIntent(context: Context, identity: QuickLockIdentity) =
 		Intent(context, QuickLockReceiver::class.java).withIdentity(identity)
 
-	internal fun serviceIntent(context: Context, identity: QuickLockIdentity) =
-		Intent(context, QuickLockService::class.java).withIdentity(identity)
+	internal fun serviceIntent(context: Context, identity: QuickLockIdentity, action: String) =
+		Intent(context, QuickLockService::class.java).setAction(action).withIdentity(identity)
 
 	private fun Intent.withIdentity(identity: QuickLockIdentity) = putExtra(EXTRA_LABEL, identity.label)
 		.putExtra(EXTRA_ICON, identity.icon)
@@ -196,9 +227,11 @@ class QuickLockReceiver : BroadcastReceiver() {
 		if (QuickLockService.start(context, identity)) return
 
 		// Some OEM builds refuse a foreground start for an automatic background transition, so keep a
-		// receiver fallback and let the action have its full broadcast window.
+		// receiver fallback and let the action have its full broadcast window. It is the short path:
+		// a folder of any size can outlast it, which is why the watch service exists.
 		val finish = goAsync()
 		val credentialLease = retainRehideCredential(context)
+		val wakeLock = holdCpu(context)
 		CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
 			try {
 				val remaining = performQuickHide(context)
@@ -206,18 +239,37 @@ class QuickLockReceiver : BroadcastReceiver() {
 				QuickLockSignal.completed()
 			} finally {
 				credentialLease.close()
+				wakeLock.close()
 				finish.finish()
 			}
 		}
 	}
 }
 
-/** A long hide cannot live inside a BroadcastReceiver's short execution window. */
+/**
+ * Holds the hide machinery while a folder is exposed, and runs the hide itself.
+ *
+ * Both halves need the same foreground guarantee: the screen-off listener has to outlive the
+ * activity, and the hide is far longer than a broadcast window (header protection and clearing
+ * MediaStore rows run into tens of seconds on a folder of any size).
+ */
 class QuickLockService : Service() {
 
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 	private var operation: Job? = null
 	private var credentialLease: AutoCloseable? = null
+	private var wakeLock: AutoCloseable? = null
+	private var identity: QuickLockIdentity? = null
+	private var watching = false
+
+	private val screenReceiver = object : BroadcastReceiver() {
+		override fun onReceive(context: Context, intent: Intent) {
+			if (intent.action != Intent.ACTION_SCREEN_OFF) return
+			if (ShelfCore.preferences.autoHideMode() == AutoHideMode.NEVER) return
+			QuickLockSignal.request()
+			hideNow(identity ?: QuickLockNotification.identity(context))
+		}
+	}
 
 	override fun onBind(intent: Intent?): IBinder? = null
 
@@ -225,45 +277,89 @@ class QuickLockService : Service() {
 		ShelfCore.install(this)
 		val identity = intent?.let { QuickLockNotification.identity(this, it) }
 			?: QuickLockNotification.identity(this)
+		this.identity = identity
+		// A restart after a low-memory kill arrives with a null intent and no action; treat it as the
+		// watch it was, not as a hide nobody asked for.
+		val hide = intent != null && intent.action != QuickLockNotification.ACTION_WATCH
 		// Recent releases refuse a foreground start from states this can legitimately be reached from.
-		// The hide matters more than the foreground guarantee, so a refusal leaves the work running
-		// in an ordinary service rather than taking the app down with it.
-		val foreground = runCatching {
-			startForeground(QuickLockNotification.ID, QuickLockNotification.showWorking(this, identity))
-		}.isSuccess
-		if (operation?.isActive == true) return START_NOT_STICKY
+		// The hide matters more than the foreground guarantee, so a refusal leaves the work running in
+		// an ordinary service rather than taking the app down with it.
+		runCatching {
+			startForeground(
+				QuickLockNotification.ID,
+				if (hide) {
+					QuickLockNotification.showWorking(this, identity)
+				} else {
+					QuickLockNotification.idle(this, identity)
+				},
+			)
+		}
+		startWatching()
+		if (hide) hideNow(identity)
+		// Sticky: the watch is the point of the service, and a restart puts it back without waiting
+		// for the app to be opened again.
+		return START_STICKY
+	}
 
+	private fun startWatching() {
+		if (watching) return
+		ContextCompat.registerReceiver(
+			this,
+			screenReceiver,
+			IntentFilter(Intent.ACTION_SCREEN_OFF),
+			ContextCompat.RECEIVER_NOT_EXPORTED,
+		)
+		watching = true
+	}
+
+	// The wake lock is not optional here: this runs with the screen off by design, and a suspend part
+	// way through leaves a journalled folder still readable.
+	private fun hideNow(identity: QuickLockIdentity) {
+		if (operation?.isActive == true) return
+		runCatching {
+			startForeground(QuickLockNotification.ID, QuickLockNotification.showWorking(this, identity))
+		}
 		credentialLease = retainRehideCredential(this)
+		wakeLock = holdCpu(this)
 		operation = scope.launch {
 			val remaining = try {
 				performQuickHide(this@QuickLockService)
 			} finally {
 				credentialLease?.close()
 				credentialLease = null
+				wakeLock?.close()
+				wakeLock = null
 			}
-			QuickLockNotification.finish(this@QuickLockService, identity, remaining)
 			QuickLockSignal.completed()
-			if (foreground) {
-				stopForeground(if (remaining == 0) STOP_FOREGROUND_REMOVE else STOP_FOREGROUND_DETACH)
+			QuickLockNotification.finish(this@QuickLockService, identity, remaining)
+			if (remaining == 0) {
+				stopForeground(STOP_FOREGROUND_REMOVE)
+				// Not stopSelf(startId). A second request arriving while this ran left a newer id
+				// behind, and stopping against the older one does nothing, leaving a foreground
+				// service and its notification up for good.
+				stopSelf()
 			}
-			// Not stopSelf(startId). A second tap arriving while this ran left a newer id behind, and
-			// stopping against the older one does nothing, leaving a foreground service and its
-			// notification up for good.
-			stopSelf()
+			// Anything left in the open keeps the watch up, with the notification back on the retry.
 		}
-		return START_NOT_STICKY
 	}
 
 	override fun onDestroy() {
+		if (watching) runCatching { unregisterReceiver(screenReceiver) }
+		watching = false
 		credentialLease?.close()
 		credentialLease = null
+		wakeLock?.close()
+		wakeLock = null
 		scope.cancel()
 		super.onDestroy()
 	}
 
 	companion object {
 		internal fun start(context: Context, identity: QuickLockIdentity): Boolean = runCatching {
-			ContextCompat.startForegroundService(context, QuickLockNotification.serviceIntent(context, identity))
+			ContextCompat.startForegroundService(
+				context,
+				QuickLockNotification.serviceIntent(context, identity, QuickLockNotification.ACTION_HIDE),
+			)
 			true
 		}.getOrDefault(false)
 	}
@@ -277,6 +373,20 @@ private fun retainRehideCredential(context: Context): AutoCloseable {
 	ContentCredential.clear()
 	return lease
 }
+
+/** Tagged after the disguise's channel, so a battery screen listing wake locks says no more than the notification. */
+private fun holdCpu(context: Context): AutoCloseable {
+	val manager = context.getSystemService(PowerManager::class.java) ?: return AutoCloseable {}
+	val lock = runCatching {
+		manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "shelf:background_activity").apply {
+			setReferenceCounted(false)
+			acquire(WAKE_LOCK_TIMEOUT_MILLIS)
+		}
+	}.getOrNull() ?: return AutoCloseable {}
+	return AutoCloseable { runCatching { if (lock.isHeld) lock.release() } }
+}
+
+private const val WAKE_LOCK_TIMEOUT_MILLIS = 10 * 60 * 1000L
 
 private suspend fun performQuickHide(context: Context): Int {
 	ShelfCore.install(context)

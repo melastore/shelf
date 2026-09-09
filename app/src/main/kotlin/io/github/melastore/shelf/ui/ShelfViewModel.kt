@@ -184,6 +184,10 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	private var backgroundLock: Job? = null
 	private var autoHideRequested = false
 
+	// The count starts at zero and is filled in off the main thread. Until it lands, zero means
+	// "not counted yet", and treating that as "nothing to hide" skipped the hide outright.
+	private var exposureCounted = false
+
 	init {
 		viewModelScope.launch {
 			QuickLockSignal.requests.collect {
@@ -910,6 +914,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 */
 	fun refreshExposure() = viewModelScope.launch {
 		val exposed = runCatching { ShelfCore.exposedFolders().size }.getOrNull() ?: return@launch
+		exposureCounted = true
 		_state.update { it.copy(exposedFolders = exposed) }
 	}
 
@@ -1087,8 +1092,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 * while the emergency credential store ensures background workers can complete re-hiding on storage.
 	 */
 	fun autoHideAndClose() {
-		if ((_state.value.screen == Screen.DECOY && _state.value.exposedFolders == 0) || autoHideRequested) return
-		if (_state.value.exposedFolders > 0) {
+		val nothingExposed = exposureCounted && _state.value.exposedFolders == 0
+		if ((_state.value.screen == Screen.DECOY && nothingExposed) || autoHideRequested) return
+		if (!nothingExposed) {
 			val credential = ContentCredential.copy()
 			if (credential != null) {
 				EmergencyCredentialStore.arm(getApplication(), credential)

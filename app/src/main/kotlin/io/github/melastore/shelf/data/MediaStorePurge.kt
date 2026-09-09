@@ -27,12 +27,16 @@ interface FolderMediaIndex {
  */
 object MediaStorePurge : FolderMediaIndex {
 
-	private val collections = listOf(
-		MediaStore.Files.getContentUri("external"),
-		MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-		MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-		MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-	)
+	/**
+	 * The files table, and only that.
+	 *
+	 * Images, Video and Audio are views over the same rows, so deleting from each in turn asked the
+	 * provider four times for one result. That is not free: a `content delete` under root costs a
+	 * little over a second on a mid-range device, measured, and four of them per folder was most of
+	 * the time an automatic hide spent. Long enough that the hide outlived the window a broadcast
+	 * receiver gets, which is where an automatic hide lands whenever the foreground start is refused.
+	 */
+	private val collections = listOf(MediaStore.Files.getContentUri("external"))
 
 	/** Deletes the rows under [emulatedFolder]. Root only; used when the files do not move. */
 	suspend fun forFolder(context: Context, emulatedFolder: String, runner: RootCommandRunner = RootShell,): HideWarning? {

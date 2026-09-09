@@ -146,6 +146,11 @@ disguise's name and says nothing about a private space. It appears only while a
 folder is actually sitting in the open, works after Shelf is closed, and comes
 back after a restart.
 
+Leave it on if you use screen-off auto hide. Android only delivers screen-off to
+a listener a running app holds, so the notification is what keeps Shelf's around
+once the app itself has been closed. Without it, hiding on screen off works while
+Shelf is still running and stops when Android reclaims it.
+
 ## Blending in
 
 Three settings decide how much of Shelf anyone else sees.

@@ -3,6 +3,8 @@ package io.github.melastore.shelf.data
 import android.content.Context
 import io.github.melastore.shelf.root.StoragePaths
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * The folder machinery, owned by the process rather than by a screen.
@@ -26,10 +28,17 @@ object ShelfCore {
 		if (!::appContext.isInitialized) appContext = context.applicationContext
 	}
 
-	/** Folders on the list that are visible right now, in the order they were added. */
-	suspend fun exposedFolders(): List<TrackedFolder> {
+	/**
+	 * Folders on the list that are visible right now, in the order they were added.
+	 *
+	 * Off the caller's thread: a folder with no journal record is checked through the document
+	 * provider, which is a Binder round trip and may have to start the provider first. Measured at
+	 * several seconds for three folders on a cold start, and it used to run on the main thread, so
+	 * the decoy sat frozen and the emergency-hide notification did not appear until it finished.
+	 */
+	suspend fun exposedFolders(): List<TrackedFolder> = withContext(Dispatchers.IO) {
 		val entries = journal.read().associateBy { paths.toEmulated(it.path) }
-		return registry.read().filter { folder ->
+		registry.read().filter { folder ->
 			val entry = entries[folder.path]
 			if (entry != null) {
 				runCatching { hider.isExposed(entry) }.getOrDefault(false)
@@ -44,7 +53,7 @@ object ShelfCore {
 	 * Shelf does not hold is skipped; there is nobody to ask, and stopping at the first one would
 	 * leave the rest exposed.
 	 */
-	suspend fun hideAllExposed(preference: HidingPreference): Int {
+	suspend fun hideAllExposed(preference: HidingPreference): Int = withContext(Dispatchers.IO) {
 		var hidden = 0
 		val entries = runCatching { journal.read().associateBy { paths.toEmulated(it.path) } }
 			.getOrDefault(emptyMap())
@@ -58,6 +67,6 @@ object ShelfCore {
 			}.getOrNull()
 			if (result is HideResult.Ok) hidden++
 		}
-		return hidden
+		hidden
 	}
 }

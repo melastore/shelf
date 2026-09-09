@@ -5,7 +5,12 @@
 	<uses-permission android:name="android.permission.USE_BIOMETRIC" />
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+	<!--
+		Not dataSync: that type is capped at a few hours a day and is stopped from under you, and this
+		service has to stay up for as long as a folder is exposed, which the owner decides.
+	-->
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+	<uses-permission android:name="android.permission.WAKE_LOCK" />
 
 	<!--
 		Optional, and never requested unless the user asks for stronger hiding from inside the vault.
@@ -52,10 +57,19 @@
 				<action android:name="android.intent.action.BOOT_COMPLETED" />
 			</intent-filter>
 		</receiver>
+		<!--
+			Holds the screen-off listener and runs the hide. Screen-off is registered-only, so nothing
+			in the manifest can catch it, and a service that asks to become foreground from a receiver
+			is refused on recent releases.
+		-->
 		<service
 			android:name=".ui.QuickLockService"
 			android:exported="false"
-			android:foregroundServiceType="dataSync" />
+			android:foregroundServiceType="specialUse">
+			<property
+				android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+				android:value="Re-hides folders the owner left exposed when the screen turns off" />
+		</service>
 
 		<!-- Enabled by default: the app wears no disguise until one is chosen. -->
 		<activity-alias
