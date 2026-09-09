@@ -48,6 +48,7 @@ data class AppSettings(
 	val themeMode: ThemeMode,
 	val flipToHide: Boolean = false,
 	val usbPanic: Boolean = false,
+	val deepProtection: Boolean = true,
 )
 
 /** Small, non-sensitive settings. Secrets live in [io.github.melastore.shelf.security.PassphraseGate]. */
@@ -69,6 +70,7 @@ class AppPreferences(context: Context) {
 		themeMode = enumValue(KEY_THEME, ThemeMode.SYSTEM),
 		flipToHide = values.getBoolean(KEY_FLIP_TO_HIDE, false),
 		usbPanic = values.getBoolean(KEY_USB_PANIC, false),
+		deepProtection = deepProtection(),
 	)
 
 	fun setDecoy(value: DecoyType) = putString(KEY_DECOY, value.name)
@@ -164,6 +166,19 @@ class AppPreferences(context: Context) {
 
 	fun usbPanic(): Boolean = values.getBoolean(KEY_USB_PANIC, false)
 
+	fun setDeepProtection(value: Boolean) {
+		values.edit(commit = true) { putBoolean(KEY_DEEP_PROTECTION, value) }
+	}
+
+	/**
+	 * Whether a hide also scrambles file headers and names on top of the method itself.
+	 *
+	 * On by default: it is what stops a recovered folder being readable. Turning it off leaves the
+	 * hiding method on its own, which for a root hide still means the folder is unreadable to every
+	 * app, and takes a hide from a per-file cost to a fixed one.
+	 */
+	fun deepProtection(): Boolean = values.getBoolean(KEY_DEEP_PROTECTION, true)
+
 	fun autoHideMode(): AutoHideMode {
 		if (values.contains(KEY_AUTO_HIDE)) return enumValue(KEY_AUTO_HIDE, AutoHideMode.IMMEDIATE)
 		// Migrating the two older controls: immediate stays immediate, a screen-off trigger stays
@@ -255,6 +270,7 @@ class AppPreferences(context: Context) {
 		const val KEY_THEME = "theme_mode"
 		const val KEY_FLIP_TO_HIDE = "flip_to_hide"
 		const val KEY_USB_PANIC = "usb_panic"
+		const val KEY_DEEP_PROTECTION = "deep_protection"
 		const val KEY_FAILED_UNLOCKS = "failed_unlocks"
 		const val KEY_LOCKOUTS = "lockouts"
 		const val KEY_BLOCKED_UNTIL = "blocked_until"

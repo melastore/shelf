@@ -20,6 +20,7 @@ class RootChmodHider(
 	private val journal: Journal,
 	private val paths: StoragePaths,
 	private val root: RootCommandRunner = RootShell,
+	private val deepProtection: () -> Boolean = { AppPreferences(context).deepProtection() },
 ) : HideStrategy {
 
 	private val appContext = context.applicationContext
@@ -47,6 +48,11 @@ class RootChmodHider(
 			return HideResult.Failed(HideFailure.InvalidPermissions(backing))
 		}
 
+		// The two per-file passes are the whole cost of a hide on a folder of any size. The chmod on
+		// its own already puts the folder out of reach of every app, so an owner can turn them off and
+		// get an instant hide. Recorded on the entry: the setting may have changed by the time this is
+		// restored, and what matters then is what was done, not what is configured.
+		val deep = deepProtection()
 		val entry = HiddenEntry(
 			path = backing,
 			displayName = target.displayName,
@@ -54,6 +60,7 @@ class RootChmodHider(
 			method = method,
 			originalMode = mode,
 			originalOwner = owner,
+			deep = deep,
 		)
 		// Journal before touching the folder. A crash after this line is recoverable and one before is
 		// a no-op, but a crash after chmod with no record strands the folder at mode 000. Hiding an
@@ -72,44 +79,52 @@ class RootChmodHider(
 			journal.remove(backing)
 			return HideResult.Failed(HideFailure.RecoveryDataCreateFailed(target.displayName))
 		}
-		val protectionWarning = when (val protected = content.protect(target.emulatedPath)) {
-			is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> null
+		val protectionWarning = if (!deep) {
+			null
+		} else {
+			when (val protected = content.protect(target.emulatedPath)) {
+				is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> null
 
-			ContentProtectionResult.AccessUnavailable,
-			ContentProtectionResult.CredentialRequired -> HideWarning.ContentProtectionUnavailable
+				ContentProtectionResult.AccessUnavailable,
+				ContentProtectionResult.CredentialRequired -> HideWarning.ContentProtectionUnavailable
 
-			ContentProtectionResult.WrongCredential -> {
-				root.run("rm -f ${RootShell.quote(marker)}")
-				journal.remove(backing)
-				return HideResult.Failed(HideFailure.ContentCredentialIncorrect)
-			}
+				ContentProtectionResult.WrongCredential -> {
+					root.run("rm -f ${RootShell.quote(marker)}")
+					journal.remove(backing)
+					return HideResult.Failed(HideFailure.ContentCredentialIncorrect)
+				}
 
-			is ContentProtectionResult.Failed -> {
-				root.run("rm -f ${RootShell.quote(marker)}")
-				journal.remove(backing)
-				return HideResult.Failed(HideFailure.ContentProtectionFailed(protected.count))
+				is ContentProtectionResult.Failed -> {
+					root.run("rm -f ${RootShell.quote(marker)}")
+					journal.remove(backing)
+					return HideResult.Failed(HideFailure.ContentProtectionFailed(protected.count))
+				}
 			}
 		}
-		val nameWarning = when (val protected = names.protect(target.emulatedPath)) {
-			is NameProtectionResult.Done, NameProtectionResult.NoFiles -> null
+		val nameWarning = if (!deep) {
+			null
+		} else {
+			when (val protected = names.protect(target.emulatedPath)) {
+				is NameProtectionResult.Done, NameProtectionResult.NoFiles -> null
 
-			NameProtectionResult.AccessUnavailable,
-			NameProtectionResult.CredentialRequired -> HideWarning.NameProtectionUnavailable
+				NameProtectionResult.AccessUnavailable,
+				NameProtectionResult.CredentialRequired -> HideWarning.NameProtectionUnavailable
 
-			NameProtectionResult.WrongCredential -> {
-				names.restore(target.emulatedPath)
-				content.restore(target.emulatedPath)
-				root.run("rm -f ${RootShell.quote(marker)}")
-				journal.remove(backing)
-				return HideResult.Failed(HideFailure.ContentCredentialIncorrect)
-			}
+				NameProtectionResult.WrongCredential -> {
+					names.restore(target.emulatedPath)
+					content.restore(target.emulatedPath)
+					root.run("rm -f ${RootShell.quote(marker)}")
+					journal.remove(backing)
+					return HideResult.Failed(HideFailure.ContentCredentialIncorrect)
+				}
 
-			is NameProtectionResult.Failed -> {
-				names.restore(target.emulatedPath)
-				content.restore(target.emulatedPath)
-				root.run("rm -f ${RootShell.quote(marker)}")
-				journal.remove(backing)
-				return HideResult.Failed(HideFailure.NameProtectionFailed(protected.count))
+				is NameProtectionResult.Failed -> {
+					names.restore(target.emulatedPath)
+					content.restore(target.emulatedPath)
+					root.run("rm -f ${RootShell.quote(marker)}")
+					journal.remove(backing)
+					return HideResult.Failed(HideFailure.NameProtectionFailed(protected.count))
+				}
 			}
 		}
 
@@ -145,6 +160,18 @@ class RootChmodHider(
 		if (!restored.ok) {
 			return HideResult.Failed(
 				HideFailure.RestoreFailed(entry.displayName, restored.stderr.joinToString().ifBlank { null }),
+			)
+		}
+		if (!entry.deep) {
+			val marker = markerPathOrNull(entry)
+			val markerRemoved = marker == null || root.run("rm -f ${RootShell.quote(marker)}").ok
+			journal.remove(entry.path)
+			return HideResult.Ok(
+				entry,
+				mergeWarnings(
+					HideWarning.RecoveryMarkerRemovalFailed.takeUnless { markerRemoved },
+					MediaStorePurge.rescan(appContext, paths.toEmulated(entry.path), root),
+				),
 			)
 		}
 		val nameRestore = names.restore(paths.toEmulated(entry.path))

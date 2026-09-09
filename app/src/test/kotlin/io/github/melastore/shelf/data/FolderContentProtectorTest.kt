@@ -53,6 +53,39 @@ class FolderContentProtectorTest {
 	}
 
 	@Test
+	fun `a second pass leaves the files the first one locked alone`() = runBlocking {
+		val root = temp.newFolder("resumed")
+		val first = File(root, "one.jpg").apply { writeBytes(ByteArray(9_000) { it.toByte() }) }
+		val password = "48261357".toCharArray()
+		val protector = FolderContentProtector(context, paths(root), credential = { password.copyOf() })
+
+		assertEquals(ContentProtectionResult.Done(1), protector.protect(root.path))
+		val lockedBytes = first.readBytes()
+
+		// What an interrupted hide leaves behind: one file locked, one added since.
+		val second = File(root, "two.jpg").apply { writeBytes(ByteArray(4_000) { (it % 7).toByte() }) }
+
+		assertEquals(ContentProtectionResult.Done(1), protector.protect(root.path))
+		assertArrayEquals(lockedBytes, first.readBytes())
+		assertTrue(FileLocker.isLocked(FileLockTarget(second)))
+		password.fill(' ')
+	}
+
+	@Test
+	fun `an already protected folder needs no credential`() = runBlocking {
+		val root = temp.newFolder("done")
+		File(root, "one.jpg").apply { writeBytes(ByteArray(9_000) { it.toByte() }) }
+		val password = "48261357".toCharArray()
+		val withCredential = FolderContentProtector(context, paths(root), credential = { password.copyOf() })
+		assertEquals(ContentProtectionResult.Done(1), withCredential.protect(root.path))
+
+		val without = FolderContentProtector(context, paths(root), credential = { null })
+
+		assertEquals(ContentProtectionResult.Done(0), without.protect(root.path))
+		password.fill(' ')
+	}
+
+	@Test
 	fun `shelf's own bookkeeping files are never part of the lock set`() = runBlocking {
 		val root = temp.newFolder("marked")
 		val photo = File(root, "one.jpg").apply { writeBytes(ByteArray(9_000) { it.toByte() }) }

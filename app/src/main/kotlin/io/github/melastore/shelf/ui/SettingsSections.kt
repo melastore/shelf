@@ -322,6 +322,7 @@ internal fun FolderSettingsSection(
 	state: AppUiState,
 	onHidingPreference: (HidingPreference) -> Unit,
 	onRequestAllFiles: () -> Unit,
+	onDeepProtectionChange: () -> Unit,
 ) {
 	SettingsGroup(
 		stringResource(R.string.hiding_engine),
@@ -341,6 +342,12 @@ internal fun FolderSettingsSection(
 				onClick = { if (needsGrant) onRequestAllFiles() else onHidingPreference(preference) },
 			)
 		}
+		SettingsRow(
+			title = stringResource(R.string.deep_protection_title),
+			summary = stringResource(R.string.deep_protection_summary),
+			trailing = { SelectionMark(state.deepProtection) },
+			onClick = onDeepProtectionChange,
+		)
 		if (state.canRequestAllFiles) {
 			Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
 				OutlinedButton(onClick = onRequestAllFiles, modifier = Modifier.fillMaxWidth()) {

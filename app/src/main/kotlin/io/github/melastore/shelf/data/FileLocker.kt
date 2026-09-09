@@ -25,6 +25,12 @@ interface LockTarget {
 	fun setLastModified(time: Long): Boolean = false
 
 	/**
+	 * Whether reading the timestamp is worth a call. A document provider charges a query for it and
+	 * cannot set it back, so asking is a round trip per file spent on a value nothing can use.
+	 */
+	val keepsTimestamp: Boolean get() = false
+
+	/**
 	 * Runs [block] against a view holding one handle open throughout. A document provider charges a
 	 * Binder round trip per open and a lock touches a file a dozen times, so this is most of what a
 	 * hide costs. Nesting is free: a session hands back itself.
@@ -34,6 +40,7 @@ interface LockTarget {
 
 class FileLockTarget(val file: File) : LockTarget {
 	override val name: String get() = file.name
+	override val keepsTimestamp: Boolean get() = true
 	override fun size(): Long = file.length()
 
 	override fun read(offset: Long, length: Int): ByteArray = RandomAccessFile(file, "r").use { raf ->
@@ -60,6 +67,7 @@ class FileLockTarget(val file: File) : LockTarget {
 	/** One handle, serving every call until the session ends. */
 	private class OpenFile(private val file: File, private val raf: RandomAccessFile) : LockTarget {
 		override val name: String get() = file.name
+		override val keepsTimestamp: Boolean get() = true
 		override fun size(): Long = raf.length()
 
 		override fun read(offset: Long, length: Int): ByteArray {
@@ -124,7 +132,7 @@ object FileLocker {
 		if (size == 0L) return LockOutcome.EMPTY
 		if (isLocked(target)) return LockOutcome.ALREADY
 
-		val originalTimestamp = target.lastModified()
+		val originalTimestamp = if (target.keepsTimestamp) target.lastModified() else 0L
 		return runCatching {
 			val sliceLength = min(SLICE_LENGTH.toLong(), size).toInt()
 			val slice = target.read(0, sliceLength)
@@ -164,7 +172,7 @@ object FileLocker {
 	private fun unlockOpen(target: LockTarget, keyFor: (ByteArray) -> SecretKey): LockOutcome {
 		val trailer = readTrailer(target) ?: return LockOutcome.ALREADY
 
-		val originalTimestamp = target.lastModified()
+		val originalTimestamp = if (target.keepsTimestamp) target.lastModified() else 0L
 		val slice = runCatching {
 			HeaderCipher.open(trailer.cipherText, trailer.nonce, trailer.tag, keyFor(trailer.salt))
 		}.getOrElse {

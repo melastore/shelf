@@ -68,17 +68,29 @@ class FolderContentProtector(
 		val targets = targets(path) ?: return ContentProtectionResult.AccessUnavailable
 		if (targets.isEmpty()) return ContentProtectionResult.NoFiles
 		if (targets.size > ContentLocker.MAX_FILES) return ContentProtectionResult.Failed(1)
-		val unprotected = targets.filterNot(FileLocker::isLocked)
-		if (unprotected.isEmpty()) return ContentProtectionResult.Done(0)
-		val password = credential() ?: return ContentProtectionResult.CredentialRequired
+		// No pass over the folder to find the unprotected ones first. Each file's own lock already
+		// reports one it does not need to touch, and asking twice cost a second open and read of
+		// every file, which on a document provider is a Binder round trip each. Only the case with
+		// nothing to lock with still has to tell an already-protected folder from a refused one.
+		val password = credential() ?: return if (targets.none { !FileLocker.isLocked(it) }) {
+			ContentProtectionResult.Done(0)
+		} else {
+			ContentProtectionResult.CredentialRequired
+		}
 		return try {
-			val summary = locker.lock(unprotected, password)
-			if (summary.failed == 0) {
-				ContentProtectionResult.Done(summary.changed)
-			} else {
-				// Never leave a visible folder half protected after an I/O error.
-				locker.unlock(unprotected, password)
-				ContentProtectionResult.Failed(summary.failed)
+			val summary = locker.lock(targets, password)
+			when {
+				summary.failed > 0 -> {
+					// Never leave a visible folder half protected after an I/O error. Only what this
+					// pass locked is put back; a file an earlier interrupted hide left protected is
+					// not this pass's to undo.
+					locker.unlock(summary.touched, password)
+					ContentProtectionResult.Failed(summary.failed)
+				}
+
+				summary.changed == 0 -> ContentProtectionResult.Done(0)
+
+				else -> ContentProtectionResult.Done(summary.changed)
 			}
 		} finally {
 			password.fill(' ')

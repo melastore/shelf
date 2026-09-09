@@ -21,6 +21,8 @@ data class LockSummary(
 	val skipped: Int = 0,
 	val failed: Int = 0,
 	val wrongPassphrase: Boolean = false,
+	/** The files this pass changed, which is what a rollback has to undo and nothing more. */
+	val touched: List<LockTarget> = emptyList(),
 ) {
 	val total: Int get() = changed + alreadyDone + skipped + failed
 }
@@ -70,14 +72,14 @@ class ContentLocker(private val slice: Int = FileLocker.SLICE_LENGTH) {
 			async {
 				gate.withPermit {
 					coroutineContext.ensureActive()
-					work(target)
+					target to work(target)
 				}
 			}
-		}.awaitAll().fold(LockSummary()) { summary, outcome -> summary.record(outcome) }
+		}.awaitAll().fold(LockSummary()) { summary, (target, outcome) -> summary.record(target, outcome) }
 	}
 
-	private fun LockSummary.record(outcome: LockOutcome): LockSummary = when (outcome) {
-		LockOutcome.LOCKED, LockOutcome.UNLOCKED -> copy(changed = changed + 1)
+	private fun LockSummary.record(target: LockTarget, outcome: LockOutcome): LockSummary = when (outcome) {
+		LockOutcome.LOCKED, LockOutcome.UNLOCKED -> copy(changed = changed + 1, touched = touched + target)
 
 		LockOutcome.ALREADY -> copy(alreadyDone = alreadyDone + 1)
 

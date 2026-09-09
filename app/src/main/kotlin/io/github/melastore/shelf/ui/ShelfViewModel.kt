@@ -112,6 +112,7 @@ data class AppUiState(
 	val themeMode: ThemeMode = ThemeMode.SYSTEM,
 	val flipToHide: Boolean = false,
 	val usbPanic: Boolean = false,
+	val deepProtection: Boolean = true,
 	/** Set when an operation stopped to ask for access to a folder above the target. */
 	val accessNeededFor: Uri? = null,
 	/** Where the folder picker opens, so the first hide does not start at an empty Recents list. */
@@ -239,6 +240,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					themeMode = settings.themeMode,
 					flipToHide = settings.flipToHide,
 					usbPanic = settings.usbPanic,
+					deepProtection = settings.deepProtection,
 					setupStep = if (credentialSet) 0 else preferences.setupStep(),
 					habits = habits,
 					calendarEvents = events,
@@ -545,6 +547,13 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			_state.update { it.copy(burnerPinSet = false, message = uiMessage(R.string.burner_pin_removed)) }
 		} finally {
 			current.fill(' ')
+		}
+	}
+
+	fun setDeepProtection(enabled: Boolean) = viewModelScope.launch {
+		withContext(Dispatchers.IO) { preferences.setDeepProtection(enabled) }
+		_state.update {
+			it.copy(deepProtection = enabled, message = uiMessage(R.string.deep_protection_updated))
 		}
 	}
 

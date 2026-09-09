@@ -51,6 +51,39 @@ class HideStrategiesRobolectricTest {
 	}
 
 	@Test
+	fun `a shallow hide records what it skipped and restores without it`() = runBlocking {
+		ContentCredential.set("48261357".toCharArray())
+		val root = FakeRoot()
+		val paths = testPaths(root)
+		val journal = Journal(File(temporaryFolder.root, "shallow-journal.json"))
+		val targetPath = "${paths.emulatedRoot}/Secret"
+		val backingPath = "${paths.backingRoot}/Secret"
+		File(backingPath).mkdirs()
+		val file = File(backingPath, "note.txt").apply { writeText("plain") }
+		root.responses += { command ->
+			when {
+				command.startsWith("realpath ") -> success(backingPath)
+				command.startsWith("stat -c '%a %u:%g'") -> success("750 1023:1023")
+				else -> success()
+			}
+		}
+		val hider = RootChmodHider(context, journal, paths, root, deepProtection = { false })
+
+		val hidden = hider.hide(FolderTarget(targetPath, "Secret", null))
+
+		assertTrue(hidden is HideResult.Ok)
+		assertEquals(false, journal.read().single().deep)
+		assertEquals("plain", file.readText())
+		assertTrue(root.commands.any { it == "chmod 000 '$backingPath'" })
+
+		val restored = hider.restore(journal.read().single())
+
+		assertTrue(restored is HideResult.Ok)
+		assertTrue(journal.read().isEmpty())
+		ContentCredential.clear()
+	}
+
+	@Test
 	fun `private move strategy moves to a random vault and restores`() = runBlocking {
 		ContentCredential.set("48261357".toCharArray())
 		val paths = testPaths(FakeRoot())

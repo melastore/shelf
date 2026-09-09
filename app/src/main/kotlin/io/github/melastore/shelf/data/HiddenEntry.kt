@@ -29,6 +29,10 @@ enum class HideMethod {
  * no [method] and read as root hides, which is what they were.
  *
  * [originalMode] and [originalOwner] belong to a root hide, [hiddenPath] and [treeUri] to the rest.
+ *
+ * [deep] records whether headers and names were protected as well, so a restore knows what to put
+ * back without walking the folder to find out. Older journals carry no flag and are read as deep,
+ * which is what they were.
  */
 @Serializable
 data class HiddenEntry(
@@ -40,4 +44,5 @@ data class HiddenEntry(
 	val originalOwner: String = "",
 	val hiddenPath: String = "",
 	val treeUri: String = "",
+	val deep: Boolean = true,
 )

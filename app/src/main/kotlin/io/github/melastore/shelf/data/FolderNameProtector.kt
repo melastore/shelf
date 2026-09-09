@@ -12,6 +12,11 @@ import java.io.FileOutputStream
 import java.nio.file.Files
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -55,7 +60,7 @@ class FolderNameProtector(
 
 	suspend fun protect(path: String): NameProtectionResult = withContext(Dispatchers.IO) {
 		walkable(path)?.takeIf(::ownsManifest)?.let { return@withContext protectFile(it) }
-		safRoot(path)?.let(::protectSaf) ?: NameProtectionResult.AccessUnavailable
+		safRoot(path)?.let { protectSaf(it) } ?: NameProtectionResult.AccessUnavailable
 	}
 
 	/**
@@ -160,8 +165,11 @@ class FolderNameProtector(
 		return NameProtectionResult.Done(changed)
 	}
 
-	private fun protectSaf(root: DocumentFile): NameProtectionResult {
+	private suspend fun protectSaf(root: DocumentFile): NameProtectionResult {
 		val existing = root.findFile(MANIFEST)
+		// Held on to when the walk happens here, so applying the mappings does not list the whole
+		// tree a second time. A provider charges a query per directory and two per child for that.
+		var walked: List<SafEntry>? = null
 		val mappings = if (existing?.isFile == true) {
 			readManifest(readSaf(existing.uri) ?: return NameProtectionResult.Failed())
 				?: return credentialFailure()
@@ -171,14 +179,15 @@ class FolderNameProtector(
 			if (!collectSaf(root, "", files, 0)) return NameProtectionResult.Failed()
 			if (files.isEmpty()) return NameProtectionResult.NoFiles
 			if (files.size > MAX_FILES) return NameProtectionResult.Failed()
+			walked = files
 			files.map { NameMapping(it.path, opaqueSibling(it.path)) }.also {
 				if (!writeManifestSaf(root, it)) return NameProtectionResult.Failed()
 			}
 		}
-		return applySafMappings(root, mappings, protect = true)
+		return applySafMappings(root, mappings, protect = true, walked = walked)
 	}
 
-	private fun restoreSaf(root: DocumentFile): NameProtectionResult {
+	private suspend fun restoreSaf(root: DocumentFile): NameProtectionResult {
 		val manifest = root.findFile(MANIFEST)?.takeIf { it.isFile } ?: return NameProtectionResult.NoFiles
 		val mappings = readManifest(readSaf(manifest.uri) ?: return NameProtectionResult.Failed())
 			?: return credentialFailure()
@@ -189,14 +198,17 @@ class FolderNameProtector(
 		return result
 	}
 
-	private fun applySafMappings(
+	private suspend fun applySafMappings(
 		root: DocumentFile,
 		mappings: List<NameMapping>,
 		protect: Boolean,
+		walked: List<SafEntry>? = null,
 	): NameProtectionResult {
-		val current = mutableListOf<SafEntry>()
-		if (!collectSaf(root, "", current, 0)) return NameProtectionResult.Failed()
+		val current = walked ?: mutableListOf<SafEntry>().also {
+			if (!collectSaf(root, "", it, 0)) return NameProtectionResult.Failed()
+		}
 		val byPath = current.associateByTo(mutableMapOf(), SafEntry::path)
+		if (protect) return protectSafMappings(mappings, byPath)
 		var changed = 0
 		for (mapping in mappings) {
 			val fromPath = if (protect) mapping.original else mapping.opaque
@@ -207,25 +219,7 @@ class FolderNameProtector(
 				compatibleOpaqueSaf(byPath, mapping.opaque)
 			}
 			val to = byPath[toPath]
-			if (protect) {
-				when {
-					from != null && to == null -> {
-						val wanted = toPath.substringAfterLast('/')
-						val renamed = renameSaf(from, wanted) ?: return NameProtectionResult.Failed()
-						if (renamed.name != wanted) {
-							renameSaf(renamed.entry, mapping.original.substringAfterLast('/'))
-							return NameProtectionResult.Failed()
-						}
-						byPath.remove(from.path)
-						byPath[toPath] = renamed.entry.copy(path = toPath)
-						changed++
-					}
-
-					from == null && to != null -> Unit
-
-					else -> return NameProtectionResult.Failed()
-				}
-			} else {
+			run {
 				when {
 					from != null && to == null -> {
 						val renamed = renameSaf(from, toPath.substringAfterLast('/'))
@@ -250,6 +244,51 @@ class FolderNameProtector(
 			}
 		}
 		return NameProtectionResult.Done(changed)
+	}
+
+	/**
+	 * Renames several at a time.
+	 *
+	 * Only in the protect direction, where the target names are fresh identifiers and no two
+	 * mappings can want the same one, so the renames do not depend on each other's order. Restore is
+	 * left serial: it resolves collisions against names already in the folder, which only makes
+	 * sense one at a time. Each rename is a provider round trip and the provider rescans the paths
+	 * it touched, which measured at about 70ms a file, so this is where the waiting was.
+	 */
+	private suspend fun protectSafMappings(
+		mappings: List<NameMapping>,
+		byPath: Map<String, SafEntry>,
+	): NameProtectionResult = coroutineScope {
+		val gate = Semaphore(PARALLEL_RENAMES)
+		// null is a failure, 0 a mapping already applied, 1 a rename this pass made.
+		val outcomes = mappings.map { mapping ->
+			async(Dispatchers.IO) {
+				gate.withPermit { protectOne(mapping, byPath) }
+			}
+		}.awaitAll()
+		if (outcomes.any { it == null }) {
+			NameProtectionResult.Failed()
+		} else {
+			NameProtectionResult.Done(outcomes.sumOf { it ?: 0 })
+		}
+	}
+
+	private fun protectOne(mapping: NameMapping, byPath: Map<String, SafEntry>): Int? {
+		val from = byPath[mapping.original]
+		val taken = byPath.containsKey(mapping.opaque)
+		// Neither name present is a file that went missing; both present is two files claiming one
+		// mapping. Only the provider could tell those apart and it cannot, so both are refused.
+		if (from == null) return if (taken) 0 else null
+		if (taken) return null
+		val wanted = mapping.opaque.substringAfterLast('/')
+		val renamed = renameSaf(from, wanted) ?: return null
+		if (renamed.name != wanted) {
+			// The provider picked its own name, so the mapping would not find it again. Put the
+			// original back and fail rather than leave a file the manifest cannot describe.
+			renameSaf(renamed.entry, mapping.original.substringAfterLast('/'))
+			return null
+		}
+		return 1
 	}
 
 	private fun renameSaf(entry: SafEntry, wanted: String): SafRename? {
@@ -418,6 +457,9 @@ class FolderNameProtector(
 	}
 
 	private fun reserved(name: String): Boolean = isShelfBookkeeping(name)
+
+	// Matched to ContentLocker: the wait is a provider round trip, not the CPU.
+	private val PARALLEL_RENAMES get() = 6
 
 	@Serializable
 	private data class NameManifest(val version: Int = VERSION, val files: List<NameMapping>)

@@ -170,6 +170,7 @@ fun PrivateArea(
 			onAutoHideMode = viewModel::setAutoHideMode,
 			onFlipToHideChange = viewModel::setFlipToHide,
 			onUsbPanicChange = viewModel::setUsbPanic,
+			onDeepProtectionChange = viewModel::setDeepProtection,
 			onSeedDecoy = viewModel::seedDecoyVault,
 			onForceUnhide = viewModel::forceUnhideAll,
 			onCheckHealth = viewModel::checkHiddenItems,
@@ -665,6 +666,7 @@ private fun SettingsScreen(
 	onAutoHideMode: (AutoHideMode) -> Unit,
 	onFlipToHideChange: (Boolean) -> Unit,
 	onUsbPanicChange: (Boolean) -> Unit,
+	onDeepProtectionChange: (Boolean) -> Unit,
 	onSeedDecoy: () -> Unit,
 	onForceUnhide: () -> Unit,
 	onCheckHealth: () -> Unit,
@@ -825,7 +827,12 @@ private fun SettingsScreen(
 			item { AppearanceSettingsSection(state, onThemeMode) }
 
 			item {
-				FolderSettingsSection(state, onHidingPreference, onRequestAllFiles)
+				FolderSettingsSection(
+					state,
+					onHidingPreference,
+					onRequestAllFiles,
+					onDeepProtectionChange = { onDeepProtectionChange(!state.deepProtection) },
+				)
 			}
 
 			item {
