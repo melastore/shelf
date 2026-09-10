@@ -77,7 +77,7 @@ class SafLockTarget(val resolver: ContentResolver, val uri: Uri, override val na
 	}.getOrDefault(0L)
 
 	override fun <T> withSession(mode: String, block: (LockTarget) -> T): T =
-		resolver.openFileDescriptor(uri, mode)?.use { pfd -> block(OpenDocument(pfd)) }
+		open(mode)?.use { pfd -> block(OpenDocument(pfd)) }
 			?: throw IOException("could not open $uri for $mode")
 
 	/**
@@ -125,8 +125,10 @@ class SafLockTarget(val resolver: ContentResolver, val uri: Uri, override val na
 	}
 
 	private inline fun <T> descriptor(mode: String, block: (ParcelFileDescriptor) -> T): T =
-		resolver.openFileDescriptor(uri, mode)?.use(block)
-			?: throw IOException("could not open $uri for $mode")
+		open(mode)?.use(block) ?: throw IOException("could not open $uri for $mode")
+
+	private fun open(mode: String): ParcelFileDescriptor? =
+		if (mode == "r") resolver.openUnredacted(uri) else resolver.openFileDescriptor(uri, mode)
 
 	companion object {
 		/**

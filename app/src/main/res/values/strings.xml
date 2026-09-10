@@ -106,6 +106,9 @@
 	</plurals>
 	<string name="hide_all">Hide all folders</string>
 	<string name="unhide_all">Unhide all folders</string>
+	<!-- Shown when both bulk actions sit in the same row, where the header already says Folders. -->
+	<string name="hide_all_short">Hide all</string>
+	<string name="unhide_all_short">Unhide all</string>
 	<string name="hide">Hide</string>
 	<string name="restore">Unhide</string>
 	<string name="forget">Forget</string>
@@ -209,6 +212,8 @@
 	<string name="disguise_change_failed">Could not change the launcher disguise.</string>
 	<string name="disguise_change_failed_detail">Could not change the launcher disguise: %1$s</string>
 	<string name="entry_gesture_changed">Entry gesture changed.</string>
+	<string name="folder_is_reserved">%1$s is one of Android\'s own folders. Hiding it would take the gallery or camera with it. Pick a folder inside it instead.</string>
+	<string name="folder_overlaps_tracked">This folder sits inside or around %1$s, which Shelf already keeps. Hiding both would lose the inner one.</string>
 	<string name="folder_path_unresolved">Could not resolve that folder to a storage path.</string>
 	<string name="every_folder_hidden">Every folder is already hidden.</string>
 	<string name="nothing_hidden">Nothing is hidden.</string>

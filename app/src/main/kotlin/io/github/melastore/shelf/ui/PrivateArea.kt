@@ -366,13 +366,9 @@ private fun VaultScreen(
 					item {
 						FolderListHeader(
 							count = count,
-							action = if (exposedCount > 0) {
-								stringResource(R.string.hide_all)
-							} else {
-								stringResource(R.string.unhide_all)
-							},
 							enabled = !state.busy,
-							onAction = if (exposedCount > 0) onHideAll else onUnhideAll,
+							onHideAll = onHideAll.takeIf { exposedCount > 0 },
+							onUnhideAll = onUnhideAll.takeIf { exposedCount < rows.size },
 						)
 					}
 					items(rows, key = { it.key }) { FolderTile(it, state.busy) }
@@ -517,9 +513,13 @@ private fun VaultStatus(count: Int, state: AppUiState) {
 	}
 }
 
-/** The bulk action follows the useful direction: hide whatever is visible, else restore the lot. */
+/**
+ * Whichever bulk actions the list can currently use, which is both of them when some folders are
+ * hidden and some are not. Offering only one left the other half of a mixed list reachable a row at
+ * a time, which is where a partial unhide leaves you.
+ */
 @Composable
-private fun FolderListHeader(count: Int, action: String, enabled: Boolean, onAction: () -> Unit,) {
+private fun FolderListHeader(count: Int, enabled: Boolean, onHideAll: (() -> Unit)?, onUnhideAll: (() -> Unit)?,) {
 	Row(
 		Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 2.dp),
 		verticalAlignment = Alignment.CenterVertically,
@@ -535,7 +535,18 @@ private fun FolderListHeader(count: Int, action: String, enabled: Boolean, onAct
 			style = MaterialTheme.typography.labelLarge,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
-		TextButton(onClick = onAction, enabled = enabled) { Text(action) }
+		// Both together do not fit a phone at full length, and the header has already said Folders.
+		val both = onHideAll != null && onUnhideAll != null
+		onHideAll?.let {
+			TextButton(onClick = it, enabled = enabled) {
+				Text(stringResource(if (both) R.string.hide_all_short else R.string.hide_all))
+			}
+		}
+		onUnhideAll?.let {
+			TextButton(onClick = it, enabled = enabled) {
+				Text(stringResource(if (both) R.string.unhide_all_short else R.string.unhide_all))
+			}
+		}
 	}
 }
 

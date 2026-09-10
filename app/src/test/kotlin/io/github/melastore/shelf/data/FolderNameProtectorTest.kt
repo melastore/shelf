@@ -156,6 +156,25 @@ class FolderNameProtectorTest {
 		credential = { password.copyOf() },
 	)
 
+	/**
+	 * Scoped storage lists the directories inside a folder this app holds no permission for and
+	 * hides the files in it. A subdirectory was enough to make the folder look walkable, and the walk
+	 * that found no files reported the folder protected without touching a name.
+	 */
+	@Test
+	fun `a folder whose files the file view cannot see is not reported as protected`() = runBlocking {
+		val root = temp.newFolder("opaque")
+		File(root, "nested").mkdirs()
+		val password = "48261357".toCharArray()
+		val protector = FolderNameProtector(context, paths(root), credential = { password.copyOf() })
+
+		// No provider grant in a unit test, so the only honest answer left is that neither view
+		// reached the folder.
+		assertEquals(NameProtectionResult.AccessUnavailable, protector.protect(root.path))
+		assertEquals(listOf("nested"), root.list()?.sorted())
+		password.fill(' ')
+	}
+
 	private fun paths(root: File): StoragePaths {
 		val parent = requireNotNull(root.parentFile)
 		return StoragePaths.forTest(

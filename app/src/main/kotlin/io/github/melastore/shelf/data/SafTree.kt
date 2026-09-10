@@ -2,6 +2,7 @@ package io.github.melastore.shelf.data
 
 import android.content.ContentResolver
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 
 /** One child of a document tree, with everything a walk needs already read out of the cursor. */
@@ -52,3 +53,15 @@ internal object SafTree {
 		DocumentsContract.Document.COLUMN_MIME_TYPE,
 	)
 }
+
+/**
+ * Opens [uri] for reading, and settles for read-write when that is refused.
+ *
+ * A read-only descriptor is the one a provider runs its redaction path for: it rewrites the bytes
+ * on the way out, and on a LineageOS build it throws out of AppOpsService instead of returning
+ * anything. Shelf wants the file as stored, and every grant it holds is read-write already, so the
+ * second attempt asks for nothing the work did not have.
+ */
+internal fun ContentResolver.openUnredacted(uri: Uri): ParcelFileDescriptor? =
+	runCatching { openFileDescriptor(uri, "r") }.getOrNull()
+		?: runCatching { openFileDescriptor(uri, "rw") }.getOrNull()

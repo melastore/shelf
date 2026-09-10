@@ -54,9 +54,17 @@ class FolderNameProtector(
 	 * and lists as empty, and some builds have isExternalStorageManager agreeing. Renaming nothing
 	 * and calling it done is the failure this guards against, so an empty File view defers to the
 	 * provider, which answers from the grant rather than the mount.
+	 *
+	 * Files, not entries. Without storage permission the mount still lists the directories inside a
+	 * folder and hides the files, so a folder with one subdirectory in it looked walkable, walked up
+	 * nothing, and reported a folder whose names were never touched as protected.
 	 */
-	private fun walkable(path: String): File? =
-		File(path).takeIf { canWalkAsFile(it) && it.listFiles().orEmpty().isNotEmpty() }
+	private fun walkable(path: String): File? = File(path).takeIf { root ->
+		canWalkAsFile(root) && root.walkTopDown()
+			.onEnter { it == root || !Files.isSymbolicLink(it.toPath()) }
+			.take(MAX_FILES + 1)
+			.any(File::isFile)
+	}
 
 	suspend fun protect(path: String): NameProtectionResult = withContext(Dispatchers.IO) {
 		walkable(path)?.takeIf(::ownsManifest)?.let { return@withContext protectFile(it) }
@@ -72,10 +80,9 @@ class FolderNameProtector(
 	 * hide on a restricted mount lands in exactly that state.
 	 */
 	suspend fun restore(path: String): NameProtectionResult = withContext(Dispatchers.IO) {
-		val direct = File(path).takeIf { canWalkAsFile(it) }
-		if (direct != null && ownsManifest(direct)) return@withContext restoreFile(direct)
+		walkable(path)?.takeIf(::ownsManifest)?.let { return@withContext restoreFile(it) }
 		safRoot(path)?.let { return@withContext restoreSaf(it) }
-		direct?.let { restoreFile(it) } ?: NameProtectionResult.AccessUnavailable
+		File(path).takeIf { canWalkAsFile(it) }?.let { restoreFile(it) } ?: NameProtectionResult.AccessUnavailable
 	}
 
 	/**
@@ -455,7 +462,7 @@ class FolderNameProtector(
 	}
 
 	private fun readSaf(uri: Uri): ByteArray? = runCatching {
-		resolver.openFileDescriptor(uri, "r")?.use { descriptor ->
+		resolver.openUnredacted(uri)?.use { descriptor ->
 			val size = descriptor.statSize
 			if (size !in 1..PasswordEnvelope.MAX_ENVELOPE_BYTES.toLong()) return@use null
 			FileInputStream(descriptor.fileDescriptor).use { it.readBytes() }

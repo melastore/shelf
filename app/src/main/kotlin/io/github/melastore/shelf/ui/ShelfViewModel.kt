@@ -54,6 +54,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -1120,12 +1121,32 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	fun hideFolder(treeUri: Uri) = launchBusy {
 		val path = resolveDocumentPath(treeUri, isTree = true)
 			?: return@launchBusy fail(uiMessage(R.string.folder_path_unresolved))
+		unsuitable(path)?.let { return@launchBusy fail(it) }
 		val name = DocumentFile.fromTreeUri(getApplication(), treeUri)?.name ?: File(path).name
 		val persisted = persist(treeUri)
 		// Tracked before the hide, so a folder that still needs a grant stays on the list to retry
 		// from instead of something the user has to find in the picker twice.
 		guard { registry.put(path, name) }
 		hide(FolderTarget(path, name, treeUri.takeIf { persisted }))
+	}
+
+	/**
+	 * Why this folder cannot be taken on, or null when it can.
+	 *
+	 * Two things the picker will hand over that must not be hidden. One of Android's own top-level
+	 * folders, which it recreates and which the camera and gallery are pointed at. And a folder
+	 * sitting above or below one already tracked: hiding the outer one moves the inner one's
+	 * recorded path out from under it, and nothing is left that can find it again.
+	 */
+	private suspend fun unsuitable(path: String): UiMessage? {
+		val relative = path.removePrefix(paths.emulatedRoot).trim('/')
+		if (relative.isEmpty() || relative.lowercase() in RESERVED_FOLDERS) {
+			return uiMessage(R.string.folder_is_reserved, relative.ifEmpty { "/" })
+		}
+		val tracked = guard { registry.read() }.orEmpty()
+		return tracked
+			.firstOrNull { path.startsWith("${it.path}/") || it.path.startsWith("$path/") }
+			?.let { uiMessage(R.string.folder_overlaps_tracked, it.displayName) }
 	}
 
 	private suspend fun hide(target: FolderTarget) {
@@ -1194,7 +1215,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		var hidden = 0
 		val failures = mutableListOf<UiMessage>()
 		for (folder in targets) {
-			when (val result = hideTracked(folder)) {
+			val result = oneOf(folder.displayName, failures) { hideTracked(folder) } ?: continue
+			when (result) {
 				is HideResult.Ok -> hidden++
 
 				is HideResult.Failed -> failures += namedFailure(folder.displayName, result.failure.toUiMessage())
@@ -1212,7 +1234,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		var restored = 0
 		val failures = mutableListOf<UiMessage>()
 		for (entry in targets) {
-			when (val result = folderCoordinator.restore(entry)) {
+			val result = oneOf(entry.displayName, failures) { folderCoordinator.restore(entry) } ?: continue
+			when (result) {
 				is HideResult.Ok -> restored++
 				is HideResult.Failed -> failures += namedFailure(entry.displayName, result.failure.toUiMessage())
 				is HideResult.NeedsAccess -> failures += accessNeeded(result)
@@ -1394,7 +1417,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		var restored = 0
 		val failures = mutableListOf<UiMessage>()
 		for (entry in entries) {
-			when (val result = folderCoordinator.restore(entry)) {
+			val result = oneOf(entry.displayName, failures) { folderCoordinator.restore(entry) } ?: continue
+			when (result) {
 				is HideResult.Ok -> restored++
 
 				is HideResult.Failed -> failures += namedFailure(entry.displayName, result.failure.toUiMessage())
@@ -1519,17 +1543,41 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					block()
 				} catch (e: RecordsCorrupted) {
 					fail(recoveryMessage(e))
+				} catch (e: CancellationException) {
+					// The screen going away, not a failure to report on it.
+					throw e
 				} catch (e: Exception) {
-					fail(
-						e.message?.let { uiMessage(R.string.operation_failed_detail, it) }
-							?: uiMessage(R.string.operation_failed),
-					)
+					fail(unexpected(e))
 				} finally {
 					_state.update { it.copy(busy = false) }
 				}
 			}
 		}
 	}
+
+	/**
+	 * One folder's turn in a bulk pass, with a thrown error recorded against that folder.
+	 *
+	 * The loops used to call straight through, so the first folder to throw took the pass with it:
+	 * every folder after it went untried and the per-folder summary was replaced by one generic
+	 * message. Cancellation still leaves, because that is the screen going away rather than a folder
+	 * that could not be done.
+	 */
+	private suspend fun oneOf(
+		displayName: String,
+		failures: MutableList<UiMessage>,
+		block: suspend () -> HideResult,
+	): HideResult? = try {
+		block()
+	} catch (e: CancellationException) {
+		throw e
+	} catch (e: Exception) {
+		failures += namedFailure(displayName, unexpected(e))
+		null
+	}
+
+	private fun unexpected(e: Throwable): UiMessage =
+		e.message?.let { uiMessage(R.string.operation_failed_detail, it) } ?: uiMessage(R.string.operation_failed)
 
 	private suspend fun <T> guard(block: suspend () -> T): T? = try {
 		block()
@@ -1563,6 +1611,26 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	}
 
 	private companion object {
+		/**
+		 * Android's own folders under the storage root. It recreates them, indexes them, and points
+		 * the camera and gallery at them, so hiding one breaks the phone rather than a folder.
+		 */
+		private val RESERVED_FOLDERS = setOf(
+			"alarms",
+			"android",
+			"audiobooks",
+			"dcim",
+			"documents",
+			"download",
+			"movies",
+			"music",
+			"notifications",
+			"pictures",
+			"podcasts",
+			"recordings",
+			"ringtones",
+		)
+
 		const val EXTERNAL_STORAGE = "com.android.externalstorage.documents"
 		const val MAX_UNLOCK_ATTEMPTS = 5
 		const val PICKER_GRACE_MILLIS = 120_000L
