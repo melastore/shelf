@@ -3,10 +3,16 @@ package io.github.melastore.shelf.data
 import android.content.Context
 import android.net.Uri
 import io.github.melastore.shelf.root.StoragePaths
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Hides and restores folders with the best method the device allows: root, an all-files move, then
  * a SAF rename. A restore always uses the method recorded in the entry.
+ *
+ * Every call is moved to the IO dispatcher here rather than at each caller. A strategy walks
+ * folders, opens files through a document provider and shells out to root, all of it blocking, and
+ * a caller that forgot froze the UI until the folder was done.
  */
 class FolderHider(private val strategies: List<HideStrategy>) {
 
@@ -22,16 +28,18 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 		),
 	)
 
-	suspend fun availableMethods(checkRoot: Boolean = true): Set<HideMethod> = strategies
-		.filter { (checkRoot || it.method != HideMethod.ROOT_CHMOD) && it.isAvailable() }
-		.mapTo(linkedSetOf()) { it.method }
+	suspend fun availableMethods(checkRoot: Boolean = true): Set<HideMethod> = withContext(Dispatchers.IO) {
+		strategies
+			.filter { (checkRoot || it.method != HideMethod.ROOT_CHMOD) && it.isAvailable() }
+			.mapTo(linkedSetOf()) { it.method }
+	}
 
 	/** The method a hide would use right now, or null when the configured one is unavailable. */
-	suspend fun activeMethod(preference: HidingPreference): HideMethod? {
+	suspend fun activeMethod(preference: HidingPreference): HideMethod? = withContext(Dispatchers.IO) {
 		val available = availableMethods(
 			checkRoot = preference == HidingPreference.AUTO || preference == HidingPreference.ROOT,
 		)
-		return selectedMethod(preference, available)
+		selectedMethod(preference, available)
 	}
 
 	fun selectedMethod(preference: HidingPreference, available: Set<HideMethod>): HideMethod? = when (preference) {
@@ -41,10 +49,10 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 		HidingPreference.SAF -> HideMethod.DOT_RENAME.takeIf { it in available }
 	}
 
-	suspend fun hide(target: FolderTarget, preference: HidingPreference): HideResult {
+	suspend fun hide(target: FolderTarget, preference: HidingPreference): HideResult = withContext(Dispatchers.IO) {
 		val method = activeMethod(preference)
-			?: return HideResult.Failed(HideFailure.MethodUnavailable)
-		return strategies.first { it.method == method }.hide(target)
+			?: return@withContext HideResult.Failed(HideFailure.MethodUnavailable)
+		strategies.first { it.method == method }.hide(target)
 	}
 
 	/**
@@ -52,17 +60,18 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 	 * interrupted entry back first also puts any headers or names changed before the interruption
 	 * back, so a fresh journalled hide can start cleanly.
 	 */
-	suspend fun rehide(target: FolderTarget, preference: HidingPreference, interrupted: HiddenEntry?,): HideResult {
-		if (interrupted != null) {
-			val health = health(interrupted)
-			if (health.status != HiddenHealthStatus.ALREADY_RESTORED) {
-				return HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
+	suspend fun rehide(target: FolderTarget, preference: HidingPreference, interrupted: HiddenEntry?,): HideResult =
+		withContext(Dispatchers.IO) {
+			if (interrupted != null) {
+				val health = health(interrupted)
+				if (health.status != HiddenHealthStatus.ALREADY_RESTORED) {
+					return@withContext HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
+				}
+				val rolledBack = restore(interrupted)
+				if (rolledBack !is HideResult.Ok) return@withContext rolledBack
 			}
-			val rolledBack = restore(interrupted)
-			if (rolledBack !is HideResult.Ok) return rolledBack
+			hide(target, preference)
 		}
-		return hide(target, preference)
-	}
 
 	/**
 	 * A journal record is not proof of hiding until the strategy confirms the physical state.
@@ -75,32 +84,39 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 	 */
 	suspend fun isExposed(entry: HiddenEntry): Boolean = health(entry).status == HiddenHealthStatus.ALREADY_RESTORED
 
-	suspend fun restore(entry: HiddenEntry): HideResult =
+	suspend fun restore(entry: HiddenEntry): HideResult = withContext(Dispatchers.IO) {
 		strategies.firstOrNull { it.method == entry.method }?.restore(entry)
 			?: HideResult.Failed(HideFailure.MethodCannotRestore)
+	}
 
-	suspend fun health(entry: HiddenEntry): HiddenHealth =
+	suspend fun health(entry: HiddenEntry): HiddenHealth = withContext(Dispatchers.IO) {
 		strategies.firstOrNull { it.method == entry.method }?.health(entry)
 			?: HiddenHealth(HiddenHealthStatus.UNKNOWN, HiddenHealthDetail.METHOD_UNAVAILABLE)
+	}
 
-	suspend fun recoveryCandidates(parentTree: Uri): List<SafRecoveryCandidate> =
+	suspend fun recoveryCandidates(parentTree: Uri): List<SafRecoveryCandidate> = withContext(Dispatchers.IO) {
 		strategies.firstOrNull { it.method == HideMethod.DOT_RENAME }
 			?.recoveryCandidates(parentTree).orEmpty()
+	}
 
-	suspend fun recover(candidate: SafRecoveryCandidate, restoredName: String): HideResult =
+	suspend fun recover(candidate: SafRecoveryCandidate, restoredName: String): HideResult = withContext(Dispatchers.IO) {
 		strategies.firstOrNull { it.method == HideMethod.DOT_RENAME }
 			?.recover(candidate, restoredName)
 			?: HideResult.Failed(HideFailure.MethodCannotRecover)
+	}
 
-	suspend fun recoverOrphans(method: HideMethod): Int =
+	suspend fun recoverOrphans(method: HideMethod): Int = withContext(Dispatchers.IO) {
 		strategies.firstOrNull { it.method == method }?.recoverOrphans() ?: 0
+	}
 
 	/**
 	 * Sweeps every method, not just the configured one: a folder hidden with root before a reinstall
 	 * is still at mode 000 whatever is selected today. Each strategy runs its own capability check,
 	 * so doing one here too would ask for root twice.
 	 */
-	suspend fun recoverEverything(): Int = strategies.sumOf { it.recoverOrphans() }
+	suspend fun recoverEverything(): Int = withContext(Dispatchers.IO) {
+		strategies.sumOf { it.recoverOrphans() }
+	}
 }
 
 /** Collapses the warnings one operation collected into the single one a caller reports. */

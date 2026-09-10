@@ -176,7 +176,7 @@ class FolderNameProtector(
 		} else {
 			if (!hasCredential()) return NameProtectionResult.CredentialRequired
 			val files = mutableListOf<SafEntry>()
-			if (!collectSaf(root, "", files, 0)) return NameProtectionResult.Failed()
+			if (!collectSaf(root.uri, "", files, 0)) return NameProtectionResult.Failed()
 			if (files.isEmpty()) return NameProtectionResult.NoFiles
 			if (files.size > MAX_FILES) return NameProtectionResult.Failed()
 			walked = files
@@ -205,55 +205,81 @@ class FolderNameProtector(
 		walked: List<SafEntry>? = null,
 	): NameProtectionResult {
 		val current = walked ?: mutableListOf<SafEntry>().also {
-			if (!collectSaf(root, "", it, 0)) return NameProtectionResult.Failed()
+			if (!collectSaf(root.uri, "", it, 0)) return NameProtectionResult.Failed()
 		}
 		val byPath = current.associateByTo(mutableMapOf(), SafEntry::path)
 		if (protect) return protectSafMappings(mappings, byPath)
+
 		var changed = 0
-		for (mapping in mappings) {
-			val fromPath = if (protect) mapping.original else mapping.opaque
-			val toPath = if (protect) mapping.opaque else mapping.original
-			val from = byPath[fromPath] ?: if (protect) {
-				null
-			} else {
-				compatibleOpaqueSaf(byPath, mapping.opaque)
-			}
-			val to = byPath[toPath]
-			run {
-				when {
-					from != null && to == null -> {
-						val renamed = renameSaf(from, toPath.substringAfterLast('/'))
-							?: return NameProtectionResult.Failed()
-						byPath.remove(from.path)
-						byPath[siblingPath(toPath, renamed.name)] = renamed.entry
-						changed++
-					}
+		val direct = independentRestores(mappings, byPath)
+		val renames = restoreInParallel(direct, byPath) ?: return NameProtectionResult.Failed()
+		for ((mapping, renamed) in renames) {
+			byPath.remove(mapping.opaque)
+			byPath[siblingPath(mapping.original, renamed.name)] = renamed.entry
+			changed++
+		}
 
-					from != null && to != null -> {
-						val wanted = recoveryName(toPath.substringAfterLast('/'), mapping.opaque) { candidate ->
-							byPath.containsKey(siblingPath(toPath, candidate))
-						}
-						val renamed = renameSaf(from, wanted) ?: return NameProtectionResult.Failed()
-						byPath.remove(from.path)
-						byPath[siblingPath(toPath, renamed.name)] = renamed.entry
-						changed++
-					}
-
-					from == null -> Unit // Already restored, deleted, or provider-renamed on an old hide.
+		val done = direct.mapTo(mutableSetOf(), NameMapping::opaque)
+		for (mapping in mappings.filterNot { it.opaque in done }) {
+			val toPath = mapping.original
+			// Already restored, deleted, or provider-renamed on an old hide.
+			val from = byPath[mapping.opaque] ?: compatibleOpaqueSaf(byPath, mapping.opaque) ?: continue
+			val wanted = if (byPath.containsKey(toPath)) {
+				recoveryName(toPath.substringAfterLast('/'), mapping.opaque) { candidate ->
+					byPath.containsKey(siblingPath(toPath, candidate))
 				}
+			} else {
+				toPath.substringAfterLast('/')
 			}
+			val renamed = renameSaf(from, wanted) ?: return NameProtectionResult.Failed()
+			byPath.remove(from.path)
+			byPath[siblingPath(toPath, renamed.name)] = renamed.entry
+			changed++
 		}
 		return NameProtectionResult.Done(changed)
 	}
 
 	/**
-	 * Renames several at a time.
-	 *
-	 * Only in the protect direction, where the target names are fresh identifiers and no two
-	 * mappings can want the same one, so the renames do not depend on each other's order. Restore is
-	 * left serial: it resolves collisions against names already in the folder, which only makes
-	 * sense one at a time. Each rename is a provider round trip and the provider rescans the paths
-	 * it touched, which measured at about 70ms a file, so this is where the waiting was.
+	 * The mappings a restore can apply without looking at what the others did: the opaque name is
+	 * there, the original name is free, and no other mapping reads or writes either of them. What is
+	 * left over needs a name picked against the folder as it stands, which only works one at a time.
+	 */
+	private fun independentRestores(mappings: List<NameMapping>, byPath: Map<String, SafEntry>,): List<NameMapping> {
+		// A manifest is decrypted user data, so two rows claiming one name is possible even though a
+		// walk cannot produce it. Those are left to the serial pass, which knows how to place both.
+		val originals = mappings.groupingBy(NameMapping::original).eachCount()
+		val opaques = mappings.groupingBy(NameMapping::opaque).eachCount()
+		return mappings.filter {
+			byPath.containsKey(it.opaque) &&
+				!byPath.containsKey(it.original) &&
+				originals.getValue(it.original) == 1 &&
+				opaques.getValue(it.opaque) == 1 &&
+				it.original !in opaques &&
+				it.opaque !in originals
+		}
+	}
+
+	private suspend fun restoreInParallel(
+		mappings: List<NameMapping>,
+		byPath: Map<String, SafEntry>,
+	): List<Pair<NameMapping, SafRename>>? = coroutineScope {
+		val gate = Semaphore(PARALLEL_RENAMES)
+		val renamed = mappings.map { mapping ->
+			async(Dispatchers.IO) {
+				gate.withPermit {
+					val from = byPath.getValue(mapping.opaque)
+					renameSaf(from, mapping.original.substringAfterLast('/'))?.let { mapping to it }
+				}
+			}
+		}.awaitAll()
+		if (renamed.any { it == null }) null else renamed.filterNotNull()
+	}
+
+	/**
+	 * Renames several at a time. The target names are fresh identifiers and no two mappings can want
+	 * the same one, so the renames do not depend on each other's order. Each one is a provider round
+	 * trip and the provider rescans the paths it touched, about 70ms a file measured, so this is
+	 * where the waiting was.
 	 */
 	private suspend fun protectSafMappings(
 		mappings: List<NameMapping>,
@@ -293,11 +319,11 @@ class FolderNameProtector(
 
 	private fun renameSaf(entry: SafEntry, wanted: String): SafRename? {
 		val uri = runCatching {
-			DocumentsContract.renameDocument(resolver, entry.document.uri, wanted)
+			DocumentsContract.renameDocument(resolver, entry.uri, wanted)
 		}.getOrNull()?.takeUnless { it == Uri.EMPTY } ?: return null
 		val document = DocumentFile.fromSingleUri(appContext, uri) ?: return null
 		val actual = document.name ?: return null
-		return SafRename(SafEntry(siblingPath(entry.path, actual), document), actual)
+		return SafRename(SafEntry(siblingPath(entry.path, actual), uri), actual)
 	}
 
 	private fun compatibleOpaqueSaf(entries: Map<String, SafEntry>, expected: String): SafEntry? {
@@ -414,15 +440,14 @@ class FolderNameProtector(
 		return if (parent.isEmpty()) name else "$parent/$name"
 	}
 
-	private fun collectSaf(folder: DocumentFile, prefix: String, found: MutableList<SafEntry>, depth: Int,): Boolean {
+	private fun collectSaf(folder: Uri, prefix: String, found: MutableList<SafEntry>, depth: Int,): Boolean {
 		if (depth > MAX_DEPTH || found.size > MAX_FILES) return false
-		val children = runCatching { folder.listFiles() }.getOrNull() ?: return false
+		val children = SafTree.children(resolver, folder) ?: return false
 		for (child in children) {
-			val name = child.name ?: return false
-			val relative = if (prefix.isEmpty()) name else "$prefix/$name"
+			val relative = if (prefix.isEmpty()) child.name else "$prefix/${child.name}"
 			when {
-				child.isDirectory -> if (!collectSaf(child, relative, found, depth + 1)) return false
-				child.isFile && !reserved(name) -> found += SafEntry(relative, child)
+				child.isDirectory -> if (!collectSaf(child.uri, relative, found, depth + 1)) return false
+				child.isFile && !reserved(child.name) -> found += SafEntry(relative, child.uri)
 			}
 			if (found.size > MAX_FILES) return false
 		}
@@ -467,7 +492,7 @@ class FolderNameProtector(
 	@Serializable
 	private data class NameMapping(val original: String, val opaque: String)
 
-	private data class SafEntry(val path: String, val document: DocumentFile)
+	private data class SafEntry(val path: String, val uri: Uri)
 	private data class SafRename(val entry: SafEntry, val name: String)
 
 	companion object {

@@ -99,14 +99,21 @@ class FolderContentProtector(
 
 	suspend fun restore(path: String): ContentProtectionResult {
 		val targets = targets(path) ?: return ContentProtectionResult.AccessUnavailable
-		if (targets.isEmpty() || targets.none(FileLocker::isLocked)) return ContentProtectionResult.NoFiles
+		if (targets.isEmpty()) return ContentProtectionResult.NoFiles
 		if (targets.size > ContentLocker.MAX_FILES) return ContentProtectionResult.Failed(1)
-		val password = credential() ?: return ContentProtectionResult.CredentialRequired
+		// Same as protect: no pass to find the locked ones first. Each file's own unlock skips one
+		// that is already in the clear, and the pre-pass opened and read every file a second time.
+		val password = credential() ?: return if (targets.none(FileLocker::isLocked)) {
+			ContentProtectionResult.NoFiles
+		} else {
+			ContentProtectionResult.CredentialRequired
+		}
 		return try {
 			val summary = locker.unlock(targets, password)
 			when {
 				summary.wrongPassphrase -> ContentProtectionResult.WrongCredential
 				summary.failed > 0 -> ContentProtectionResult.Failed(summary.failed)
+				summary.changed == 0 -> ContentProtectionResult.NoFiles
 				else -> ContentProtectionResult.Done(summary.changed)
 			}
 		} finally {

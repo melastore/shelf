@@ -105,6 +105,17 @@ class FolderContentProtectorTest {
 	}
 
 	@Test
+	fun `a folder with nothing locked restores without a credential`() = runBlocking {
+		val root = temp.newFolder("clear")
+		val file = File(root, "one.jpg").apply { writeBytes(ByteArray(9_000) { it.toByte() }) }
+		val before = file.readBytes()
+		val protector = FolderContentProtector(context, paths(root), credential = { null })
+
+		assertEquals(ContentProtectionResult.NoFiles, protector.restore(root.path))
+		assertArrayEquals(before, file.readBytes())
+	}
+
+	@Test
 	fun `locked content is not restored without the primary credential`() = runBlocking {
 		val root = temp.newFolder("locked")
 		val file = File(root, "private.jpg").apply { writeBytes(ByteArray(4_000) { it.toByte() }) }

@@ -140,24 +140,24 @@ class SafLockTarget(val resolver: ContentResolver, val uri: Uri, override val na
 			limit: Int = ContentLocker.MAX_FILES + 1,
 		): List<LockTarget>? {
 			val found = mutableListOf<LockTarget>()
-			return found.takeIf { collect(resolver, folder, it, limit, depth = 0) }
+			return found.takeIf { collect(resolver, folder.uri, it, limit, depth = 0) }
 		}
 
 		private fun collect(
 			resolver: ContentResolver,
-			folder: DocumentFile,
+			folder: Uri,
 			found: MutableList<LockTarget>,
 			limit: Int,
 			depth: Int,
 		): Boolean {
 			if (found.size >= limit) return true
 			if (depth > MAX_DEPTH) return false
-			val children = runCatching { folder.listFiles() }.getOrNull() ?: return false
+			val children = SafTree.children(resolver, folder) ?: return false
 			for (child in children) {
 				if (found.size >= limit) return true
 				when {
-					child.isDirectory -> if (!collect(resolver, child, found, limit, depth + 1)) return false
-					child.isFile -> found += SafLockTarget(resolver, child.uri, child.name.orEmpty())
+					child.isDirectory -> if (!collect(resolver, child.uri, found, limit, depth + 1)) return false
+					child.isFile -> found += SafLockTarget(resolver, child.uri, child.name)
 				}
 			}
 			return true
