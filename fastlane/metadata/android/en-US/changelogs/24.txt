@@ -1,0 +1,15 @@
+Hidden folders no longer wear their own name, and settings is six pages instead
+of one long scroll.
+
+- A folder hidden with Folder rename used to keep its name behind the dot, so
+  anything listing hidden files read it straight off. It now takes a name that
+  passes for another app's data. Settings offers keeping the real name or random
+  characters instead, and changing it renames the folders already hidden.
+- The name a folder had before it was hidden is kept in the encrypted manifest
+  inside it, so a recovery can suggest it after a reinstall.
+- Settings opens on six pages, each row showing what that page is set to.
+- The vault said "Protected and hidden" for every hidden folder, including ones
+  whose files were never touched because the credential or the access was
+  missing. It now says when the contents were left as they are.
+- "Scramble headers and names" was read by the root method alone. All three
+  methods honour it now.
