@@ -25,6 +25,9 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 			RootChmodHider(context, journal, paths),
 			PrivateMoveHider(context, journal, paths),
 			DotRenameHider(context, journal, paths),
+			// Last on purpose. AUTO takes the first available and the dot rename always is, so this
+			// is never selected outright, only reached as the fallback for a folder it cannot reach.
+			InPlaceHider(context, journal, paths),
 		),
 	)
 
@@ -42,6 +45,14 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 		selectedMethod(preference, available)
 	}
 
+	suspend fun activeStrategy(preference: HidingPreference): HideStrategy? = withContext(Dispatchers.IO) {
+		val method = activeMethod(preference) ?: return@withContext null
+		strategies.firstOrNull { it.method == method }
+	}
+
+	/** The strategy that takes folders the chosen method cannot reach. */
+	fun inPlaceStrategy(): HideStrategy? = strategies.firstOrNull { it.method == HideMethod.IN_PLACE }
+
 	fun selectedMethod(preference: HidingPreference, available: Set<HideMethod>): HideMethod? = when (preference) {
 		HidingPreference.AUTO -> strategies.firstOrNull { it.method in available }?.method
 		HidingPreference.ROOT -> HideMethod.ROOT_CHMOD.takeIf { it in available }
@@ -49,10 +60,17 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 		HidingPreference.SAF -> HideMethod.DOT_RENAME.takeIf { it in available }
 	}
 
+	/**
+	 * A folder the chosen method cannot reach is hidden where it stands rather than refused. That is
+	 * the only way to hide one sitting in the volume root without all-files access: the provider will
+	 * not grant the parent, so the folder keeps its name and its contents are protected in place.
+	 */
 	suspend fun hide(target: FolderTarget, preference: HidingPreference): HideResult = withContext(Dispatchers.IO) {
 		val method = activeMethod(preference)
 			?: return@withContext HideResult.Failed(HideFailure.MethodUnavailable)
-		strategies.first { it.method == method }.hide(target)
+		val strategy = strategies.first { it.method == method }
+		val fallback = inPlaceStrategy()?.takeIf { strategy.blocker(target.emulatedPath) != null }
+		(fallback ?: strategy).hide(target)
 	}
 
 	/**
@@ -89,6 +107,12 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 			?: HideResult.Failed(HideFailure.MethodCannotRestore)
 	}
 
+	/** Puts [entry] under a name in the current style. A no-op for methods with no visible name. */
+	suspend fun remask(entry: HiddenEntry): HideResult = withContext(Dispatchers.IO) {
+		strategies.firstOrNull { it.method == entry.method }?.remask(entry)
+			?: HideResult.Failed(HideFailure.MethodUnavailable)
+	}
+
 	suspend fun health(entry: HiddenEntry): HiddenHealth = withContext(Dispatchers.IO) {
 		strategies.firstOrNull { it.method == entry.method }?.health(entry)
 			?: HiddenHealth(HiddenHealthStatus.UNKNOWN, HiddenHealthDetail.METHOD_UNAVAILABLE)
@@ -97,6 +121,10 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 	suspend fun recoveryCandidates(parentTree: Uri): List<SafRecoveryCandidate> = withContext(Dispatchers.IO) {
 		strategies.firstOrNull { it.method == HideMethod.DOT_RENAME }
 			?.recoveryCandidates(parentTree).orEmpty()
+	}
+
+	suspend fun recordedName(hiddenPath: String): String? = withContext(Dispatchers.IO) {
+		strategies.firstOrNull { it.method == HideMethod.DOT_RENAME }?.recordedName(hiddenPath)
 	}
 
 	suspend fun recover(candidate: SafRecoveryCandidate, restoredName: String): HideResult = withContext(Dispatchers.IO) {

@@ -49,6 +49,7 @@ data class AppSettings(
 	val flipToHide: Boolean = false,
 	val usbPanic: Boolean = false,
 	val deepProtection: Boolean = true,
+	val hiddenNameStyle: HiddenNameStyle = HiddenNameStyle.CAMOUFLAGE,
 )
 
 /** Small, non-sensitive settings. Secrets live in [io.github.melastore.shelf.security.PassphraseGate]. */
@@ -71,6 +72,7 @@ class AppPreferences(context: Context) {
 		flipToHide = values.getBoolean(KEY_FLIP_TO_HIDE, false),
 		usbPanic = values.getBoolean(KEY_USB_PANIC, false),
 		deepProtection = deepProtection(),
+		hiddenNameStyle = hiddenNameStyle(),
 	)
 
 	fun setDecoy(value: DecoyType) = putString(KEY_DECOY, value.name)
@@ -179,6 +181,15 @@ class AppPreferences(context: Context) {
 	 */
 	fun deepProtection(): Boolean = values.getBoolean(KEY_DEEP_PROTECTION, true)
 
+	fun setHiddenNameStyle(value: HiddenNameStyle) = putString(KEY_HIDDEN_NAME_STYLE, value.name)
+
+	/**
+	 * Camouflage by default, including on installs that predate the setting. A hidden folder still
+	 * carrying its own name is readable by anyone who switches hidden files on, and nothing already
+	 * hidden is touched by the default: only the next hide is.
+	 */
+	fun hiddenNameStyle(): HiddenNameStyle = enumValue(KEY_HIDDEN_NAME_STYLE, HiddenNameStyle.CAMOUFLAGE)
+
 	fun autoHideMode(): AutoHideMode {
 		if (values.contains(KEY_AUTO_HIDE)) return enumValue(KEY_AUTO_HIDE, AutoHideMode.IMMEDIATE)
 		// Migrating the two older controls: immediate stays immediate, a screen-off trigger stays
@@ -271,6 +282,7 @@ class AppPreferences(context: Context) {
 		const val KEY_FLIP_TO_HIDE = "flip_to_hide"
 		const val KEY_USB_PANIC = "usb_panic"
 		const val KEY_DEEP_PROTECTION = "deep_protection"
+		const val KEY_HIDDEN_NAME_STYLE = "hidden_name_style"
 		const val KEY_FAILED_UNLOCKS = "failed_unlocks"
 		const val KEY_LOCKOUTS = "lockouts"
 		const val KEY_BLOCKED_UNTIL = "blocked_until"

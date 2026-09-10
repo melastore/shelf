@@ -70,6 +70,9 @@ class RecoveryBundleCodec(private val paths: StoragePaths) {
 			HideMethod.DOT_RENAME -> require(SafPaths.nameOf(hidden).startsWith(".")) {
 				"invalid renamed-folder path"
 			}
+
+			// Nothing moved, so the folder is its own hidden location.
+			HideMethod.IN_PLACE -> require(hidden == originalEmulated) { "invalid in-place path" }
 		}
 		return HiddenEntry(
 			path = original,

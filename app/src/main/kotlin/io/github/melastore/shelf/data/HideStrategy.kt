@@ -47,6 +47,7 @@ sealed interface HideWarning {
 	data class MediaEntriesMayRemain(val details: List<String>) : HideWarning
 	data class ProviderRenamed(val finalName: String) : HideWarning
 	data class RestoredWithDifferentName(val finalName: String) : HideWarning
+	data object FolderNameVisible : HideWarning
 	data object ContentProtectionUnavailable : HideWarning
 	data object NameProtectionUnavailable : HideWarning
 	data class Multiple(val warnings: List<HideWarning>) : HideWarning
@@ -84,6 +85,13 @@ interface HideStrategy {
 	suspend fun hide(target: FolderTarget): HideResult
 
 	suspend fun restore(entry: HiddenEntry): HideResult
+	suspend fun blocker(path: String): HideFailure? = null
+
+	/**
+	 * Renames an already hidden folder to what the hidden-name setting asks for now. Only the rename
+	 * method has a visible name to change; the others hand the entry back untouched.
+	 */
+	suspend fun remask(entry: HiddenEntry): HideResult = HideResult.Ok(entry)
 
 	suspend fun health(entry: HiddenEntry): HiddenHealth = HiddenHealth(
 		HiddenHealthStatus.UNKNOWN,
@@ -91,6 +99,12 @@ interface HideStrategy {
 	)
 
 	suspend fun recoveryCandidates(parentTree: Uri): List<SafRecoveryCandidate> = emptyList()
+
+	/**
+	 * The name the folder at [hiddenPath] had before it was hidden, read from inside it. Null when
+	 * nothing was recorded or the credential is not held. A recovery with no journal has nothing else.
+	 */
+	suspend fun recordedName(hiddenPath: String): String? = null
 
 	suspend fun recover(candidate: SafRecoveryCandidate, restoredName: String): HideResult =
 		HideResult.Failed(HideFailure.MethodCannotRecover)

@@ -66,9 +66,26 @@ class FolderNameProtector(
 			.any(File::isFile)
 	}
 
-	suspend fun protect(path: String): NameProtectionResult = withContext(Dispatchers.IO) {
-		walkable(path)?.takeIf(::ownsManifest)?.let { return@withContext protectFile(it) }
-		safRoot(path)?.let { protectSaf(it) } ?: NameProtectionResult.AccessUnavailable
+	/**
+	 * [folderName] is the folder's own name, kept beside the file names. Once a hidden folder is
+	 * renamed to something meaningless, this is the only record of it that outlives the journal.
+	 */
+	suspend fun protect(path: String, folderName: String? = null): NameProtectionResult = withContext(Dispatchers.IO) {
+		walkable(path)?.takeIf(::ownsManifest)?.let { return@withContext protectFile(it, folderName) }
+		safRoot(path)?.let { protectSaf(it, folderName) } ?: NameProtectionResult.AccessUnavailable
+	}
+
+	/** The folder name recorded when [path] was hidden, or null if there is none to read. */
+	suspend fun folderName(path: String): String? = withContext(Dispatchers.IO) {
+		val encrypted = File(path, MANIFEST).takeIf { it.isFile }?.let(::readFile)
+			?: safRoot(path)?.findFile(MANIFEST)?.takeIf { it.isFile }?.let { readSaf(it.uri) }
+			?: return@withContext null
+		val password = credential() ?: return@withContext null
+		try {
+			parseManifest(encrypted, password)?.folder?.takeIf(SafPaths::isSafeName)
+		} finally {
+			password.fill(' ')
+		}
 	}
 
 	/**
@@ -96,7 +113,7 @@ class FolderNameProtector(
 		return !manifest.isFile || readFile(manifest) != null
 	}
 
-	private fun protectFile(root: File): NameProtectionResult {
+	private fun protectFile(root: File, folderName: String?): NameProtectionResult {
 		val manifestFile = File(root, MANIFEST)
 		val mappings = if (manifestFile.isFile) {
 			readManifest(readFile(manifestFile) ?: return NameProtectionResult.Failed())
@@ -116,7 +133,7 @@ class FolderNameProtector(
 				val original = file.relativeTo(root).invariantSeparatorsPath
 				NameMapping(original, opaqueSibling(original))
 			}.also {
-				if (!writeManifestFile(root, it)) return NameProtectionResult.Failed()
+				if (!writeManifestFile(root, it, folderName)) return NameProtectionResult.Failed()
 			}
 		}
 		return applyFileMappings(root, mappings, protect = true)
@@ -172,7 +189,7 @@ class FolderNameProtector(
 		return NameProtectionResult.Done(changed)
 	}
 
-	private suspend fun protectSaf(root: DocumentFile): NameProtectionResult {
+	private suspend fun protectSaf(root: DocumentFile, folderName: String?): NameProtectionResult {
 		val existing = root.findFile(MANIFEST)
 		// Held on to when the walk happens here, so applying the mappings does not list the whole
 		// tree a second time. A provider charges a query per directory and two per child for that.
@@ -188,7 +205,7 @@ class FolderNameProtector(
 			if (files.size > MAX_FILES) return NameProtectionResult.Failed()
 			walked = files
 			files.map { NameMapping(it.path, opaqueSibling(it.path)) }.also {
-				if (!writeManifestSaf(root, it)) return NameProtectionResult.Failed()
+				if (!writeManifestSaf(root, it, folderName)) return NameProtectionResult.Failed()
 			}
 		}
 		return applySafMappings(root, mappings, protect = true, walked = walked)
@@ -342,8 +359,8 @@ class FolderNameProtector(
 		}
 	}
 
-	private fun writeManifestFile(root: File, mappings: List<NameMapping>): Boolean {
-		val encrypted = encryptedManifest(mappings) ?: return false
+	private fun writeManifestFile(root: File, mappings: List<NameMapping>, folderName: String?): Boolean {
+		val encrypted = encryptedManifest(mappings, folderName) ?: return false
 		val temporary = File(root, MANIFEST_TEMP)
 		val target = File(root, MANIFEST)
 		return try {
@@ -359,8 +376,8 @@ class FolderNameProtector(
 		}
 	}
 
-	private fun writeManifestSaf(root: DocumentFile, mappings: List<NameMapping>): Boolean {
-		val encrypted = encryptedManifest(mappings) ?: return false
+	private fun writeManifestSaf(root: DocumentFile, mappings: List<NameMapping>, folderName: String?): Boolean {
+		val encrypted = encryptedManifest(mappings, folderName) ?: return false
 		return try {
 			root.findFile(MANIFEST_TEMP)?.delete()
 			val temporary = root.createFile(MIME, MANIFEST_TEMP) ?: return false
@@ -384,13 +401,13 @@ class FolderNameProtector(
 		}
 	}
 
-	private fun encryptedManifest(mappings: List<NameMapping>): ByteArray? {
+	private fun encryptedManifest(mappings: List<NameMapping>, folderName: String?): ByteArray? {
 		val password = credential() ?: return null
 		var plain = byteArrayOf()
 		return try {
 			plain = json.encodeToString(
 				NameManifest.serializer(),
-				NameManifest(files = mappings),
+				NameManifest(files = mappings, folder = folderName?.takeIf(SafPaths::isSafeName)),
 			).toByteArray(Charsets.UTF_8)
 			PasswordEnvelope.encrypt(plain, password)
 		} catch (_: Exception) {
@@ -404,7 +421,7 @@ class FolderNameProtector(
 	private fun readManifest(encrypted: ByteArray): List<NameMapping>? {
 		val password = credential() ?: return null
 		return try {
-			parseManifest(encrypted, password)
+			parseManifest(encrypted, password)?.files
 		} finally {
 			password.fill(' ')
 		}
@@ -494,7 +511,12 @@ class FolderNameProtector(
 	private val PARALLEL_RENAMES get() = 6
 
 	@Serializable
-	private data class NameManifest(val version: Int = VERSION, val files: List<NameMapping>)
+	private data class NameManifest(
+		val version: Int = VERSION,
+		val files: List<NameMapping>,
+		/** The folder's own name. Absent in manifests written before hidden names could be masked. */
+		val folder: String? = null,
+	)
 
 	@Serializable
 	private data class NameMapping(val original: String, val opaque: String)
@@ -523,19 +545,19 @@ class FolderNameProtector(
 		 * fails them is not one this app wrote, and the names in it are not shown.
 		 */
 		fun decryptManifest(encrypted: ByteArray, password: CharArray): Map<String, String>? {
-			val files = parseManifest(encrypted, password) ?: return null
+			val files = parseManifest(encrypted, password)?.files ?: return null
 			return files.associate { mapping ->
 				mapping.opaque.substringAfterLast('/') to mapping.original.substringAfterLast('/')
 			}
 		}
 
-		private fun parseManifest(encrypted: ByteArray, password: CharArray): List<NameMapping>? {
+		private fun parseManifest(encrypted: ByteArray, password: CharArray): NameManifest? {
 			if (encrypted.size !in 1..PasswordEnvelope.MAX_ENVELOPE_BYTES) return null
 			var plain = byteArrayOf()
 			return try {
 				plain = PasswordEnvelope.decrypt(encrypted, password)
 				val manifest = json.decodeFromString(NameManifest.serializer(), plain.toString(Charsets.UTF_8))
-				manifest.files.takeIf { valid(manifest) }
+				manifest.takeIf { valid(it) }
 			} catch (_: Exception) {
 				null
 			} finally {

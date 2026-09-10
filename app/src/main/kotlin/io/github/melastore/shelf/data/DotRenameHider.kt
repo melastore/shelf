@@ -17,9 +17,10 @@ import kotlinx.coroutines.withContext
  * permission list. A provider rename is one syscall underneath, so it is as fast as the other two,
  * and the media scanner skips dot-directories, which takes the folder out of every gallery.
  *
- * It is also the easiest to find: any file manager showing hidden files lists it. [FolderNameProtector]
- * replaces the visible names and [FolderContentProtector] blocks opening and previews, but the rest
- * of each file stays in place. This is not full-file encryption.
+ * It is also the easiest to find: any file manager showing hidden files lists it. [HiddenNamer]
+ * decides what that listing says, and by default it is not the folder's own name.
+ * [FolderNameProtector] replaces the names inside and [FolderContentProtector] blocks opening and
+ * previews, but the rest of each file stays in place. This is not full-file encryption.
  *
  * The rename needs a grant on a folder *above* the target. Renaming the folder a tree grant was
  * taken on leaves that grant pointing at a name that no longer exists, and the way back with it.
@@ -29,7 +30,16 @@ import kotlinx.coroutines.withContext
  * folder directly inside one of those is renamed through the file system instead, which needs
  * all-files access. Asking for a grant that cannot be given is the one thing never done here.
  */
-class DotRenameHider(context: Context, private val journal: Journal, private val paths: StoragePaths,) : HideStrategy {
+class DotRenameHider(
+	context: Context,
+	private val journal: Journal,
+	private val paths: StoragePaths,
+	private val writableThroughMount: (String) -> Boolean = {
+		runCatching { File(it).canWrite() }.getOrDefault(false)
+	},
+	// Read per hide, not held: the setting can change while the app runs.
+	private val nameStyle: () -> HiddenNameStyle = { AppPreferences(context).hiddenNameStyle() },
+) : HideStrategy {
 
 	private val appContext = context.applicationContext
 	private val resolver get() = appContext.contentResolver
@@ -40,6 +50,18 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 
 	/** Nothing to check. This is what is left when neither of the other two is available. */
 	override suspend fun isAvailable(): Boolean = true
+
+	// A missing grant is not the whole story: with no grant the rename goes through the mount, and
+	// that works wherever the parent is writable. Reporting on the grant alone marked folders
+	// unhideable that hide fine, so the mount is checked before anything is called blocked.
+	override suspend fun blocker(path: String): HideFailure? = withContext(Dispatchers.IO) {
+		val parent = SafPaths.parentOf(path)
+		if (grantCovering(path) != null || grantable(parent) || writableThroughMount(parent)) {
+			null
+		} else {
+			HideFailure.ParentNotGrantable(SafPaths.nameOf(path))
+		}
+	}
 
 	override suspend fun hide(target: FolderTarget): HideResult = withContext(Dispatchers.IO) {
 		val name = SafPaths.nameOf(target.emulatedPath)
@@ -56,7 +78,8 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 			return@withContext HideResult.NeedsAccess(parent, target.displayName)
 		}
 
-		val hiddenPath = SafPaths.sibling(target.emulatedPath, SafPaths.hiddenName(name))
+		val hiddenName = freeHiddenName(tree, target.emulatedPath, name)
+		val hiddenPath = SafPaths.sibling(target.emulatedPath, hiddenName)
 		val entry = HiddenEntry(
 			path = target.emulatedPath,
 			displayName = target.displayName,
@@ -89,7 +112,7 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 				return@withContext HideResult.Failed(HideFailure.ContentProtectionFailed(protected.count))
 			}
 		}
-		val nameWarning = when (val protected = names.protect(target.emulatedPath)) {
+		val nameWarning = when (val protected = names.protect(target.emulatedPath, folderName = name)) {
 			is NameProtectionResult.Done, NameProtectionResult.NoFiles -> null
 
 			NameProtectionResult.AccessUnavailable,
@@ -111,7 +134,7 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		}
 
 		val originalFolderTime = runCatching { File(target.emulatedPath).lastModified() }.getOrDefault(0L)
-		val renamed = renameFolder(tree, target.emulatedPath, SafPaths.hiddenName(name)) ?: run {
+		val renamed = renameFolder(tree, target.emulatedPath, hiddenName) ?: run {
 			names.restore(target.emulatedPath)
 			content.restore(target.emulatedPath)
 			return@withContext fail(entry, renameFailure(tree, target.displayName))
@@ -128,7 +151,7 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 
 		MediaStorePurge.scan(appContext, contents + target.emulatedPath)
 		val renameWarning = HideWarning.ProviderRenamed(finalName)
-			.takeIf { finalName != SafPaths.hiddenName(name) }
+			.takeIf { finalName != hiddenName }
 		HideResult.Ok(finalEntry, mergeWarnings(protectionWarning, nameWarning, renameWarning))
 	}
 
@@ -265,6 +288,58 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 		}
 		HideResult.Ok(finalEntry, warning)
 	}
+
+	/**
+	 * Renames an already hidden folder into the current style, so changing the setting reaches the
+	 * folders hidden before it changed. One already in that style is left where it is.
+	 */
+	override suspend fun remask(entry: HiddenEntry): HideResult = withContext(Dispatchers.IO) {
+		val original = SafPaths.nameOf(entry.path)
+		val current = SafPaths.nameOf(entry.hiddenPath)
+		val style = nameStyle()
+		if (HiddenNamer.matches(style, original, current)) return@withContext HideResult.Ok(entry)
+
+		val tree = heldTree(entry.treeUri) ?: grantCovering(entry.hiddenPath)
+		if (tree == null && grantable(SafPaths.parentOf(entry.path))) {
+			return@withContext HideResult.NeedsAccess(SafPaths.parentOf(entry.path), entry.displayName)
+		}
+		if (probe(tree, entry.hiddenPath) == DocumentProbe.MISSING) {
+			return@withContext HideResult.Failed(
+				HideFailure.HiddenFolderMissing(entry.displayName, entry.hiddenPath),
+			)
+		}
+		val wanted = freeHiddenName(tree, entry.hiddenPath, original, style)
+		if (wanted == current) return@withContext HideResult.Ok(entry)
+
+		val renamed = renameFolder(tree, entry.hiddenPath, wanted)
+			?: return@withContext HideResult.Failed(HideFailure.RenameFailed(entry.displayName))
+		val moved = entry.copy(hiddenPath = SafPaths.sibling(entry.hiddenPath, renamed.name ?: wanted))
+		if (journal.replace(moved)) return@withContext HideResult.Ok(moved)
+
+		// The record is the only way back to a folder whose name no longer resembles it, so a journal
+		// that will not take the new name means the folder goes back to the old one.
+		if (renameFolder(tree, moved.hiddenPath, current) != null) {
+			HideResult.Failed(HideFailure.JournalUpdateFailed)
+		} else {
+			HideResult.Failed(HideFailure.RollbackFailed(HideFailure.JournalUpdateFailed))
+		}
+	}
+
+	override suspend fun recordedName(hiddenPath: String): String? = names.folderName(hiddenPath)
+
+	/** A name for [original] free in the parent of [path]. Each candidate costs a provider query. */
+	private fun freeHiddenName(tree: Uri?, path: String, original: String, style: HiddenNameStyle = nameStyle(),): String =
+		HiddenNamer.hiddenName(style, original) { candidate ->
+			nameInUse(tree, SafPaths.sibling(path, candidate))
+		}
+
+	/**
+	 * Whether anything already answers to [path]. Not [probe]: ExternalStorageProvider throws for a
+	 * document that is not there, and reading that as occupied ruled out every camouflage name on
+	 * the first device this was tried on.
+	 */
+	private fun nameInUse(tree: Uri?, path: String): Boolean =
+		exists(tree, path) || runCatching { File(path).exists() }.getOrDefault(false)
 
 	override suspend fun health(entry: HiddenEntry): HiddenHealth = withContext(Dispatchers.IO) {
 		val tree = heldTree(entry.treeUri) ?: grantCovering(entry.hiddenPath)
@@ -509,44 +584,12 @@ class DotRenameHider(context: Context, private val journal: Journal, private val
 	}
 
 	/** Files under a folder, so the scanner can be told which paths moved. */
-	private fun childPaths(tree: Uri?, path: String): List<String> = buildList {
+	private fun childPaths(tree: Uri?, path: String): List<String> {
 		if (tree == null) {
-			File(path).walkTopDown().maxDepth(MAX_DEPTH).filter { it.isFile }
-				.take(MAX_CHILDREN).mapTo(this) { it.absolutePath }
-			return@buildList
+			return File(path).walkTopDown().maxDepth(MAX_DEPTH).filter { it.isFile }
+				.take(MAX_CHILDREN).map { it.absolutePath }.toList()
 		}
-		collectChildPaths(tree, path, depth = 0, found = this)
-	}
-
-	private fun collectChildPaths(tree: Uri, path: String, depth: Int, found: MutableList<String>) {
-		if (depth > MAX_DEPTH || found.size >= MAX_CHILDREN) return
-		val id = SafPaths.documentId(paths.emulatedRoot, path) ?: return
-		val children = runCatching {
-			DocumentsContract.buildChildDocumentsUriUsingTree(tree, id)
-		}.getOrNull() ?: return
-
-		runCatching {
-			resolver.query(
-				children,
-				arrayOf(
-					DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-					DocumentsContract.Document.COLUMN_MIME_TYPE,
-				),
-				null,
-				null,
-				null,
-			)?.use { cursor ->
-				while (cursor.moveToNext() && found.size < MAX_CHILDREN) {
-					val name = cursor.getString(0) ?: continue
-					val childPath = "$path/$name"
-					if (cursor.getString(1) == DocumentsContract.Document.MIME_TYPE_DIR) {
-						collectChildPaths(tree, childPath, depth + 1, found)
-					} else {
-						found += childPath
-					}
-				}
-			}
-		}
+		return SafGrants.childPaths(resolver, paths.emulatedRoot, tree, path, MAX_DEPTH, MAX_CHILDREN)
 	}
 
 	private data class Renamed(val name: String?, val uri: Uri?)

@@ -65,8 +65,9 @@ object MediaStorePurge : FolderMediaIndex {
 	 * for paths that do are created, which is both halves of a move in one call.
 	 */
 	override fun scan(context: Context, paths: List<String>) {
-		if (paths.isEmpty()) return
-		MediaScannerConnection.scanFile(context, paths.take(MAX_SCAN).toTypedArray(), null, null)
+		val scannable = paths.filterNot { File(it).name == NO_MEDIA }
+		if (scannable.isEmpty()) return
+		MediaScannerConnection.scanFile(context, scannable.take(MAX_SCAN).toTypedArray(), null, null)
 	}
 
 	/**
@@ -138,6 +139,13 @@ object MediaStorePurge : FolderMediaIndex {
 		path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "/%"
 
 	private fun sqlLiteral(value: String): String = "'" + value.replace("'", "''") + "'"
+
+	/**
+	 * MediaProvider handles a file by this exact name itself, and handing one to the scanner has it
+	 * overwrite the contents with the path of the folder it sits in. A .nomedia the owner wrote is
+	 * theirs, holds no media, and has no row worth refreshing, so it never goes to the scanner.
+	 */
+	private const val NO_MEDIA = ".nomedia"
 
 	private const val MAX_SCAN = 5_000
 }

@@ -31,10 +31,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.melastore.shelf.R
 import io.github.melastore.shelf.data.AutoHideMode
+import io.github.melastore.shelf.data.DecoyType
+import io.github.melastore.shelf.data.EntryMethod
+import io.github.melastore.shelf.data.HiddenNameStyle
 import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.HidingPreference
 import io.github.melastore.shelf.data.SafRecoveryCandidate
 import io.github.melastore.shelf.data.ThemeMode
+import io.github.melastore.shelf.data.worksOnCalculatorKeypad
 import io.github.melastore.shelf.security.CredentialKind
 
 @Composable
@@ -177,8 +181,12 @@ internal fun AuthenticationSettingsSection(
 	onSeedDecoy: () -> Unit,
 	onSetBurnerPin: () -> Unit,
 	onRemoveBurnerPin: () -> Unit,
+	header: Boolean = true,
 ) {
-	SettingsGroup(stringResource(R.string.credentials), stringResource(R.string.credential_kind_summary)) {
+	SettingsGroup(
+		stringResource(R.string.credentials).takeIf { header },
+		stringResource(R.string.credential_kind_summary),
+	) {
 		SettingsRow(
 			title = stringResource(R.string.change_vault_pin),
 			summary = CredentialWords.label(state.credentialKind),
@@ -300,10 +308,83 @@ internal fun AutomaticLockSettingsSection(
 	}
 }
 
+/** The face on the launcher. The tiles are the choice and the preview at once. */
 @Composable
-internal fun AppearanceSettingsSection(state: AppUiState, onThemeMode: (ThemeMode) -> Unit) {
+internal fun DisguiseSettingsSection(
+	state: AppUiState,
+	onDecoy: (DecoyType) -> Unit,
+	onEntryMethod: (EntryMethod) -> Unit,
+) {
 	SettingsGroup(
-		stringResource(R.string.appearance),
+		stringResource(R.string.disguise),
+		stringResource(R.string.disguise_description),
+	) {
+		Row(
+			Modifier.fillMaxWidth().padding(12.dp),
+			horizontalArrangement = Arrangement.spacedBy(12.dp),
+		) {
+			DecoyType.entries.forEach { decoy ->
+				ChoiceTile(
+					label = decoy.label(),
+					selected = state.decoy == decoy,
+					modifier = Modifier.weight(1f),
+					icon = { DecoyBadge(decoy) },
+					onClick = {
+						onDecoy(decoy)
+						val keypadUsable = decoy == DecoyType.CALCULATOR &&
+							state.credentialKind.worksOnCalculatorKeypad()
+						if (keypadUsable) {
+							onEntryMethod(EntryMethod.DIRECT_KEYPAD)
+						} else if (state.entryMethod == EntryMethod.DIRECT_KEYPAD) {
+							onEntryMethod(EntryMethod.DOUBLE_TAP_TITLE)
+						}
+					},
+				)
+			}
+		}
+	}
+}
+
+@Composable
+internal fun EntrySettingsSection(
+	state: AppUiState,
+	onEntryMethod: (EntryMethod) -> Unit,
+	onFakeCrash: (Boolean) -> Unit,
+) {
+	SettingsGroup(
+		stringResource(R.string.access),
+		stringResource(R.string.access_description),
+	) {
+		// The keypad is only on offer when the stored credential can be entered on it.
+		val methods = if (
+			state.decoy == DecoyType.CALCULATOR && state.credentialKind.worksOnCalculatorKeypad()
+		) {
+			EntryMethod.entries
+		} else {
+			EntryMethod.entries.filter { it != EntryMethod.DIRECT_KEYPAD }
+		}
+		methods.forEach { method ->
+			SettingsRow(
+				title = method.title(),
+				summary = method.summary(),
+				trailing = { SelectionMark(state.entryMethod == method) },
+				onClick = { onEntryMethod(method) },
+			)
+		}
+		// Sits with the gesture because it changes what the gesture does, not what it is.
+		SettingsRow(
+			title = stringResource(R.string.fake_crash),
+			summary = stringResource(R.string.fake_crash_summary),
+			trailing = { SelectionMark(state.fakeCrash) },
+			onClick = { onFakeCrash(!state.fakeCrash) },
+		)
+	}
+}
+
+@Composable
+internal fun AppearanceSettingsSection(state: AppUiState, onThemeMode: (ThemeMode) -> Unit, header: Boolean = true,) {
+	SettingsGroup(
+		stringResource(R.string.appearance).takeIf { header },
 		stringResource(R.string.appearance_summary),
 	) {
 		ThemeMode.entries.forEach { mode ->
@@ -321,6 +402,7 @@ internal fun AppearanceSettingsSection(state: AppUiState, onThemeMode: (ThemeMod
 internal fun FolderSettingsSection(
 	state: AppUiState,
 	onHidingPreference: (HidingPreference) -> Unit,
+	onHiddenNameStyle: (HiddenNameStyle) -> Unit,
 	onRequestAllFiles: () -> Unit,
 	onDeepProtectionChange: () -> Unit,
 ) {
@@ -356,6 +438,28 @@ internal fun FolderSettingsSection(
 			}
 		}
 	}
+	// A move or a chmod leaves no name on show, so there is nothing to choose there.
+	if (state.method == HideMethod.DOT_RENAME) {
+		HiddenNameSettingsSection(state, onHiddenNameStyle)
+	}
+}
+
+@Composable
+private fun HiddenNameSettingsSection(state: AppUiState, onHiddenNameStyle: (HiddenNameStyle) -> Unit) {
+	SettingsGroup(
+		stringResource(R.string.hidden_name_title),
+		stringResource(R.string.hidden_name_description),
+	) {
+		HiddenNameStyle.entries.forEach { style ->
+			SettingsRow(
+				title = style.title(),
+				summary = style.summary(),
+				enabled = !state.busy,
+				trailing = { SelectionMark(state.hiddenNameStyle == style) },
+				onClick = { onHiddenNameStyle(style) },
+			)
+		}
+	}
 }
 
 @Composable
@@ -367,9 +471,10 @@ internal fun RecoverySettingsSection(
 	onFindRenamed: () -> Unit,
 	onCandidate: (SafRecoveryCandidate) -> Unit,
 	onForceUnhide: () -> Unit,
+	header: Boolean = true,
 ) {
 	SettingsGroup(
-		stringResource(R.string.recovery),
+		stringResource(R.string.recovery).takeIf { header },
 		stringResource(R.string.recovery_description),
 	) {
 		SettingsRow(

@@ -120,6 +120,14 @@
 	<string name="failed_attempts_multiple">%1$d wrong credentials were entered, most recently on %2$s.</string>
 
 	<!-- Operation results -->
+	<string name="cannot_hide_title">Could not hide folder</string>
+	<string name="cannot_hide_multiple_title">Could not hide folders</string>
+	<string name="cannot_restore_title">Could not unhide folder</string>
+	<string name="cannot_restore_multiple_title">Could not unhide folders</string>
+	<string name="cannot_rename_hidden_title">Could not rename a hidden folder</string>
+	<string name="cannot_rename_hidden_multiple_title">Could not rename hidden folders</string>
+	<string name="turn_on_all_files">Turn on all-files access</string>
+	<string name="close">Close</string>
 	<string name="message_joined">%1$s %2$s</string>
 	<string name="error_method_unavailable">The selected hiding method is not available on this device.</string>
 	<string name="error_method_cannot_restore">This version of Shelf cannot reverse the recorded hiding method.</string>
@@ -195,6 +203,7 @@
 	<string name="folder_hidden_named">Hidden %1$s.</string>
 	<string name="folder_restored_named">Restored %1$s.</string>
 	<string name="bulk_hidden">Hid %1$s.</string>
+	<string name="hidden_names_changed">Renamed %1$s.</string>
 	<string name="bulk_restored">Unhid %1$s.</string>
 	<string name="duress_used_once">Your second PIN was used on %1$s.</string>
 	<string name="duress_used_multiple">Your second PIN was used %1$d times, most recently on %2$s.</string>
@@ -251,6 +260,7 @@
 	<string name="error_content_credential_required">This folder has protected file headers. Close the private space and unlock with your primary PIN to restore it.</string>
 	<string name="error_content_credential_incorrect">The current primary PIN cannot restore these protected files.</string>
 	<string name="error_content_restore_failed">Could not restore %1$d protected file headers. The folder remains hidden.</string>
+	<string name="warning_folder_name_visible">Android will not let Shelf rename this folder, so its contents were hidden where they are. The folder name is still visible.</string>
 	<string name="warning_content_protection_unavailable">The folder was hidden, but its file headers could not be protected with the current storage access.</string>
 	<string name="error_name_protection_failed">Could not protect %1$d filenames, so the folder was left where it was.</string>
 	<string name="error_name_restore_failed">Could not restore %1$d protected filenames. The folder remains hidden.</string>
@@ -276,6 +286,9 @@
 	<string name="health_rename_restored">The folder is already back under its original name.</string>
 	<string name="health_rename_missing">Neither hidden nor original name was found.</string>
 	<string name="health_saf_unverified">The document provider could not verify it.</string>
+	<string name="health_in_place_intact">Contents hidden, folder name still visible</string>
+	<string name="health_in_place_restored">Contents are back in the open.</string>
+	<string name="health_in_place_missing">The folder is gone.</string>
 	<string name="health_not_supported">This hiding method does not provide a health check.</string>
 
 	<!-- Settings -->
@@ -322,6 +335,13 @@
 	<string name="allow_screenshots_summary">Turn this on to photograph the folder list. It also lets screen recorders see the private space, so it switches itself off again when the space closes.</string>
 	<string name="hide_from_recents">Hide from recents</string>
 	<string name="hide_from_recents_summary">Keep this app out of the recent apps list, and stop the system holding a picture of it.</string>
+	<string name="category_disguise">Disguise and entry</string>
+	<string name="category_locking">Locking and panic</string>
+	<string name="category_hiding">Hiding folders</string>
+	<string name="category_recovery_status">Export, import, health checks, force unhide</string>
+	<string name="status_biometric">Biometric</string>
+	<string name="status_second_pin">Second PIN</string>
+	<string name="status_flip_to_lock">Flip to lock</string>
 	<string name="appearance">Appearance</string>
 	<string name="appearance_summary">Each disguise keeps its own colours. This decides whether they are painted light or dark.</string>
 	<string name="theme_system">Follow system</string>
@@ -352,8 +372,17 @@
 	<string name="all_files_mode">Private move</string>
 	<string name="all_files_available">Recommended without root. Moves folders under random names in hidden storage.</string>
 	<string name="all_files_unavailable">Tap to grant Android\'s all-files access, which this method needs.</string>
+	<string name="in_place_mode">Contents only</string>
 	<string name="saf_mode">Folder rename</string>
-	<string name="saf_mode_summary">Adds a leading dot, randomizes file names, and protects headers after primary-PIN unlock. Hidden-file browsers may still list the folder.</string>
+	<string name="saf_mode_summary">Adds a leading dot, randomizes file names, and protects headers after primary-PIN unlock. Hidden-file browsers still list the folder, under the name chosen below.</string>
+	<string name="hidden_name_title">Hidden folder name</string>
+	<string name="hidden_name_description">What the folder is called while it is hidden. Changing this renames the folders already hidden.</string>
+	<string name="hidden_name_keep">Keep the real name</string>
+	<string name="hidden_name_keep_summary">\".Holiday\". Easy to find again yourself, and just as easy for anyone browsing hidden files.</string>
+	<string name="hidden_name_camouflage">Look like app data</string>
+	<string name="hidden_name_camouflage_summary">\".meta\", \".index\". Reads as bookkeeping some app left behind. Avoids the cache names cleaner apps delete.</string>
+	<string name="hidden_name_random">Random characters</string>
+	<string name="hidden_name_random_summary">\".7f3ac9e2\". Gives nothing away, though it does look deliberate.</string>
 	<string name="grant_all_files">Open all-files access settings</string>
 	<string name="recovery">Recovery</string>
 	<string name="recovery_description">For when a single restore keeps failing, or Shelf was reinstalled.</string>

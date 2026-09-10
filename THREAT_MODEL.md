@@ -80,7 +80,11 @@ attacker who can modify the operating system.
 Root `chmod` is the strongest folder-hiding method. The all-files method moves a
 folder under random names inside `/storage/emulated/<user>/.shelf`; it survives
 uninstall but remains discoverable to other apps with all-files access. The SAF
-fallback adds a leading dot and is therefore concealment, not access control.
+fallback adds a leading dot and is therefore concealment, not access control. By
+default the renamed folder also takes a name that carries nothing of the
+original, so a file manager listing hidden files shows a folder that reads as
+another app's data; the name is a setting, and keeping the real one is a
+deliberate choice.
 After a primary-PIN hide, all three methods also encrypt each non-empty file's
 leading 64 KiB with authenticated recovery data appended first. They replace
 file names with random identifiers and keep the original relative names in an

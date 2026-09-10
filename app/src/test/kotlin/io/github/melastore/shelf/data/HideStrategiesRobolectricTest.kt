@@ -155,10 +155,11 @@ class HideStrategiesRobolectricTest {
 
 		assertTrue("must not ask for the root grant", result !is HideResult.NeedsAccess)
 		assertTrue(result is HideResult.Ok)
-		assertTrue(File(paths.emulatedRoot, ".Newpipe").isDirectory)
 		assertTrue(!source.exists())
 
 		val entry = journal.read().single()
+		assertEquals(paths.emulatedRoot, File(entry.hiddenPath).parent)
+		assertTrue(File(entry.hiddenPath).isDirectory)
 		hider.restore(entry)
 		assertTrue(source.isDirectory)
 		assertTrue(journal.read().isEmpty())
@@ -176,7 +177,10 @@ class HideStrategiesRobolectricTest {
 		val result = hider.hide(FolderTarget(source.path, "Clips", null))
 
 		assertTrue("must not ask for the Download grant", result !is HideResult.NeedsAccess)
-		assertTrue(File(paths.emulatedRoot, "Download/.Clips").isDirectory)
+		assertTrue(!source.exists())
+		val hidden = File(journal.read().single().hiddenPath)
+		assertEquals(File(paths.emulatedRoot, "Download").path, hidden.parent)
+		assertTrue(hidden.isDirectory)
 	}
 
 	@Test
@@ -206,6 +210,66 @@ class HideStrategiesRobolectricTest {
 	 * that never happened.
 	 */
 	@Test
+	fun `dot rename hides under a name that gives the folder away and restores from it`() = runBlocking {
+		ContentCredential.set("48261357".toCharArray())
+		val paths = testPaths(FakeRoot())
+		val journal = Journal(File(temporaryFolder.root, "masked-journal.json"))
+		val source = File(paths.emulatedRoot, "Download/Holiday").apply { mkdirs() }
+		File(source, "clip.mp4").writeText("x")
+		val hider = DotRenameHider(context, journal, paths, nameStyle = { HiddenNameStyle.CAMOUFLAGE })
+
+		val result = hider.hide(FolderTarget(source.path, "Holiday", null))
+
+		assertTrue(result is HideResult.Ok)
+		val entry = journal.read().single()
+		val hiddenName = File(entry.hiddenPath).name
+		assertTrue("Hidden name must start with a dot", hiddenName.startsWith("."))
+		assertTrue("Hidden name must not carry the folder name", !hiddenName.contains("Holiday"))
+		assertTrue(HiddenNamer.matches(HiddenNameStyle.CAMOUFLAGE, "Holiday", hiddenName))
+		assertTrue(File(entry.hiddenPath).isDirectory)
+		assertTrue(!source.exists())
+
+		assertTrue(hider.restore(entry) is HideResult.Ok)
+		assertTrue("The folder comes back under its own name", source.isDirectory)
+		assertEquals("x", File(source, "clip.mp4").readText())
+		assertTrue(journal.read().isEmpty())
+	}
+
+	@Test
+	fun `changing the style renames what is already hidden, and only once`() = runBlocking {
+		ContentCredential.set("48261357".toCharArray())
+		val paths = testPaths(FakeRoot())
+		val journal = Journal(File(temporaryFolder.root, "remask-journal.json"))
+		val source = File(paths.emulatedRoot, "Download/Holiday").apply { mkdirs() }
+		File(source, "clip.mp4").writeText("x")
+		var style = HiddenNameStyle.KEEP
+		val hider = DotRenameHider(context, journal, paths, nameStyle = { style })
+
+		assertTrue(hider.hide(FolderTarget(source.path, "Holiday", null)) is HideResult.Ok)
+		val dotted = journal.read().single()
+		assertEquals(File(paths.emulatedRoot, "Download/.Holiday").path, dotted.hiddenPath)
+
+		style = HiddenNameStyle.RANDOM
+		val masked = hider.remask(dotted)
+		assertTrue(masked is HideResult.Ok)
+		val maskedEntry = (masked as HideResult.Ok).entry
+		assertEquals(maskedEntry, journal.read().single())
+		assertTrue(File(maskedEntry.hiddenPath).isDirectory)
+		assertTrue(!File(dotted.hiddenPath).exists())
+		assertTrue(HiddenNamer.matches(HiddenNameStyle.RANDOM, "Holiday", File(maskedEntry.hiddenPath).name))
+
+		// Already in the chosen style, so nothing moves and the record stays as it is.
+		assertEquals(HideResult.Ok(maskedEntry), hider.remask(maskedEntry))
+
+		style = HiddenNameStyle.KEEP
+		val back = hider.remask(maskedEntry)
+		assertTrue(back is HideResult.Ok)
+		assertEquals(dotted.hiddenPath, (back as HideResult.Ok).entry.hiddenPath)
+		assertTrue(hider.restore(back.entry) is HideResult.Ok)
+		assertTrue(source.isDirectory)
+	}
+
+	@Test
 	fun `private move refuses a folder the mount will not show it`() = runBlocking {
 		val paths = testPaths(FakeRoot())
 		// Present and empty to File, while the index reports what is really in there.
@@ -224,6 +288,115 @@ class HideStrategiesRobolectricTest {
 		assertTrue(result is HideResult.Failed)
 		assertTrue(journal.read().isEmpty())
 		assertTrue("nothing may be left behind", File(paths.emulatedRoot, ".shelf").listFiles().isNullOrEmpty())
+	}
+
+	@Test
+	fun `dot rename blocker identifies top-level folders and ungrantable parents`() = runBlocking {
+		val paths = testPaths(FakeRoot())
+		val journal = Journal(File(temporaryFolder.root, "dot-journal.json"))
+		val hider = DotRenameHider(context, journal, paths, writableThroughMount = { false })
+
+		assertEquals(
+			HideFailure.ParentNotGrantable("11"),
+			hider.blocker("${paths.emulatedRoot}/11"),
+		)
+		assertEquals(
+			HideFailure.ParentNotGrantable("receipts"),
+			hider.blocker("${paths.emulatedRoot}/Download/receipts"),
+		)
+		assertEquals(
+			null,
+			hider.blocker("${paths.emulatedRoot}/Custom/nested"),
+		)
+	}
+
+	// The grant is not the only way in. A parent the app can write is renamed through the mount, and
+	// a folder under one used to be reported unhideable even though hiding it worked.
+	@Test
+	fun `dot rename blocker clears a folder the mount can rename`() = runBlocking {
+		val paths = testPaths(FakeRoot())
+		val journal = Journal(File(temporaryFolder.root, "dot-writable-journal.json"))
+		val hider = DotRenameHider(context, journal, paths, writableThroughMount = { true })
+
+		assertEquals(null, hider.blocker("${paths.emulatedRoot}/11"))
+		assertEquals(null, hider.blocker("${paths.emulatedRoot}/Download/receipts"))
+	}
+
+	@Test
+	fun `in place hider asks for a grant on the folder itself`() = runBlocking {
+		ContentCredential.set("48261357".toCharArray())
+		val paths = testPaths(FakeRoot())
+		val journal = Journal(File(temporaryFolder.root, "inplace-journal.json"))
+		val target = "${paths.emulatedRoot}/11"
+		File(target).mkdirs()
+		val hider = InPlaceHider(context, journal, paths)
+
+		val result = hider.hide(FolderTarget(target, "11", null))
+
+		// The folder, not its parent: a rename is what needs the parent, and this renames nothing.
+		assertEquals(HideResult.NeedsAccess(target, "11"), result)
+		assertTrue("nothing may be journalled before the grant", journal.read().isEmpty())
+	}
+
+	@Test
+	fun `in place hider never reports a block, since the picker can still grant the folder`() = runBlocking {
+		val paths = testPaths(FakeRoot())
+		val journal = Journal(File(temporaryFolder.root, "inplace-blocker-journal.json"))
+		val hider = InPlaceHider(context, journal, paths)
+
+		assertEquals(null, hider.blocker("${paths.emulatedRoot}/11"))
+		assertEquals(null, hider.blocker("${paths.emulatedRoot}/Download/receipts"))
+	}
+
+	@Test
+	fun `a folder the chosen method cannot reach falls to the in-place strategy`() = runBlocking {
+		val paths = testPaths(FakeRoot())
+		val reached = mutableListOf<HideMethod>()
+		val entry = HiddenEntry(path = "${paths.emulatedRoot}/11", displayName = "11", hiddenAt = 1L)
+		fun strategy(hideMethod: HideMethod, blocked: Boolean) = object : HideStrategy {
+			override val method = hideMethod
+			override suspend fun isAvailable() = true
+			override suspend fun hide(target: FolderTarget): HideResult {
+				reached += hideMethod
+				return HideResult.Ok(entry)
+			}
+
+			override suspend fun restore(entry: HiddenEntry) = HideResult.Ok(entry)
+			override suspend fun blocker(path: String) = if (blocked) HideFailure.ParentNotGrantable("11") else null
+		}
+		val hider = FolderHider(
+			listOf(
+				strategy(HideMethod.DOT_RENAME, blocked = true),
+				strategy(HideMethod.IN_PLACE, blocked = false),
+			),
+		)
+
+		hider.hide(FolderTarget("${paths.emulatedRoot}/11", "11", null), HidingPreference.AUTO)
+
+		assertEquals(listOf(HideMethod.IN_PLACE), reached)
+	}
+
+	@Test
+	fun `a folder the chosen method can reach never touches the fallback`() = runBlocking {
+		val paths = testPaths(FakeRoot())
+		val reached = mutableListOf<HideMethod>()
+		val entry = HiddenEntry(path = "${paths.emulatedRoot}/Pictures/album", displayName = "album", hiddenAt = 1L)
+		fun strategy(hideMethod: HideMethod) = object : HideStrategy {
+			override val method = hideMethod
+			override suspend fun isAvailable() = true
+			override suspend fun hide(target: FolderTarget): HideResult {
+				reached += hideMethod
+				return HideResult.Ok(entry)
+			}
+
+			override suspend fun restore(entry: HiddenEntry) = HideResult.Ok(entry)
+			override suspend fun blocker(path: String): HideFailure? = null
+		}
+		val hider = FolderHider(listOf(strategy(HideMethod.DOT_RENAME), strategy(HideMethod.IN_PLACE)))
+
+		hider.hide(FolderTarget(entry.path, "album", null), HidingPreference.AUTO)
+
+		assertEquals(listOf(HideMethod.DOT_RENAME), reached)
 	}
 
 	private fun testPaths(root: RootCommandRunner): StoragePaths {

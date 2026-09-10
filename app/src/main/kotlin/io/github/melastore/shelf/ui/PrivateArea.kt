@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -22,8 +23,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -74,6 +77,7 @@ import io.github.melastore.shelf.data.AutoHideMode
 import io.github.melastore.shelf.data.DecoyItem
 import io.github.melastore.shelf.data.DecoyType
 import io.github.melastore.shelf.data.EntryMethod
+import io.github.melastore.shelf.data.HiddenNameStyle
 import io.github.melastore.shelf.data.HidingPreference
 import io.github.melastore.shelf.data.SafRecoveryCandidate
 import io.github.melastore.shelf.data.ThemeMode
@@ -159,6 +163,7 @@ fun PrivateArea(
 			onHideFromRecents = viewModel::setHideFromRecents,
 			onThemeMode = viewModel::setThemeMode,
 			onHidingPreference = viewModel::setHidingPreference,
+			onHiddenNameStyle = viewModel::setHiddenNameStyle,
 			onChangeCredential = viewModel::changeVaultCredential,
 			onSetDecoyCredential = viewModel::setDecoyCredential,
 			onClearDecoyPin = viewModel::clearDecoyPin,
@@ -175,6 +180,7 @@ fun PrivateArea(
 			onForceUnhide = viewModel::forceUnhideAll,
 			onCheckHealth = viewModel::checkHiddenItems,
 			onRecoverCandidate = viewModel::recoverRenamedFolder,
+			onRecordedName = viewModel::recordedFolderName,
 			onExportRecovery = {
 				viewModel.expectExternalPicker()
 				createRecovery.launch("shelf-recovery.shelfrecovery")
@@ -216,6 +222,19 @@ fun PrivateArea(
 				importUri = null
 			},
 			onDismiss = { importUri = null },
+		)
+	}
+
+	state.blocked?.let { blocked ->
+		BlockedDialog(
+			report = blocked,
+			canRequestAllFiles = state.canRequestAllFiles,
+			onRequestAllFiles = {
+				viewModel.dismissBlocked()
+				viewModel.expectExternalPicker()
+				requestAllFiles.launch(allFilesAccessSettings(context.packageName))
+			},
+			onDismiss = viewModel::dismissBlocked,
 		)
 	}
 }
@@ -302,6 +321,7 @@ private fun VaultScreen(
 						key = folder.path,
 						title = folder.displayName,
 						subtitle = folder.health?.let { stringResource(it.detail.stringResource) }
+							?: folder.blocker?.toUiMessage()?.resolve(resources)
 							?: stringResource(
 								if (folder.hidden) {
 									R.string.folder_status_hidden
@@ -666,6 +686,7 @@ private fun SettingsScreen(
 	onHideFromRecents: (Boolean) -> Unit,
 	onThemeMode: (ThemeMode) -> Unit,
 	onHidingPreference: (HidingPreference) -> Unit,
+	onHiddenNameStyle: (HiddenNameStyle) -> Unit,
 	onChangeCredential: (CredentialKind, CharArray, CharArray) -> Unit,
 	onSetDecoyCredential: (CharArray, CharArray) -> Unit,
 	onClearDecoyPin: (CharArray) -> Unit,
@@ -683,6 +704,7 @@ private fun SettingsScreen(
 	onCheckHealth: () -> Unit,
 	onFindRenamed: () -> Unit,
 	onRecoverCandidate: (SafRecoveryCandidate, String) -> Unit,
+	onRecordedName: suspend (SafRecoveryCandidate) -> String?,
 	onExportRecovery: () -> Unit,
 	onImportRecovery: () -> Unit,
 	onRequestAllFiles: () -> Unit,
@@ -700,6 +722,10 @@ private fun SettingsScreen(
 	var removeBurnerPin by remember { mutableStateOf(false) }
 	var confirmForce by remember { mutableStateOf(false) }
 	var recoveryCandidate by remember { mutableStateOf<SafRecoveryCandidate?>(null) }
+	// Which page is open, or the hub. Registered after the handler that closes settings, so back
+	// leaves the page before it leaves the screen.
+	var category by remember { mutableStateOf<SettingsCategory?>(null) }
+	BackHandler(enabled = category != null) { category = null }
 
 	// A confirmed credential waits here for the second half of a two-step change. Leaving the screen
 	// (back press, screen off, automatic lock) abandons the dialog that would have cleared it, so the
@@ -716,15 +742,10 @@ private fun SettingsScreen(
 		containerColor = MaterialTheme.colorScheme.background,
 		topBar = {
 			TopAppBar(
-				title = { Text(stringResource(R.string.settings)) },
+				title = { Text(category?.title() ?: stringResource(R.string.settings)) },
 				navigationIcon = {
-					IconButton(onClick = onBack) {
+					IconButton(onClick = { if (category != null) category = null else onBack() }) {
 						Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))
-					}
-				},
-				actions = {
-					TextButton(onClick = { showStealthGuide = true }) {
-						Text(stringResource(R.string.stealth_guide_button))
 					}
 				},
 				colors = TopAppBarDefaults.topAppBarColors(
@@ -737,125 +758,76 @@ private fun SettingsScreen(
 			Modifier.padding(padding).fillMaxSize(),
 			contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 40.dp),
 		) {
-			item {
-				StealthGuideCard(onClick = { showStealthGuide = true })
-			}
-
-			item {
-				SettingsGroup(
-					stringResource(R.string.disguise),
-					stringResource(R.string.disguise_description),
-				) {
-					Row(
-						Modifier.fillMaxWidth().padding(12.dp),
-						horizontalArrangement = Arrangement.spacedBy(12.dp),
-					) {
-						DecoyType.entries.forEach { decoy ->
-							ChoiceTile(
-								label = decoy.label(),
-								selected = state.decoy == decoy,
-								modifier = Modifier.weight(1f),
-								icon = { DecoyBadge(decoy) },
-								onClick = {
-									onDecoy(decoy)
-									val keypadUsable = decoy == DecoyType.CALCULATOR &&
-										state.credentialKind.worksOnCalculatorKeypad()
-									if (keypadUsable) {
-										onEntryMethod(EntryMethod.DIRECT_KEYPAD)
-									} else if (state.entryMethod == EntryMethod.DIRECT_KEYPAD) {
-										onEntryMethod(EntryMethod.DOUBLE_TAP_TITLE)
-									}
-								},
-							)
-						}
-					}
+			when (category) {
+				null -> {
+					item { StealthGuideCard(onClick = { showStealthGuide = true }) }
+					item { SettingsHome(state) { category = it } }
 				}
-			}
 
-			item {
-				SettingsGroup(
-					stringResource(R.string.access),
-					stringResource(R.string.access_description),
-				) {
-					// The keypad is only on offer when the stored credential can be entered on it.
-					val methods = if (
-						state.decoy == DecoyType.CALCULATOR && state.credentialKind.worksOnCalculatorKeypad()
-					) {
-						EntryMethod.entries
-					} else {
-						EntryMethod.entries.filter { it != EntryMethod.DIRECT_KEYPAD }
-					}
-					methods.forEach { method ->
-						SettingsRow(
-							title = method.title(),
-							summary = method.summary(),
-							trailing = { SelectionMark(state.entryMethod == method) },
-							onClick = { onEntryMethod(method) },
-						)
-					}
-					// Sits with the gesture because it changes what the gesture does, not what it is.
-					SettingsRow(
-						title = stringResource(R.string.fake_crash),
-						summary = stringResource(R.string.fake_crash_summary),
-						trailing = { SelectionMark(state.fakeCrash) },
-						onClick = { onFakeCrash(!state.fakeCrash) },
+				SettingsCategory.DISGUISE -> {
+					item { DisguiseSettingsSection(state, onDecoy, onEntryMethod) }
+					item { EntrySettingsSection(state, onEntryMethod, onFakeCrash) }
+				}
+
+				SettingsCategory.CREDENTIALS -> item {
+					AuthenticationSettingsSection(
+						state = state,
+						onChangePin = {
+							changingTo = null
+							askCurrent = true
+						},
+						onCredentialKind = { kind ->
+							changingTo = kind
+							askCurrent = true
+						},
+						onBiometricChange = { onBiometricChange(!state.biometricEnabled) },
+						onSetDecoyPin = { decoyAction = DecoyPinAction.SET },
+						onRemoveDecoyPin = { removeDecoyPin = true },
+						onSeedDecoy = onSeedDecoy,
+						onSetBurnerPin = { burnerAction = DecoyPinAction.SET },
+						onRemoveBurnerPin = { removeBurnerPin = true },
+						header = false,
 					)
 				}
-			}
 
-			item {
-				AuthenticationSettingsSection(
-					state = state,
-					onChangePin = {
-						changingTo = null
-						askCurrent = true
-					},
-					onCredentialKind = { kind ->
-						changingTo = kind
-						askCurrent = true
-					},
-					onBiometricChange = { onBiometricChange(!state.biometricEnabled) },
-					onSetDecoyPin = { decoyAction = DecoyPinAction.SET },
-					onRemoveDecoyPin = { removeDecoyPin = true },
-					onSeedDecoy = onSeedDecoy,
-					onSetBurnerPin = { burnerAction = DecoyPinAction.SET },
-					onRemoveBurnerPin = { removeBurnerPin = true },
-				)
-			}
+				SettingsCategory.LOCKING -> item {
+					AutomaticLockSettingsSection(
+						state = state,
+						onQuickLockChange = { onQuickLockChange(!state.quickLockNotification) },
+						onAutoHideMode = onAutoHideMode,
+						onFlipToHideChange = { onFlipToHideChange(!state.flipToHide) },
+						onUsbPanicChange = { onUsbPanicChange(!state.usbPanic) },
+						onAllowScreenshotsChange = { onAllowScreenshotsChange(!state.allowScreenshots) },
+						onHideFromRecentsChange = { onHideFromRecents(!state.hideFromRecents) },
+					)
+				}
 
-			item {
-				AutomaticLockSettingsSection(
-					state = state,
-					onQuickLockChange = { onQuickLockChange(!state.quickLockNotification) },
-					onAutoHideMode = onAutoHideMode,
-					onFlipToHideChange = { onFlipToHideChange(!state.flipToHide) },
-					onUsbPanicChange = { onUsbPanicChange(!state.usbPanic) },
-					onAllowScreenshotsChange = { onAllowScreenshotsChange(!state.allowScreenshots) },
-					onHideFromRecentsChange = { onHideFromRecents(!state.hideFromRecents) },
-				)
-			}
+				SettingsCategory.HIDING -> item {
+					FolderSettingsSection(
+						state,
+						onHidingPreference,
+						onHiddenNameStyle,
+						onRequestAllFiles,
+						onDeepProtectionChange = { onDeepProtectionChange(!state.deepProtection) },
+					)
+				}
 
-			item { AppearanceSettingsSection(state, onThemeMode) }
+				SettingsCategory.APPEARANCE -> item {
+					AppearanceSettingsSection(state, onThemeMode, header = false)
+				}
 
-			item {
-				FolderSettingsSection(
-					state,
-					onHidingPreference,
-					onRequestAllFiles,
-					onDeepProtectionChange = { onDeepProtectionChange(!state.deepProtection) },
-				)
-			}
-
-			item {
-				RecoverySettingsSection(
-					state = state,
-					onExportRecovery = onExportRecovery,
-					onImportRecovery = onImportRecovery,
-					onCheckHealth = onCheckHealth,
-					onFindRenamed = onFindRenamed,
-					onCandidate = { recoveryCandidate = it },
-					onForceUnhide = { confirmForce = true },
-				)
+				SettingsCategory.RECOVERY -> item {
+					RecoverySettingsSection(
+						state = state,
+						onExportRecovery = onExportRecovery,
+						onImportRecovery = onImportRecovery,
+						onCheckHealth = onCheckHealth,
+						onFindRenamed = onFindRenamed,
+						onCandidate = { recoveryCandidate = it },
+						onForceUnhide = { confirmForce = true },
+						header = false,
+					)
+				}
 			}
 		}
 	}
@@ -1021,6 +993,7 @@ private fun SettingsScreen(
 	recoveryCandidate?.let { candidate ->
 		RecoverRenamedDialog(
 			candidate = candidate,
+			onRecordedName = onRecordedName,
 			onConfirm = { name ->
 				onRecoverCandidate(candidate, name)
 				recoveryCandidate = null
@@ -1068,9 +1041,24 @@ internal fun <T> ChoiceRow(title: String, selected: String, options: List<Pair<T
 	}
 }
 
+/**
+ * Asks what to call a folder found under a name that is not its own. A masked name suggests nothing,
+ * so the name recorded inside the folder is read in the background and fills the field in, unless
+ * the owner has typed something of their own.
+ */
 @Composable
-private fun RecoverRenamedDialog(candidate: SafRecoveryCandidate, onConfirm: (String) -> Unit, onDismiss: () -> Unit,) {
+private fun RecoverRenamedDialog(
+	candidate: SafRecoveryCandidate,
+	onRecordedName: suspend (SafRecoveryCandidate) -> String?,
+	onConfirm: (String) -> Unit,
+	onDismiss: () -> Unit,
+) {
 	var name by remember(candidate) { mutableStateOf(candidate.suggestedName) }
+	var edited by remember(candidate) { mutableStateOf(false) }
+	LaunchedEffect(candidate) {
+		val recorded = onRecordedName(candidate)
+		if (recorded != null && !edited) name = recorded
+	}
 	AlertDialog(
 		onDismissRequest = onDismiss,
 		title = { Text(stringResource(R.string.recover_renamed_folder)) },
@@ -1080,7 +1068,10 @@ private fun RecoverRenamedDialog(candidate: SafRecoveryCandidate, onConfirm: (St
 				Spacer(Modifier.height(12.dp))
 				OutlinedTextField(
 					value = name,
-					onValueChange = { name = it },
+					onValueChange = {
+						edited = true
+						name = it
+					},
 					label = { Text(stringResource(R.string.restored_folder_name)) },
 					singleLine = true,
 				)
@@ -1158,3 +1149,53 @@ private fun allFilesAccessSettings(packageName: String): Intent = Intent(
 	Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
 	Uri.fromParts("package", packageName, null),
 )
+
+@Composable
+private fun BlockedDialog(
+	report: BlockedReport,
+	canRequestAllFiles: Boolean,
+	onRequestAllFiles: () -> Unit,
+	onDismiss: () -> Unit,
+) {
+	val resources = LocalResources.current
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text(report.title.resolve(resources)) },
+		text = {
+			Column(
+				modifier = Modifier.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(8.dp),
+			) {
+				report.problems.forEach { problem ->
+					Text(
+						stringResource(
+							R.string.named_failure,
+							problem.name,
+							problem.reason.resolve(resources),
+						),
+					)
+				}
+			}
+		},
+		confirmButton = {
+			if (report.needsAllFiles && canRequestAllFiles) {
+				TextButton(onClick = onRequestAllFiles) {
+					Text(stringResource(R.string.turn_on_all_files))
+				}
+			} else {
+				TextButton(onClick = onDismiss) {
+					Text(stringResource(R.string.close))
+				}
+			}
+		},
+		dismissButton = if (report.needsAllFiles && canRequestAllFiles) {
+			{
+				TextButton(onClick = onDismiss) {
+					Text(stringResource(R.string.close))
+				}
+			}
+		} else {
+			null
+		},
+	)
+}

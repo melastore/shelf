@@ -15,6 +15,7 @@ import io.github.melastore.shelf.R
 import io.github.melastore.shelf.data.AutoHideMode
 import io.github.melastore.shelf.data.DecoyType
 import io.github.melastore.shelf.data.EntryMethod
+import io.github.melastore.shelf.data.HiddenNameStyle
 import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.HidingPreference
 import io.github.melastore.shelf.data.ThemeMode
@@ -72,6 +73,7 @@ internal fun HideMethod?.label(): String = stringResource(
 		HideMethod.ROOT_CHMOD -> R.string.root_mode
 		HideMethod.PRIVATE_MOVE -> R.string.all_files_mode
 		HideMethod.DOT_RENAME -> R.string.saf_mode
+		HideMethod.IN_PLACE -> R.string.in_place_mode
 		null -> R.string.method_unavailable
 	},
 )
@@ -99,6 +101,24 @@ internal fun HidingPreference.summary(available: Set<HideMethod>): String = stri
 			if (HideMethod.PRIVATE_MOVE in available) R.string.all_files_available else R.string.all_files_unavailable
 
 		HidingPreference.SAF -> R.string.saf_mode_summary
+	},
+)
+
+@Composable
+internal fun HiddenNameStyle.title(): String = stringResource(
+	when (this) {
+		HiddenNameStyle.KEEP -> R.string.hidden_name_keep
+		HiddenNameStyle.CAMOUFLAGE -> R.string.hidden_name_camouflage
+		HiddenNameStyle.RANDOM -> R.string.hidden_name_random
+	},
+)
+
+@Composable
+internal fun HiddenNameStyle.summary(): String = stringResource(
+	when (this) {
+		HiddenNameStyle.KEEP -> R.string.hidden_name_keep_summary
+		HiddenNameStyle.CAMOUFLAGE -> R.string.hidden_name_camouflage_summary
+		HiddenNameStyle.RANDOM -> R.string.hidden_name_random_summary
 	},
 )
 

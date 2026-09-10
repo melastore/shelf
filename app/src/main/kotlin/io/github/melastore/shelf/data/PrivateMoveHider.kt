@@ -25,7 +25,9 @@ class PrivateMoveHider(
 	context: Context,
 	private val journal: Journal,
 	private val paths: StoragePaths,
-	private val allFilesAvailable: () -> Boolean = Environment::isExternalStorageManager,
+	private val allFilesAvailable: () -> Boolean = {
+		runCatching { Environment.isExternalStorageManager() }.getOrDefault(false)
+	},
 	private val mediaIndex: FolderMediaIndex = MediaStorePurge,
 ) : HideStrategy {
 
@@ -35,7 +37,7 @@ class PrivateMoveHider(
 
 	override val method = HideMethod.PRIVATE_MOVE
 
-	override suspend fun isAvailable(): Boolean = allFilesAvailable()
+	override suspend fun isAvailable(): Boolean = runCatching { allFilesAvailable() }.getOrDefault(false)
 
 	/**
 	 * The vault lives in shared storage so uninstalling Shelf cannot delete the user's folders.

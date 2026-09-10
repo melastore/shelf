@@ -386,14 +386,19 @@ fun EmptyState(title: String, body: String, modifier: Modifier = Modifier) {
 
 /** Groups rows into one rounded block, the way the system settings screens read. */
 @Composable
-fun SettingsGroup(title: String, summary: String? = null, content: @Composable () -> Unit) {
+fun SettingsGroup(title: String?, summary: String? = null, content: @Composable () -> Unit) {
 	Column(Modifier.fillMaxWidth()) {
-		Text(
-			title.uppercase(),
-			modifier = Modifier.padding(start = 8.dp, top = 20.dp, bottom = 6.dp),
-			style = MaterialTheme.typography.labelMedium,
-			color = MaterialTheme.colorScheme.primary,
-		)
+		// No title where the page is already named after the group.
+		if (title != null) {
+			Text(
+				title.uppercase(),
+				modifier = Modifier.padding(start = 8.dp, top = 20.dp, bottom = 6.dp),
+				style = MaterialTheme.typography.labelMedium,
+				color = MaterialTheme.colorScheme.primary,
+			)
+		} else {
+			Spacer(Modifier.height(20.dp))
+		}
 		if (summary != null) {
 			Text(
 				summary,

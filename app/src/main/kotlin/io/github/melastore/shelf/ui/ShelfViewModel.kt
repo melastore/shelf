@@ -29,6 +29,7 @@ import io.github.melastore.shelf.data.HabitStore
 import io.github.melastore.shelf.data.HiddenEntry
 import io.github.melastore.shelf.data.HiddenHealth
 import io.github.melastore.shelf.data.HiddenHealthStatus
+import io.github.melastore.shelf.data.HiddenNameStyle
 import io.github.melastore.shelf.data.HideFailure
 import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.HideResult
@@ -81,8 +82,15 @@ data class VaultFolder(
 	val displayName: String,
 	val entry: HiddenEntry?,
 	val health: HiddenHealth? = null,
+	val blocker: HideFailure? = null,
 ) {
 	val hidden: Boolean get() = entry != null
+}
+
+data class FolderProblem(val name: String, val reason: UiMessage, val needsAllFiles: Boolean = false,)
+
+data class BlockedReport(val title: UiMessage, val problems: List<FolderProblem>,) {
+	val needsAllFiles: Boolean get() = problems.any { it.needsAllFiles }
 }
 
 data class AppUiState(
@@ -101,6 +109,7 @@ data class AppUiState(
 	val decoy: DecoyType = DecoyType.HABITS,
 	val entryMethod: EntryMethod = EntryMethod.TITLE_HOLD,
 	val hidingPreference: HidingPreference = HidingPreference.AUTO,
+	val hiddenNameStyle: HiddenNameStyle = HiddenNameStyle.CAMOUFLAGE,
 	/** Which first-run step to resume on. Meaningless once a credential exists. */
 	val setupStep: Int = 0,
 	val habits: List<Habit> = emptyList(),
@@ -134,6 +143,7 @@ data class AppUiState(
 	val duressAlert: UiMessage? = null,
 	/** Wrong credentials since the last time the owner got in, on the same terms. */
 	val failedAttemptAlert: UiMessage? = null,
+	val blocked: BlockedReport? = null,
 	val busy: Boolean = false,
 	val message: UiMessage? = null,
 ) {
@@ -236,6 +246,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					decoy = settings.decoy,
 					entryMethod = settings.entryMethod,
 					hidingPreference = settings.hidingPreference,
+					hiddenNameStyle = settings.hiddenNameStyle,
 					fakeCrash = settings.fakeCrash,
 					hideFromRecents = settings.hideFromRecents,
 					themeMode = settings.themeMode,
@@ -728,6 +739,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				decoyItems = emptyList(),
 				duressAlert = alert,
 				failedAttemptAlert = attempts,
+				blocked = null,
 				message = loaded.exceptionOrNull()?.let(::listFailure) ?: it.message,
 			)
 		}
@@ -747,7 +759,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 */
 	private suspend fun loadFolders(): List<VaultFolder> {
 		val health = _state.value.folders.associate { it.path to it.health }
-		return folderCoordinator.load(health)
+		return folderCoordinator.load(health, _state.value.hidingPreference)
 	}
 
 	/**
@@ -900,6 +912,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				decoyItems = emptyList(),
 				duressAlert = null,
 				failedAttemptAlert = null,
+				blocked = null,
 				safRecoveryCandidates = emptyList(),
 				accessNeededFor = null,
 				method = null,
@@ -1005,6 +1018,50 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		refreshCapabilitiesNow()
 	}
 
+	/**
+	 * Changes the name hidden folders wear and renames the ones already hidden. A duress session
+	 * remembers the setting and leaves storage alone.
+	 */
+	fun setHiddenNameStyle(style: HiddenNameStyle) = launchBusy {
+		withContext(Dispatchers.IO) { preferences.setHiddenNameStyle(style) }
+		_state.update { it.copy(hiddenNameStyle = style) }
+		if (_state.value.duress) return@launchBusy
+		renameHiddenFolders()
+	}
+
+	private suspend fun renameHiddenFolders() {
+		val targets = guard { folderCoordinator.hiddenEntries() }.orEmpty()
+		var renamed = 0
+		val failures = mutableListOf<FolderProblem>()
+		for (entry in targets) {
+			val result = oneOf(entry.displayName, failures) { folderCoordinator.remask(entry) } ?: continue
+			when (result) {
+				// Already in the chosen style, so nothing to report.
+				is HideResult.Ok -> if (result.entry.hiddenPath != entry.hiddenPath) renamed++
+
+				is HideResult.Failed -> failures += FolderProblem(
+					entry.displayName,
+					result.failure.toUiMessage(),
+					result.failure.needsAllFiles(),
+				)
+
+				is HideResult.NeedsAccess -> failures += FolderProblem(
+					entry.displayName,
+					accessNeeded(result),
+					needsAllFiles = false,
+				)
+			}
+		}
+		if (failures.isNotEmpty()) {
+			reportBlocked(renameBlockedTitle(failures.size), failures)
+		}
+		if (renamed > 0) reloadVault(uiMessage(R.string.hidden_names_changed, folderCount(renamed)))
+	}
+
+	/** The name a folder had before it was hidden, read from inside it. */
+	suspend fun recordedFolderName(candidate: SafRecoveryCandidate): String? =
+		guard { folderCoordinator.recordedName(candidate.hiddenPath) }
+
 	fun refreshCapabilities() = viewModelScope.launch { refreshCapabilitiesNow() }
 
 	private suspend fun refreshCapabilitiesNow() {
@@ -1018,11 +1075,19 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			recoveryCheckedFor = method
 			if ((guard { folderCoordinator.recoverOrphans(method) } ?: 0) > 0) recovered = guard { loadFolders() }
 		}
+		val currentFolders = _state.value.folders
+		val folders = if (recovered != null) {
+			recovered
+		} else if (currentFolders.isNotEmpty()) {
+			guard { loadFolders() } ?: currentFolders
+		} else {
+			currentFolders
+		}
 		_state.update {
 			it.copy(
 				method = method,
 				availableMethods = available,
-				folders = recovered ?: it.folders,
+				folders = folders,
 				canRequestAllFiles = HideMethod.PRIVATE_MOVE !in available,
 				pickerStart = it.pickerStart ?: folderPickerStart(),
 			)
@@ -1159,7 +1224,13 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				result.warning,
 			)
 
-			is HideResult.Failed -> fail(result.failure.toUiMessage())
+			is HideResult.Failed -> {
+				reportBlocked(
+					hideBlockedTitle(1),
+					FolderProblem(target.displayName, result.failure.toUiMessage(), result.failure.needsAllFiles()),
+				)
+				reloadVault()
+			}
 
 			is HideResult.NeedsAccess -> askForAccess(result) { hide(target) }
 		}
@@ -1177,7 +1248,13 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				result.warning,
 			)
 
-			is HideResult.Failed -> fail(result.failure.toUiMessage())
+			is HideResult.Failed -> {
+				reportBlocked(
+					hideBlockedTitle(1),
+					FolderProblem(folder.displayName, result.failure.toUiMessage(), result.failure.needsAllFiles()),
+				)
+				reloadVault()
+			}
 
 			is HideResult.NeedsAccess -> askForAccess(result) { hideTrackedOrAsk(folder) }
 		}
@@ -1213,51 +1290,67 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		val targets = _state.value.folders.filterNot { it.hidden }
 		if (targets.isEmpty()) return fail(uiMessage(R.string.every_folder_hidden))
 		var hidden = 0
-		val failures = mutableListOf<UiMessage>()
+		val failures = mutableListOf<FolderProblem>()
 		for (folder in targets) {
 			val result = oneOf(folder.displayName, failures) { hideTracked(folder) } ?: continue
 			when (result) {
 				is HideResult.Ok -> hidden++
 
-				is HideResult.Failed -> failures += namedFailure(folder.displayName, result.failure.toUiMessage())
+				is HideResult.Failed -> failures += FolderProblem(
+					folder.displayName,
+					result.failure.toUiMessage(),
+					result.failure.needsAllFiles(),
+				)
 
 				// A picker per folder would turn one tap into a queue of dialogs. Report instead.
-				is HideResult.NeedsAccess -> failures += accessNeeded(result)
+				is HideResult.NeedsAccess -> failures += FolderProblem(
+					folder.displayName,
+					accessNeeded(result),
+					needsAllFiles = false,
+				)
 			}
 		}
-		reloadVault(summarise(hidden = true, count = hidden, failures = failures))
+		if (failures.isNotEmpty()) {
+			reportBlocked(hideBlockedTitle(failures.size), failures)
+		}
+		if (hidden > 0 || failures.isEmpty()) {
+			reloadVault(uiMessage(R.string.bulk_hidden, folderCount(hidden)))
+		} else {
+			reloadVault()
+		}
 	}
 
 	private suspend fun unhideEverythingTracked() {
 		val targets = _state.value.folders.mapNotNull { it.entry }
 		if (targets.isEmpty()) return fail(uiMessage(R.string.nothing_hidden))
 		var restored = 0
-		val failures = mutableListOf<UiMessage>()
+		val failures = mutableListOf<FolderProblem>()
 		for (entry in targets) {
 			val result = oneOf(entry.displayName, failures) { folderCoordinator.restore(entry) } ?: continue
 			when (result) {
 				is HideResult.Ok -> restored++
-				is HideResult.Failed -> failures += namedFailure(entry.displayName, result.failure.toUiMessage())
-				is HideResult.NeedsAccess -> failures += accessNeeded(result)
+
+				is HideResult.Failed -> failures += FolderProblem(
+					entry.displayName,
+					result.failure.toUiMessage(),
+					result.failure.needsAllFiles(),
+				)
+
+				is HideResult.NeedsAccess -> failures += FolderProblem(
+					entry.displayName,
+					accessNeeded(result),
+					needsAllFiles = false,
+				)
 			}
 		}
-		reloadVault(summarise(hidden = false, count = restored, failures = failures))
-	}
-
-	private fun summarise(hidden: Boolean, count: Int, failures: List<UiMessage>): UiMessage = when {
-		failures.isEmpty() -> uiMessage(
-			if (hidden) R.string.bulk_hidden else R.string.bulk_restored,
-			folderCount(count),
-		)
-
-		count == 0 -> uiMessage(R.string.bulk_none_changed, failures.first())
-
-		else -> uiMessage(
-			if (hidden) R.string.bulk_hidden_partial else R.string.bulk_restored_partial,
-			folderCount(count),
-			failures.size,
-			failures.first(),
-		)
+		if (failures.isNotEmpty()) {
+			reportBlocked(restoreBlockedTitle(failures.size), failures)
+		}
+		if (restored > 0 || failures.isEmpty()) {
+			reloadVault(uiMessage(R.string.bulk_restored, folderCount(restored)))
+		} else {
+			reloadVault()
+		}
 	}
 
 	fun checkHiddenItems() = launchBusy {
@@ -1389,7 +1482,13 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				result.warning,
 			)
 
-			is HideResult.Failed -> fail(result.failure.toUiMessage())
+			is HideResult.Failed -> {
+				reportBlocked(
+					restoreBlockedTitle(1),
+					FolderProblem(entry.displayName, result.failure.toUiMessage(), result.failure.needsAllFiles()),
+				)
+				reloadVault()
+			}
 
 			is HideResult.NeedsAccess -> askForAccess(result) { restoreEntry(entry) }
 		}
@@ -1415,36 +1514,37 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		}
 
 		var restored = 0
-		val failures = mutableListOf<UiMessage>()
+		val failures = mutableListOf<FolderProblem>()
 		for (entry in entries) {
 			val result = oneOf(entry.displayName, failures) { folderCoordinator.restore(entry) } ?: continue
 			when (result) {
 				is HideResult.Ok -> restored++
 
-				is HideResult.Failed -> failures += namedFailure(entry.displayName, result.failure.toUiMessage())
+				is HideResult.Failed -> failures += FolderProblem(
+					entry.displayName,
+					result.failure.toUiMessage(),
+					result.failure.needsAllFiles(),
+				)
 
 				// A grant per folder would turn one action into a queue of pickers. Report it and let
 				// the user restore that one on its own.
-				is HideResult.NeedsAccess -> failures += accessNeeded(result)
+				is HideResult.NeedsAccess -> failures += FolderProblem(
+					entry.displayName,
+					accessNeeded(result),
+					needsAllFiles = false,
+				)
 			}
 		}
 
-		val summary = when {
-			failures.isEmpty() -> if (recovered > 0) {
-				uiMessage(R.string.force_unhide_success_recovered, folderCount(restored), recovered)
-			} else {
-				uiMessage(R.string.bulk_restored, folderCount(restored))
-			}
-
-			restored == 0 -> uiMessage(R.string.force_unhide_none, failures.first())
-
-			else -> uiMessage(
-				R.string.force_unhide_partial,
-				folderCount(restored),
-				recovered,
-				failures.size,
-				failures.first(),
-			)
+		if (failures.isNotEmpty()) {
+			reportBlocked(restoreBlockedTitle(failures.size), failures)
+		}
+		val summary = if (recovered > 0) {
+			uiMessage(R.string.force_unhide_success_recovered, folderCount(restored), recovered)
+		} else if (restored > 0 || failures.isEmpty()) {
+			uiMessage(R.string.bulk_restored, folderCount(restored))
+		} else {
+			null
 		}
 		reloadVault(summary)
 	}
@@ -1494,6 +1594,35 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 	fun consumeMessage() = _state.update { it.copy(message = null) }
 
+	fun dismissBlocked() = _state.update { it.copy(blocked = null) }
+
+	private fun reportBlocked(title: UiMessage, problem: FolderProblem) {
+		_state.update { it.copy(blocked = BlockedReport(title, listOf(problem))) }
+	}
+
+	private fun reportBlocked(title: UiMessage, problems: List<FolderProblem>) {
+		_state.update { it.copy(blocked = BlockedReport(title, problems)) }
+	}
+
+	private fun HideFailure.needsAllFiles(): Boolean = when (this) {
+		is HideFailure.ParentNotGrantable,
+		is HideFailure.AllFilesRequired -> true
+
+		else -> false
+	}
+
+	private fun hideBlockedTitle(count: Int): UiMessage =
+		if (count == 1) uiMessage(R.string.cannot_hide_title) else uiMessage(R.string.cannot_hide_multiple_title)
+
+	private fun restoreBlockedTitle(count: Int): UiMessage =
+		if (count == 1) uiMessage(R.string.cannot_restore_title) else uiMessage(R.string.cannot_restore_multiple_title)
+
+	private fun renameBlockedTitle(count: Int): UiMessage = if (count == 1) {
+		uiMessage(R.string.cannot_rename_hidden_title)
+	} else {
+		uiMessage(R.string.cannot_rename_hidden_multiple_title)
+	}
+
 	private fun persist(uri: Uri): Boolean {
 		val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
 		val resolver = getApplication<Application>().contentResolver
@@ -1503,15 +1632,17 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		}
 	}
 
-	private suspend fun reloadVault(message: UiMessage, warning: HideWarning? = null) {
+	private suspend fun reloadVault(message: UiMessage? = null, warning: HideWarning? = null) {
 		val folders = guard { loadFolders() }.orEmpty()
 		syncEmergencyCredential(folders)
 		_state.update {
 			it.copy(
 				folders = folders,
 				exposedFolders = folders.count { folder -> !folder.hidden },
-				message = warning?.let { uiMessage(R.string.message_joined, message, it.toUiMessage()) }
-					?: message,
+				message = warning?.let { w ->
+					message?.let { m -> uiMessage(R.string.message_joined, m, w.toUiMessage()) }
+						?: w.toUiMessage()
+				} ?: message,
 			)
 		}
 	}
@@ -1565,14 +1696,14 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 */
 	private suspend fun oneOf(
 		displayName: String,
-		failures: MutableList<UiMessage>,
+		failures: MutableList<FolderProblem>,
 		block: suspend () -> HideResult,
 	): HideResult? = try {
 		block()
 	} catch (e: CancellationException) {
 		throw e
 	} catch (e: Exception) {
-		failures += namedFailure(displayName, unexpected(e))
+		failures += FolderProblem(displayName, unexpected(e), needsAllFiles = false)
 		null
 	}
 

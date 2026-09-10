@@ -125,6 +125,8 @@ fun HideWarning.toUiMessage(): UiMessage = when (this) {
 
 	is HideWarning.RestoredWithDifferentName -> uiMessage(R.string.warning_restored_name, finalName)
 
+	HideWarning.FolderNameVisible -> uiMessage(R.string.warning_folder_name_visible)
+
 	HideWarning.ContentProtectionUnavailable -> uiMessage(R.string.warning_content_protection_unavailable)
 
 	HideWarning.NameProtectionUnavailable -> uiMessage(R.string.warning_name_protection_unavailable)
@@ -154,5 +156,8 @@ val HiddenHealthDetail.stringResource: Int
 		HiddenHealthDetail.RENAME_ALREADY_RESTORED -> R.string.health_rename_restored
 		HiddenHealthDetail.RENAME_MISSING -> R.string.health_rename_missing
 		HiddenHealthDetail.SAF_UNVERIFIED -> R.string.health_saf_unverified
+		HiddenHealthDetail.IN_PLACE_INTACT -> R.string.health_in_place_intact
+		HiddenHealthDetail.IN_PLACE_ALREADY_RESTORED -> R.string.health_in_place_restored
+		HiddenHealthDetail.IN_PLACE_MISSING -> R.string.health_in_place_missing
 		HiddenHealthDetail.NOT_SUPPORTED -> R.string.health_not_supported
 	}

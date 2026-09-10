@@ -8,10 +8,13 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.melastore.shelf.data.AutoHideMode
 import io.github.melastore.shelf.data.ContentCredential
 import io.github.melastore.shelf.data.EntryMethod
+import io.github.melastore.shelf.data.HiddenNameStyle
+import io.github.melastore.shelf.data.ShelfCore
 import io.github.melastore.shelf.security.CredentialKind
 import io.github.melastore.shelf.security.KnockCode
 import java.io.File
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -557,6 +560,105 @@ class ShelfViewModelRobolectricTest {
 			assertTrue(viewModel.state.value.fakeCrash)
 			assertFalse(File(application.filesDir, "gate").exists())
 			assertFalse(File(application.filesDir, "burner_gate").exists())
+		} finally {
+			store.clear()
+			ContentCredential.clear()
+		}
+	}
+
+	/**
+	 * Read back through a second view model, not through preferences: the factory these tests share
+	 * hands every view model the application from the first test in the class.
+	 */
+	@Test
+	fun `the hidden name style is camouflage until it is changed, and then it sticks`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			assertEquals(HiddenNameStyle.CAMOUFLAGE, viewModel.state.value.hiddenNameStyle)
+
+			viewModel.setHiddenNameStyle(HiddenNameStyle.KEEP)
+			await { viewModel.state.value.hiddenNameStyle == HiddenNameStyle.KEEP }
+			assertEquals(null, viewModel.state.value.blocked)
+
+			val reopened = ViewModelProvider(
+				ViewModelStore(),
+				ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+			)[ShelfViewModel::class.java]
+			await { reopened.state.value.ready }
+			assertEquals(HiddenNameStyle.KEEP, reopened.state.value.hiddenNameStyle)
+
+			viewModel.setHiddenNameStyle(HiddenNameStyle.CAMOUFLAGE)
+			await { viewModel.state.value.hiddenNameStyle == HiddenNameStyle.CAMOUFLAGE }
+		} finally {
+			store.clear()
+			ContentCredential.clear()
+		}
+	}
+
+	// A top-level folder is no longer a dead end. The dot rename cannot reach it, so the in-place
+	// strategy takes it, and that needs a grant on the folder itself rather than all-files access.
+	@Test
+	fun `hiding a top-level folder asks for a grant instead of reporting a failure`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setVaultCredential(CredentialKind.PIN, "4826".toCharArray())
+			await { viewModel.state.value.screen == Screen.VAULT }
+
+			val emulatedRoot = ShelfCore.paths.emulatedRoot
+			val folder = VaultFolder(path = "$emulatedRoot/11", displayName = "11", entry = null)
+			viewModel.hideAgain(folder)
+
+			await { viewModel.state.value.accessNeededFor != null }
+			assertEquals(null, viewModel.state.value.blocked)
+		} finally {
+			store.clear()
+			ContentCredential.clear()
+		}
+	}
+
+	@Test
+	fun `bulk hide failure sets blocked report with multiple problems and row blockers`() {
+		val store = ViewModelStore()
+		val emulatedRoot = ShelfCore.paths.emulatedRoot
+		runBlocking {
+			ShelfCore.registry.put("$emulatedRoot/11", "11")
+			ShelfCore.registry.put("$emulatedRoot/22", "22")
+		}
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setVaultCredential(CredentialKind.PIN, "4826".toCharArray())
+			await { viewModel.state.value.screen == Screen.VAULT }
+			await { viewModel.state.value.folders.size == 2 }
+
+			// The in-place strategy can take both, so neither row is marked unhideable.
+			val folders = viewModel.state.value.folders
+			assertTrue(folders.all { it.blocker == null })
+
+			viewModel.hideAll()
+
+			// One picker per folder would be a queue of dialogs, so a bulk pass reports instead.
+			await { viewModel.state.value.blocked != null }
+			val blocked = requireNotNull(viewModel.state.value.blocked)
+			assertFalse(blocked.needsAllFiles)
+			assertEquals(2, blocked.problems.size)
+			assertEquals(listOf("11", "22"), blocked.problems.map { it.name })
+
+			viewModel.dismissBlocked()
+			await { viewModel.state.value.blocked == null }
 		} finally {
 			store.clear()
 			ContentCredential.clear()

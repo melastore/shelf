@@ -8,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -147,6 +148,38 @@ class FolderNameProtectorTest {
 		val password = "48261357".toCharArray()
 
 		assertEquals(NameProtectionResult.AccessUnavailable, protector(root, password).protect(root.path))
+		password.fill(' ')
+	}
+
+	/** Once the folder is renamed to something meaningless, the manifest is the only record left. */
+	@Test
+	fun `the manifest remembers the folder's own name`() = runBlocking {
+		val root = temp.newFolder("hidden")
+		File(root, "clip.mp4").writeText("x")
+		val password = "48261357".toCharArray()
+		val protector = protector(root, password)
+
+		assertEquals(NameProtectionResult.Done(1), protector.protect(root.path, folderName = "Holiday"))
+		assertEquals("Holiday", protector.folderName(root.path))
+		val manifest = File(root, ".shelf-names-v1")
+		assertFalse(manifest.readBytes().toString(Charsets.ISO_8859_1).contains("Holiday"))
+
+		assertEquals(NameProtectionResult.Done(1), protector.restore(root.path))
+		assertNull("The record goes with the manifest", protector.folderName(root.path))
+		password.fill(' ')
+	}
+
+	@Test
+	fun `a folder name is only read back when the credential is the one that wrote it`() = runBlocking {
+		val root = temp.newFolder("hidden")
+		File(root, "clip.mp4").writeText("x")
+		val password = "48261357".toCharArray()
+		assertEquals(
+			NameProtectionResult.Done(1),
+			protector(root, password).protect(root.path, folderName = "Holiday"),
+		)
+
+		assertNull(protector(root, "13572468".toCharArray()).folderName(root.path))
 		password.fill(' ')
 	}
 

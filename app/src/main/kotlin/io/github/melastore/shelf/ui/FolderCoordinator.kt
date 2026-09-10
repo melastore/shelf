@@ -6,8 +6,10 @@ import io.github.melastore.shelf.data.FolderRegistry
 import io.github.melastore.shelf.data.FolderTarget
 import io.github.melastore.shelf.data.HiddenEntry
 import io.github.melastore.shelf.data.HiddenHealth
+import io.github.melastore.shelf.data.HideFailure
 import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.HideResult
+import io.github.melastore.shelf.data.HideStrategy
 import io.github.melastore.shelf.data.HidingPreference
 import io.github.melastore.shelf.data.Journal
 import io.github.melastore.shelf.data.SafRecoveryCandidate
@@ -21,7 +23,12 @@ internal class FolderCoordinator(
 	private val registry: FolderRegistry,
 	private val hider: FolderHider,
 ) {
-	suspend fun load(previousHealth: Map<String, HiddenHealth?>): List<VaultFolder> {
+	suspend fun load(
+		previousHealth: Map<String, HiddenHealth?>,
+		preference: HidingPreference = HidingPreference.AUTO,
+	): List<VaultFolder> {
+		val strategy = hider.activeStrategy(preference)
+		val fallback = hider.inPlaceStrategy()
 		val entries = journal.read()
 		val byPath = entries.associateBy { paths.toEmulated(it.path) }
 		val tracked = registry.read()
@@ -30,18 +37,34 @@ internal class FolderCoordinator(
 			TrackedFolder(path, entry.displayName, entry.hiddenAt)
 		}
 		if (adopted.isNotEmpty()) runCatching { registry.putAll(adopted) }
-		return (tracked + adopted).map { folder ->
+		val all = tracked + adopted
+		val result = ArrayList<VaultFolder>(all.size)
+		for (folder in all) {
 			val recorded = byPath[folder.path]
 			val physicallyExposed = recorded?.let {
 				runCatching { hider.isExposed(it) }.getOrDefault(false)
 			} ?: false
-			VaultFolder(
+			val exposed = recorded == null || physicallyExposed
+			val blocker = if (exposed) blockerFor(strategy, fallback, folder.path) else null
+			result += VaultFolder(
 				path = folder.path,
 				displayName = folder.displayName,
 				entry = recorded.takeUnless { physicallyExposed },
 				health = previousHealth[folder.path],
+				blocker = blocker,
 			)
 		}
+		return result
+	}
+
+	/**
+	 * What stands in the way of hiding [path], or null when something can still take it. The chosen
+	 * method being unable to reach a folder is not a block on its own: the in-place fallback picks
+	 * those up, so this only reports when that cannot run either.
+	 */
+	private suspend fun blockerFor(primary: HideStrategy?, fallback: HideStrategy?, path: String,): HideFailure? {
+		val blocked = primary?.blocker(path) ?: return null
+		return if (fallback != null && fallback.blocker(path) == null) null else blocked
 	}
 
 	/**
@@ -77,6 +100,14 @@ internal class FolderCoordinator(
 		return result
 	}
 	suspend fun health(entry: HiddenEntry): HiddenHealth = hider.health(entry)
+
+	/** Every folder recorded as hidden, whatever method put it there. */
+	suspend fun hiddenEntries(): List<HiddenEntry> = journal.read()
+
+	/** Renames one hidden folder into the current style. Unchanged is a normal outcome. */
+	suspend fun remask(entry: HiddenEntry): HideResult = hider.remask(entry)
+
+	suspend fun recordedName(hiddenPath: String): String? = hider.recordedName(hiddenPath)
 	suspend fun recoveryCandidates(parentTree: Uri): List<SafRecoveryCandidate> = hider.recoveryCandidates(parentTree)
 	suspend fun recover(candidate: SafRecoveryCandidate, restoredName: String): HideResult {
 		val result = hider.recover(candidate, restoredName)

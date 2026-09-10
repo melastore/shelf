@@ -104,7 +104,7 @@ Settings:
 | --- | --- | --- |
 | **Root** | Root | Strips the folder's permissions. Nothing on the phone can open it. |
 | **All-files** | All-files access | Moves the folder into a hidden `.shelf` directory. Survives uninstalling Shelf. |
-| **Rename** | Usually nothing | Renames the folder with a leading dot. The fallback that works with no permission at all. |
+| **Rename** | Usually nothing | Renames the folder with a leading dot, under a name that says nothing about it. The fallback that works with no permission at all. |
 
 All three also scramble file names and encrypt the first 64 KB of every file, so
 a file manager that finds the folder shows nothing it can open or preview.
@@ -113,6 +113,13 @@ a file manager that finds the folder shows nothing it can open or preview.
 > the one you are hiding, and Android refuses to hand out access to the top of
 > internal storage or to Download. A folder sitting directly in either of those
 > needs all-files access instead. Anything nested deeper is fine.
+
+A renamed folder is still listed by any file manager showing hidden files, so
+what it is called matters. By default it takes a name that reads as bookkeeping
+some app left behind, such as `.meta` or `.index`, and never one that cleaners
+delete on sight. **Settings → Hidden folder name** also offers keeping the real
+name behind a dot, or random characters. Changing it renames the folders that
+are already hidden.
 
 ## Looking inside without unhiding
 

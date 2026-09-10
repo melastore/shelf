@@ -4,6 +4,7 @@ import io.github.melastore.shelf.data.FolderHider
 import io.github.melastore.shelf.data.FolderRegistry
 import io.github.melastore.shelf.data.FolderTarget
 import io.github.melastore.shelf.data.HiddenEntry
+import io.github.melastore.shelf.data.HideFailure
 import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.HideResult
 import io.github.melastore.shelf.data.HideStrategy
@@ -137,5 +138,65 @@ class FolderCoordinatorTest {
 		assertEquals(1, tracked.size)
 		assertEquals("$emulated/secret", tracked.first().path)
 		assertEquals("secret", tracked.first().displayName)
+	}
+
+	@Test
+	fun `load populates blocker only on exposed folders`() = runBlocking {
+		val backing = temp.newFolder("backing").path
+		val emulated = temp.newFolder("emulated").path
+		val journal = Journal(File(temp.root, "journal.json"))
+		val registry = FolderRegistry(File(temp.root, "folders.json"))
+		val paths = StoragePaths.forTest(backing, emulated)
+		val strategy = object : HideStrategy {
+			override val method = HideMethod.DOT_RENAME
+			override suspend fun isAvailable() = true
+			override suspend fun hide(target: FolderTarget) = HideResult.Failed(HideFailure.MethodUnavailable)
+			override suspend fun restore(entry: HiddenEntry) = HideResult.Failed(HideFailure.MethodUnavailable)
+			override suspend fun blocker(path: String) =
+				if (path.endsWith("/blocked")) HideFailure.ParentNotGrantable("blocked") else null
+		}
+		val hider = FolderHider(listOf(strategy))
+		val coordinator = FolderCoordinator(paths, journal, registry, hider)
+
+		registry.put("$emulated/blocked", "blocked")
+		registry.put("$emulated/hidden", "hidden")
+		journal.addNew(HiddenEntry(path = "$emulated/hidden", displayName = "hidden", hiddenAt = 1L))
+
+		val loaded = coordinator.load(emptyMap())
+		val blockedFolder = loaded.first { it.displayName == "blocked" }
+		val hiddenFolder = loaded.first { it.displayName == "hidden" }
+
+		assertEquals(HideFailure.ParentNotGrantable("blocked"), blockedFolder.blocker)
+		assertEquals(null, hiddenFolder.blocker)
+	}
+
+	// The in-place strategy takes whatever the chosen method cannot reach, so a folder it can hide
+	// must not be marked unhideable on the list.
+	@Test
+	fun `load clears the blocker when the in-place fallback can take the folder`() = runBlocking {
+		val backing = temp.newFolder("backing").path
+		val emulated = temp.newFolder("emulated").path
+		val journal = Journal(File(temp.root, "journal.json"))
+		val registry = FolderRegistry(File(temp.root, "folders.json"))
+		val paths = StoragePaths.forTest(backing, emulated)
+		val blocked = object : HideStrategy {
+			override val method = HideMethod.DOT_RENAME
+			override suspend fun isAvailable() = true
+			override suspend fun hide(target: FolderTarget) = HideResult.Failed(HideFailure.MethodUnavailable)
+			override suspend fun restore(entry: HiddenEntry) = HideResult.Failed(HideFailure.MethodUnavailable)
+			override suspend fun blocker(path: String) = HideFailure.ParentNotGrantable("top")
+		}
+		val inPlace = object : HideStrategy {
+			override val method = HideMethod.IN_PLACE
+			override suspend fun isAvailable() = true
+			override suspend fun hide(target: FolderTarget) = HideResult.Failed(HideFailure.MethodUnavailable)
+			override suspend fun restore(entry: HiddenEntry) = HideResult.Failed(HideFailure.MethodUnavailable)
+			override suspend fun blocker(path: String): HideFailure? = null
+		}
+		val coordinator = FolderCoordinator(paths, journal, registry, FolderHider(listOf(blocked, inPlace)))
+
+		registry.put("$emulated/top", "top")
+
+		assertEquals(null, coordinator.load(emptyMap()).single().blocker)
 	}
 }

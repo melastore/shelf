@@ -18,6 +18,13 @@ enum class HideMethod {
 
 	/** SAF alone. The folder is renamed to a leading dot, which keeps the media scanner out of it. */
 	DOT_RENAME,
+
+	/**
+	 * SAF on the folder itself. Nothing moves: the contents are protected where they lie and a
+	 * .nomedia keeps the scanner out. The folder name stays visible, which is the price of hiding
+	 * one the picker will not grant a parent for.
+	 */
+	IN_PLACE,
 }
 
 /**

@@ -48,7 +48,8 @@ Folders can be hidden in three ways. On rooted devices Shelf protects file
 headers and clears permission bits on the backing filesystem. With optional
 all-files access it protects headers and moves the folder under random names in
 a persistent hidden directory. With neither permission it protects headers and
-uses the system folder picker to rename the folder with a leading dot. Android
+uses the system folder picker to rename the folder with a leading dot, under a
+name that reads as another app's data rather than its own. Android
 grants no access to the top of internal storage or to Download, so a folder
 directly in one of those needs all-files access instead. All three
 methods replace file names with opaque identifiers and keep the originals in a
