@@ -1,0 +1,12 @@
+Fixes an unhide that froze the app, and makes hiding and unhiding faster.
+
+- Unhiding no longer freezes the app, and no longer shows Android's "Shelf
+  isn't responding" dialog. The whole hide and restore ran on the drawing
+  thread, so nothing repainted until the folder was done.
+- Unhiding a folder used to open and read every file once just to see which
+  ones were protected, then open them all again to unprotect them. It only
+  reads them once now.
+- File names are put back several at a time, the way they were already
+  scrambled several at a time.
+- Listing a folder takes one question to the storage provider instead of three
+  per file. A hide walks the folder more than once, so this is felt twice.
