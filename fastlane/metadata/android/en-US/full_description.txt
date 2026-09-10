@@ -53,7 +53,9 @@ name that reads as another app's data rather than its own. Android
 grants no access to the top of internal storage or to Download, so a folder
 directly in one of those needs all-files access instead. All three
 methods replace file names with opaque identifiers and keep the originals in a
-recovery manifest encrypted with your credential. Name and header protection
+recovery manifest encrypted with your credential. That second layer can be
+switched off in Settings for an instant hide, and a folder hidden without it says
+so in the vault instead of claiming its contents are protected. Name and header protection
 needs read and write access to the folder itself, which the rename method gets
 from the grant you give in the system picker. Where that access is missing the
 folder is still hidden, and Shelf says on screen that names or headers could not

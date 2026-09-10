@@ -107,7 +107,9 @@ Settings:
 | **Rename** | Usually nothing | Renames the folder with a leading dot, under a name that says nothing about it. The fallback that works with no permission at all. |
 
 All three also scramble file names and encrypt the first 64 KB of every file, so
-a file manager that finds the folder shows nothing it can open or preview.
+a file manager that finds the folder shows nothing it can open or preview. That
+layer can be switched off in Settings for an instant hide, and then the folder is
+hidden but its contents are left as they are, which the vault says on the row.
 
 > **One catch on Rename.** It works by asking for access to the folder *above*
 > the one you are hiding, and Android refuses to hand out access to the top of

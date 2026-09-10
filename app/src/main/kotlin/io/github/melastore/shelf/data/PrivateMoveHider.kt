@@ -29,6 +29,7 @@ class PrivateMoveHider(
 		runCatching { Environment.isExternalStorageManager() }.getOrDefault(false)
 	},
 	private val mediaIndex: FolderMediaIndex = MediaStorePurge,
+	private val deepProtection: () -> Boolean = { AppPreferences(context).deepProtection() },
 ) : HideStrategy {
 
 	private val appContext = context.applicationContext
@@ -63,6 +64,9 @@ class PrivateMoveHider(
 			return@withContext HideResult.Failed(HideFailure.AllFilesRequired(target.displayName))
 		}
 
+		// Off, the move is the whole hide. The entry records which it was, so a restore and the vault
+		// both go by what was done rather than by what the setting says today.
+		val deep = deepProtection()
 		for (vault in vaults()) {
 			val destination = File(vault, "${UUID.randomUUID()}/.$PAYLOAD_PREFIX${UUID.randomUUID()}")
 			val recoveryMarker = File(destination.parentFile, ORIGIN_MARKER)
@@ -72,6 +76,7 @@ class PrivateMoveHider(
 				hiddenAt = System.currentTimeMillis(),
 				method = method,
 				hiddenPath = destination.path,
+				deep = deep,
 			)
 			destination.parentFile?.mkdirs()
 			markNoMedia(vault)
@@ -87,52 +92,64 @@ class PrivateMoveHider(
 				return@withContext HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
 			}
 
-			val protectionWarning = when (val protected = content.protect(source.path)) {
-				is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> null
+			val protectionWarning = if (!deep) {
+				null
+			} else {
+				when (val protected = content.protect(source.path)) {
+					is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> null
 
-				ContentProtectionResult.AccessUnavailable,
-				ContentProtectionResult.CredentialRequired -> HideWarning.ContentProtectionUnavailable
+					ContentProtectionResult.AccessUnavailable,
+					ContentProtectionResult.CredentialRequired -> HideWarning.ContentProtectionUnavailable
 
-				ContentProtectionResult.WrongCredential -> {
-					journal.remove(entry.path)
-					destination.parentFile?.deleteRecursively()
-					return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
-				}
+					ContentProtectionResult.WrongCredential -> {
+						journal.remove(entry.path)
+						destination.parentFile?.deleteRecursively()
+						return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
+					}
 
-				is ContentProtectionResult.Failed -> {
-					journal.remove(entry.path)
-					destination.parentFile?.deleteRecursively()
-					return@withContext HideResult.Failed(
-						HideFailure.ContentProtectionFailed(protected.count),
-					)
-				}
-			}
-			val nameWarning = when (val protected = names.protect(source.path)) {
-				is NameProtectionResult.Done, NameProtectionResult.NoFiles -> null
-
-				NameProtectionResult.AccessUnavailable,
-				NameProtectionResult.CredentialRequired -> HideWarning.NameProtectionUnavailable
-
-				NameProtectionResult.WrongCredential -> {
-					names.restore(source.path)
-					content.restore(source.path)
-					journal.remove(entry.path)
-					destination.parentFile?.deleteRecursively()
-					return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
-				}
-
-				is NameProtectionResult.Failed -> {
-					names.restore(source.path)
-					content.restore(source.path)
-					journal.remove(entry.path)
-					destination.parentFile?.deleteRecursively()
-					return@withContext HideResult.Failed(HideFailure.NameProtectionFailed(protected.count))
+					is ContentProtectionResult.Failed -> {
+						journal.remove(entry.path)
+						destination.parentFile?.deleteRecursively()
+						return@withContext HideResult.Failed(
+							HideFailure.ContentProtectionFailed(protected.count),
+						)
+					}
 				}
 			}
+			val nameWarning = if (!deep) {
+				null
+			} else {
+				when (val protected = names.protect(source.path)) {
+					is NameProtectionResult.Done, NameProtectionResult.NoFiles -> null
+
+					NameProtectionResult.AccessUnavailable,
+					NameProtectionResult.CredentialRequired -> HideWarning.NameProtectionUnavailable
+
+					NameProtectionResult.WrongCredential -> {
+						names.restore(source.path)
+						content.restore(source.path)
+						journal.remove(entry.path)
+						destination.parentFile?.deleteRecursively()
+						return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
+					}
+
+					is NameProtectionResult.Failed -> {
+						names.restore(source.path)
+						content.restore(source.path)
+						journal.remove(entry.path)
+						destination.parentFile?.deleteRecursively()
+						return@withContext HideResult.Failed(HideFailure.NameProtectionFailed(protected.count))
+					}
+				}
+			}
+
+			// What the pass managed, which is not always what was asked for.
+			val recorded = entry.copy(deep = deep && protectionWarning == null && nameWarning == null)
+			if (recorded.deep != entry.deep) journal.replace(recorded)
 
 			if (source.renameTo(destination)) {
 				mediaIndex.scan(appContext, contents + target.emulatedPath)
-				return@withContext HideResult.Ok(entry, mergeWarnings(protectionWarning, nameWarning))
+				return@withContext HideResult.Ok(recorded, mergeWarnings(protectionWarning, nameWarning))
 			}
 
 			names.restore(source.path)

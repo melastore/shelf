@@ -37,8 +37,9 @@ class DotRenameHider(
 	private val writableThroughMount: (String) -> Boolean = {
 		runCatching { File(it).canWrite() }.getOrDefault(false)
 	},
-	// Read per hide, not held: the setting can change while the app runs.
+	// Read per hide, not held: the settings can change while the app runs.
 	private val nameStyle: () -> HiddenNameStyle = { AppPreferences(context).hiddenNameStyle() },
+	private val deepProtection: () -> Boolean = { AppPreferences(context).deepProtection() },
 ) : HideStrategy {
 
 	private val appContext = context.applicationContext
@@ -78,6 +79,9 @@ class DotRenameHider(
 			return@withContext HideResult.NeedsAccess(parent, target.displayName)
 		}
 
+		// Off, the folder is renamed and nothing inside it is touched. The entry records which it was,
+		// so the vault says what was really done rather than what the setting says today.
+		val deep = deepProtection()
 		val hiddenName = freeHiddenName(tree, target.emulatedPath, name)
 		val hiddenPath = SafPaths.sibling(target.emulatedPath, hiddenName)
 		val entry = HiddenEntry(
@@ -89,6 +93,7 @@ class DotRenameHider(
 			// The covering grant, not whatever the user last picked: this is what a restore reopens.
 			// Empty when the folder was reached through the mount, which needs no grant.
 			treeUri = tree?.toString().orEmpty(),
+			deep = deep,
 		)
 		if (!journal.addNew(entry)) {
 			return@withContext HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
@@ -96,40 +101,48 @@ class DotRenameHider(
 		// Collect the public names before name protection replaces them. These are the stale
 		// MediaStore rows to invalidate once the folder itself is renamed.
 		val contents = childPaths(tree, target.emulatedPath)
-		val protectionWarning = when (val protected = content.protect(target.emulatedPath)) {
-			is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> null
+		val protectionWarning = if (!deep) {
+			null
+		} else {
+			when (val protected = content.protect(target.emulatedPath)) {
+				is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> null
 
-			ContentProtectionResult.AccessUnavailable,
-			ContentProtectionResult.CredentialRequired -> HideWarning.ContentProtectionUnavailable
+				ContentProtectionResult.AccessUnavailable,
+				ContentProtectionResult.CredentialRequired -> HideWarning.ContentProtectionUnavailable
 
-			ContentProtectionResult.WrongCredential -> {
-				journal.remove(entry.path)
-				return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
-			}
+				ContentProtectionResult.WrongCredential -> {
+					journal.remove(entry.path)
+					return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
+				}
 
-			is ContentProtectionResult.Failed -> {
-				journal.remove(entry.path)
-				return@withContext HideResult.Failed(HideFailure.ContentProtectionFailed(protected.count))
+				is ContentProtectionResult.Failed -> {
+					journal.remove(entry.path)
+					return@withContext HideResult.Failed(HideFailure.ContentProtectionFailed(protected.count))
+				}
 			}
 		}
-		val nameWarning = when (val protected = names.protect(target.emulatedPath, folderName = name)) {
-			is NameProtectionResult.Done, NameProtectionResult.NoFiles -> null
+		val nameWarning = if (!deep) {
+			null
+		} else {
+			when (val protected = names.protect(target.emulatedPath, folderName = name)) {
+				is NameProtectionResult.Done, NameProtectionResult.NoFiles -> null
 
-			NameProtectionResult.AccessUnavailable,
-			NameProtectionResult.CredentialRequired -> HideWarning.NameProtectionUnavailable
+				NameProtectionResult.AccessUnavailable,
+				NameProtectionResult.CredentialRequired -> HideWarning.NameProtectionUnavailable
 
-			NameProtectionResult.WrongCredential -> {
-				names.restore(target.emulatedPath)
-				content.restore(target.emulatedPath)
-				journal.remove(entry.path)
-				return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
-			}
+				NameProtectionResult.WrongCredential -> {
+					names.restore(target.emulatedPath)
+					content.restore(target.emulatedPath)
+					journal.remove(entry.path)
+					return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
+				}
 
-			is NameProtectionResult.Failed -> {
-				names.restore(target.emulatedPath)
-				content.restore(target.emulatedPath)
-				journal.remove(entry.path)
-				return@withContext HideResult.Failed(HideFailure.NameProtectionFailed(protected.count))
+				is NameProtectionResult.Failed -> {
+					names.restore(target.emulatedPath)
+					content.restore(target.emulatedPath)
+					journal.remove(entry.path)
+					return@withContext HideResult.Failed(HideFailure.NameProtectionFailed(protected.count))
+				}
 			}
 		}
 
@@ -141,7 +154,10 @@ class DotRenameHider(
 		}
 		val finalName = renamed.name
 			?: return@withContext rollbackRename(entry, renamed.uri, name, HideFailure.HiddenNameUnverified)
-		val finalEntry = entry.copy(hiddenPath = SafPaths.sibling(target.emulatedPath, finalName))
+		val finalEntry = entry.copy(
+			hiddenPath = SafPaths.sibling(target.emulatedPath, finalName),
+			deep = deep && protectionWarning == null && nameWarning == null,
+		)
 		if (originalFolderTime > 0L) {
 			runCatching { File(finalEntry.hiddenPath).setLastModified(originalFolderTime) }
 		}

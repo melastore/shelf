@@ -323,10 +323,14 @@ private fun VaultScreen(
 						subtitle = folder.health?.let { stringResource(it.detail.stringResource) }
 							?: folder.blocker?.toUiMessage()?.resolve(resources)
 							?: stringResource(
-								if (folder.hidden) {
-									R.string.folder_status_hidden
-								} else {
-									R.string.folder_status_unlocked
+								when {
+									!folder.hidden -> R.string.folder_status_unlocked
+
+									// Hidden, but nothing inside it was touched: the second layer was
+									// off, or the access it needs was not there.
+									folder.entry?.deep == false -> R.string.folder_status_hidden_only
+
+									else -> R.string.folder_status_hidden
 								},
 							),
 						hidden = folder.hidden,

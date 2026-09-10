@@ -236,6 +236,44 @@ class HideStrategiesRobolectricTest {
 	}
 
 	@Test
+	fun `a rename with the second layer off leaves the files as they are and records it`() = runBlocking {
+		ContentCredential.set("48261357".toCharArray())
+		val paths = testPaths(FakeRoot())
+		val journal = Journal(File(temporaryFolder.root, "shallow-rename-journal.json"))
+		val source = File(paths.emulatedRoot, "Download/Holiday").apply { mkdirs() }
+		File(source, "clip.mp4").writeText("keep me")
+		val hider = DotRenameHider(context, journal, paths, deepProtection = { false })
+
+		val result = hider.hide(FolderTarget(source.path, "Holiday", null))
+
+		assertTrue(result is HideResult.Ok)
+		val entry = journal.read().single()
+		assertTrue("The entry must not claim protection", !entry.deep)
+		val hidden = File(entry.hiddenPath)
+		assertEquals(listOf("clip.mp4"), hidden.listFiles().orEmpty().map { it.name })
+		assertEquals("keep me", File(hidden, "clip.mp4").readText())
+
+		assertTrue(hider.restore(entry) is HideResult.Ok)
+		assertEquals("keep me", File(source, "clip.mp4").readText())
+	}
+
+	@Test
+	fun `a hide that cannot protect does not record protection`() = runBlocking {
+		ContentCredential.clear()
+		val paths = testPaths(FakeRoot())
+		val journal = Journal(File(temporaryFolder.root, "unprotected-journal.json"))
+		val source = File(paths.emulatedRoot, "Download/Holiday").apply { mkdirs() }
+		File(source, "clip.mp4").writeText("keep me")
+		val hider = DotRenameHider(context, journal, paths)
+
+		val result = hider.hide(FolderTarget(source.path, "Holiday", null))
+
+		assertTrue(result is HideResult.Ok)
+		assertTrue("Warned about what it could not do", (result as HideResult.Ok).warning != null)
+		assertTrue("The entry must not claim protection", !journal.read().single().deep)
+	}
+
+	@Test
 	fun `changing the style renames what is already hidden, and only once`() = runBlocking {
 		ContentCredential.set("48261357".toCharArray())
 		val paths = testPaths(FakeRoot())

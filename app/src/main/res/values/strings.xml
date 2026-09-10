@@ -99,6 +99,7 @@
 	<string name="vault_status_unlocked">Private space unlocked</string>
 	<string name="folders">Folders</string>
 	<string name="folder_status_hidden">Protected and hidden</string>
+	<string name="folder_status_hidden_only">Hidden, contents not protected</string>
 	<string name="folder_status_unlocked">Unlocked on this device</string>
 	<plurals name="folder_total">
 		<item quantity="one">%d folder</item>
@@ -465,7 +466,7 @@
 	<string name="burner_pin_saved">Emergency wipe PIN saved.</string>
 	<string name="burner_pin_removed">Emergency wipe PIN removed.</string>
 	<string name="deep_protection_title">Scramble headers and names</string>
-	<string name="deep_protection_summary">A second layer under the hiding method: every file gets an encrypted header and an opaque name. Costs a fraction of a second per file, so a large folder takes a while to hide and to bring back. Off, the method hides the folder on its own and hiding is instant.</string>
+	<string name="deep_protection_summary">A second layer under every hiding method: each file gets an encrypted header and an opaque name. Costs a fraction of a second per file, so a large folder takes a while to hide and to bring back. Off, hiding is instant and the folder is only hidden, which for Folder rename means nothing but a leading dot.</string>
 	<string name="deep_protection_updated">Extra protection setting saved</string>
 	<string name="usb_panic_title">Lock on USB connect</string>
 	<string name="usb_panic_summary">Immediately lock and hide all folders when a USB cable or charger is plugged in</string>

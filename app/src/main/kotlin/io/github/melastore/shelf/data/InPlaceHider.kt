@@ -104,6 +104,11 @@ class InPlaceHider(context: Context, private val journal: Journal, private val p
 			}
 		}
 
+		// No second-layer setting here: protecting the contents is the whole hide, and skipping it
+		// would leave the folder exactly as it was found.
+		val recorded = entry.copy(deep = protectionWarning == null && nameWarning == null)
+		if (!recorded.deep) journal.replace(recorded)
+
 		// Written last, so a hide killed partway leaves no marker claiming work that did not finish.
 		// Whether the .nomedia was ours is recorded in it: one the owner put there is theirs to keep.
 		val ourNoMedia = root.findFile(NO_MEDIA) == null && createEmpty(root, NO_MEDIA)
@@ -117,7 +122,7 @@ class InPlaceHider(context: Context, private val journal: Journal, private val p
 
 		MediaStorePurge.scan(appContext, contents + path)
 		HideResult.Ok(
-			entry,
+			recorded,
 			mergeWarnings(HideWarning.FolderNameVisible, protectionWarning, nameWarning),
 		)
 	}
