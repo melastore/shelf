@@ -1,0 +1,5 @@
+Nothing in the app changed. This release only shortens the store text.
+
+- The store description is under F-Droid's 4000-character limit. The detail it
+  dropped is in the README and THREAT_MODEL.md.
+- The 0.10.0 changelog is cut down to fit the 500-character limit.

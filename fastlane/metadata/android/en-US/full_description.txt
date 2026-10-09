@@ -5,77 +5,48 @@ name, icon, and colour scheme.
 Five taps in the top-right corner open the credential prompt. Settings adds a
 second, quieter gesture: a long press on the decoy title, or on a natural
 control inside the decoy. Access uses a PIN, a password, a 3×3 pattern, or a
-knock code on four unmarked quarters, chosen at setup and changeable in
-Settings. The knock pad shows a blank screen while it is entered, so a watcher
-learns neither the length of the code nor how far through it you are. Optional
-strong-biometric unlock always opens the real space, with the credential as
-fallback.
+knock code on four unmarked quarters. The knock pad shows a blank screen while
+it is entered, so a watcher learns neither the length of the code nor how far
+through it you are. Optional strong-biometric unlock always opens the real
+space, with the credential as fallback. The entry gesture can also put up a
+fake app-has-stopped dialog; a long press on its message carries on to the
+credential.
 
-The entry gesture can put up an app-has-stopped dialog instead of the unlock
-screen. It is laid out like the one Android shows, and closing it really closes
-the app; a long press on the message is what carries on to the credential.
+Auto hide runs after screen off, immediately when Shelf leaves the foreground,
+or never. It closes the private space and puts exposed folders back out of
+sight. An optional quiet notification, under the disguise's own name, offers
+the same emergency hide on demand.
 
-Auto hide has three clear choices: after screen off, immediately when Shelf
-leaves the foreground, or never. It closes the private space and puts exposed
-folders back out of sight. An optional quiet notification, carrying the
-disguise's own name, offers the same emergency hide on demand. The hide remains
-active until filename, header, and folder protection finish.
-
-Folders you add stay on the list whether or not they are hidden, so putting them
-away again is one tap rather than another trip through the picker. A single
-control at the top hides or unhides all of them at once.
-
-A hidden folder can be opened and read without unhiding it. Photos, video,
-audio, PDFs, and text are listed one to a row under their real names and
-decrypted as they are read, with nothing written back to disk and no gallery
-picking them up. Video turns the screen to suit the clip. A PDF is rendered from
-an anonymous memory descriptor, so no decrypted copy is ever handed to another
-app or left behind.
+Folders you add stay on the list whether or not they are hidden, and one control
+hides or unhides all of them at once. A hidden folder can be opened without
+unhiding it: photos, video, audio, PDFs, and text are decrypted as they are
+read, with nothing written back to disk and no gallery picking them up.
 
 An optional second credential opens a private space that looks and behaves like
 the real one and contains nothing that matters, the one to give up if you are
-ever made to hand one over. Nothing on screen names it. Shelf records that it
-was used and tells you on your next real unlock, along with any wrong
-credentials someone else tried.
+ever made to hand one over. Shelf records that it was used and tells you on your
+next real unlock, along with any wrong credentials someone else tried.
 
-A separate emergency PIN can be set that destroys the encryption keys and
-journals as soon as it is entered at any unlock prompt. The folders stay on disk
-but nothing can find or unscramble them afterwards, including Shelf. Turning the
-phone face down or plugging in a USB cable can also lock everything at once,
-without touching the screen.
+A separate emergency PIN destroys the encryption keys and journals as soon as it
+is entered at any unlock prompt. Turning the phone face down or plugging in a
+USB cable can also lock everything at once.
 
-Folders can be hidden in three ways. On rooted devices Shelf protects file
-headers and clears permission bits on the backing filesystem. With optional
-all-files access it protects headers and moves the folder under random names in
-a persistent hidden directory. With neither permission it protects headers and
-uses the system folder picker to rename the folder with a leading dot, under a
-name that reads as another app's data rather than its own. Android
-grants no access to the top of internal storage or to Download, so a folder
-directly in one of those needs all-files access instead. All three
-methods replace file names with opaque identifiers and keep the originals in a
-recovery manifest encrypted with your credential. That second layer can be
-switched off in Settings for an instant hide, and a folder hidden without it says
-so in the vault instead of claiming its contents are protected. Name and header protection
-needs read and write access to the folder itself, which the rename method gets
-from the grant you give in the system picker. Where that access is missing the
-folder is still hidden, and Shelf says on screen that names or headers could not
-be protected rather than reporting success over files it never touched. Header protection touches a
-fixed 64 KiB per non-empty file rather than copying whole files, so a folder of
-large videos still hides quickly. A hidden-file browser may list a dot-renamed
-folder, but it sees random file names and ordinary previews and opening fail.
+Folders can be hidden in three ways: with root, by clearing permission bits on
+the backing filesystem; with optional all-files access, by moving the folder
+under random names into a hidden directory; or with no special permission, by
+renaming it with a leading dot through the system folder picker. All three
+replace file names with opaque identifiers, protect the first 64 KiB of each
+file, and keep the originals in a recovery manifest encrypted with your
+credential. Folders at the top of internal storage or in Download need
+all-files access, since Android grants no picker access there.
 
-Each folder operation is journalled before anything changes. The journal uses
-synced atomic writes and retains its previous valid generation. Root and
-all-files hides leave a recovery marker beside the folder, so Shelf can rebuild
-its records after a reinstall. "Unhide everything" in Settings scans for those
-markers and restores every folder in one pass. Manual rename recovery and
-read-only health checks cover the rest. Recovery records can also be exported
-in a password-encrypted, tamper-detecting file and merged back without
-overwriting existing records.
+Each folder operation is journalled before anything changes. Recovery markers,
+"Unhide everything", read-only health checks, and a password-encrypted export
+of recovery records cover reinstalls and lost app data.
 
-The theme follows the system or is fixed to light, dark, or AMOLED, and each
-disguise keeps its own colours. Shelf can also be kept out of the recent apps
-list; screenshots of the private space are blocked unless you allow them.
+The theme follows the system or is fixed to light, dark, or AMOLED. Shelf can be
+kept out of the recent apps list, and screenshots of the private space are
+blocked unless you allow them.
 
 Root is optional. Shelf has no network access, analytics, advertising, or cloud
 service.
@@ -83,4 +54,5 @@ service.
 Shelf does not provide full-file encryption. Data beyond each protected header
 remains recoverable with forensic tools, and historical file names may remain in
 system or app caches. Shelf is designed to prevent casual browsing, not resist
-an attacker with root access.
+an attacker with root access. The full threat model is at
+https://github.com/melastore/shelf/blob/main/THREAT_MODEL.md
