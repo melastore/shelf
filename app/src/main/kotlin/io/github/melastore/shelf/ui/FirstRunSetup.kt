@@ -27,6 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -225,28 +226,33 @@ private fun WelcomeStep() {
 	)
 	// Said once, plainly, at the only moment the app has the owner's full attention. An app that
 	// hides folders is easily taken for one that encrypts them, and people act on that mistake.
-	NoticeCard(stringResource(R.string.setup_welcome_caveat))
+	NoticeCard(stringResource(R.string.setup_welcome_caveat), warning = true)
 }
 
 @Composable
-private fun NoticeCard(text: String) {
+private fun NoticeCard(text: String, warning: Boolean = false) {
+	// Red is kept for the two things that really are caveats. A tip in the same colour taught people
+	// to skim past the ones that matter.
+	val colors = MaterialTheme.colorScheme
+	val background = if (warning) colors.tertiaryContainer else colors.surfaceContainerHigh
+	val foreground = if (warning) colors.onTertiaryContainer else colors.onSurfaceVariant
 	Surface(
 		modifier = Modifier.fillMaxWidth(),
 		shape = MaterialTheme.shapes.large,
-		color = MaterialTheme.colorScheme.tertiaryContainer,
+		color = background,
 	) {
 		Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
 			Icon(
-				Icons.Filled.Warning,
+				if (warning) Icons.Filled.Warning else Icons.Filled.Info,
 				contentDescription = null,
 				modifier = Modifier.size(20.dp),
-				tint = MaterialTheme.colorScheme.onTertiaryContainer,
+				tint = if (warning) foreground else colors.primary,
 			)
 			Text(
 				text,
 				modifier = Modifier.padding(start = 12.dp),
 				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onTertiaryContainer,
+				color = foreground,
 			)
 		}
 	}
@@ -258,23 +264,21 @@ private fun DisguiseStep(selected: DecoyType, onDecoy: (DecoyType) -> Unit, onEn
 		stringResource(R.string.setup_disguise_title),
 		stringResource(R.string.setup_disguise_body),
 	)
-	Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-		DecoyType.entries.forEach { decoy ->
-			ChoiceTile(
-				label = decoy.label(),
-				selected = selected == decoy,
-				modifier = Modifier.weight(1f),
-				icon = { DecoyBadge(decoy) },
-				onClick = {
-					onDecoy(decoy)
-					if (decoy == DecoyType.CALCULATOR) {
-						onEntryMethod(EntryMethod.DIRECT_KEYPAD)
-					} else {
-						onEntryMethod(EntryMethod.DOUBLE_TAP_TITLE)
-					}
-				},
-			)
-		}
+	TwoColumnGrid(DecoyType.entries, Modifier.fillMaxWidth()) { decoy, cellModifier ->
+		ChoiceTile(
+			label = decoy.label(),
+			selected = selected == decoy,
+			modifier = cellModifier,
+			icon = { DecoyBadge(decoy) },
+			onClick = {
+				onDecoy(decoy)
+				if (decoy == DecoyType.CALCULATOR) {
+					onEntryMethod(EntryMethod.DIRECT_KEYPAD)
+				} else {
+					onEntryMethod(EntryMethod.DOUBLE_TAP_TITLE)
+				}
+			},
+		)
 	}
 }
 
@@ -383,7 +387,7 @@ private fun StorageStep(state: AppUiState, onRequestAllFiles: () -> Unit) {
 	Spacer(Modifier.height(20.dp))
 	// Said here rather than buried in Settings. This is the one permission that shows up in Android's
 	// own list, so anyone relying on the disguise should know before granting it.
-	NoticeCard(stringResource(R.string.setup_storage_caveat))
+	NoticeCard(stringResource(R.string.setup_storage_caveat), warning = true)
 }
 
 @Composable

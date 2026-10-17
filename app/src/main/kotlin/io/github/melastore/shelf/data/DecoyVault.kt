@@ -42,8 +42,13 @@ class DecoyVault(file: File) {
 		current.map { it.copy(hidden = hidden) }
 	}
 
+	/** Picking a name already listed hides that row again, as picking a tracked folder does. */
 	suspend fun add(name: String) = store.update { current ->
-		current + DecoyItem(UUID.randomUUID().toString(), name, System.currentTimeMillis())
+		if (current.any { it.name == name }) {
+			current.map { if (it.name == name) it.copy(hidden = true) else it }
+		} else {
+			current + DecoyItem(UUID.randomUUID().toString(), name, System.currentTimeMillis())
+		}
 	}
 
 	/**

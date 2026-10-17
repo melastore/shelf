@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -44,6 +45,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -63,6 +65,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
@@ -146,12 +149,10 @@ fun PrivateArea(
 			onHideAgain = viewModel::hideAgain,
 			onForget = viewModel::forgetEntry,
 			onToggleDecoyItem = viewModel::toggleDecoyItem,
-			onAddDecoyItem = viewModel::addDecoyItem,
 			onRemoveDecoyItem = viewModel::removeDecoyItem,
 			onDismissAlert = viewModel::dismissDuressAlert,
 			onDismissAttempts = viewModel::dismissFailedAttempts,
 			onSecretEntry = onSecretEntry,
-			onSeedDecoy = viewModel::seedDecoyVault,
 		)
 
 		Screen.SETTINGS -> SettingsScreen(
@@ -173,6 +174,7 @@ fun PrivateArea(
 			onQuickLockChange = onQuickLockChange,
 			onAllowScreenshotsChange = onAllowScreenshotsChange,
 			onAutoHideMode = viewModel::setAutoHideMode,
+			onRehideMinutes = viewModel::setRehideMinutes,
 			onFlipToHideChange = viewModel::setFlipToHide,
 			onUsbPanicChange = viewModel::setUsbPanic,
 			onDeepProtectionChange = viewModel::setDeepProtection,
@@ -252,16 +254,13 @@ private fun VaultScreen(
 	onHideAgain: (VaultFolder) -> Unit,
 	onForget: (VaultFolder) -> Unit,
 	onToggleDecoyItem: (DecoyItem) -> Unit,
-	onAddDecoyItem: (String) -> Unit,
 	onRemoveDecoyItem: (DecoyItem) -> Unit,
 	onDismissAlert: () -> Unit,
 	onDismissAttempts: () -> Unit,
 	onSecretEntry: () -> Unit,
-	onSeedDecoy: () -> Unit,
 ) {
 	var forgetting by remember { mutableStateOf<VaultFolder?>(null) }
 	var discarding by remember { mutableStateOf<DecoyItem?>(null) }
-	var naming by remember { mutableStateOf(false) }
 	var viewingMedia by remember { mutableStateOf<VaultFolder?>(null) }
 	val count = if (state.duress) state.decoyItems.size else state.folders.size
 	val resources = LocalResources.current
@@ -271,7 +270,19 @@ private fun VaultScreen(
 			containerColor = MaterialTheme.colorScheme.background,
 			topBar = {
 				TopAppBar(
-					title = { Text(stringResource(R.string.vault_title)) },
+					// What the removed status card used to say, in one line under the title.
+					title = {
+						Column {
+							Text(stringResource(R.string.vault_title))
+							Text(
+								"${pluralStringResource(R.plurals.folder_total, count, count)}  ·  ${state.method.label()}",
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+								maxLines = 1,
+								overflow = TextOverflow.Ellipsis,
+							)
+						}
+					},
 					navigationIcon = {
 						IconButton(onClick = onClose) {
 							Icon(Icons.Filled.Close, stringResource(R.string.close_vault))
@@ -292,12 +303,10 @@ private fun VaultScreen(
 				)
 			},
 			floatingActionButton = {
+				// The same picker under duress. A name box here would be the one control that differs,
+				// and the picked folder only becomes a row: see ShelfViewModel.hideFolder.
 				ExtendedFloatingActionButton(
-					onClick = if (state.duress) {
-						{ naming = true }
-					} else {
-						onAddFolder
-					},
+					onClick = onAddFolder,
 					expanded = true,
 					icon = { Icon(Icons.Filled.Add, null) },
 					text = { Text(stringResource(R.string.hide_folder)) },
@@ -342,60 +351,53 @@ private fun VaultScreen(
 			}
 			val exposedCount = rows.count { !it.hidden }
 
-			LazyColumn(
-				modifier = Modifier.padding(padding).fillMaxSize(),
-				contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
-				verticalArrangement = Arrangement.spacedBy(10.dp),
-			) {
-				if (state.duressAlert != null) {
-					item {
-						SecurityAlert(
-							stringResource(R.string.duress_alert_title),
-							state.duressAlert.resolve(resources),
-							onDismissAlert,
-						)
-					}
-				}
-				if (state.failedAttemptAlert != null) {
-					item {
-						SecurityAlert(
-							stringResource(R.string.failed_attempts_title),
-							state.failedAttemptAlert.resolve(resources),
-							onDismissAttempts,
-						)
-					}
-				}
-				item { VaultStatus(count, state) }
-
-				if (count == 0) {
-					item {
-						EmptyState(
-							stringResource(R.string.vault_empty_title),
-							stringResource(R.string.empty_hint),
-						)
-					}
-					if (state.duress) {
+			Box(Modifier.padding(padding).fillMaxSize()) {
+				LazyColumn(
+					modifier = Modifier.fillMaxSize(),
+					contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
+					verticalArrangement = Arrangement.spacedBy(10.dp),
+				) {
+					if (state.duressAlert != null) {
 						item {
-							Box(
-								Modifier.fillMaxWidth().padding(top = 8.dp),
-								contentAlignment = Alignment.Center,
-							) {
-								OutlinedButton(onClick = onSeedDecoy) {
-									Text(stringResource(R.string.populate_decoy_title))
-								}
-							}
+							SecurityAlert(
+								stringResource(R.string.duress_alert_title),
+								state.duressAlert.resolve(resources),
+								onDismissAlert,
+							)
 						}
 					}
-				} else {
-					item {
-						FolderListHeader(
-							count = count,
-							enabled = !state.busy,
-							onHideAll = onHideAll.takeIf { exposedCount > 0 },
-							onUnhideAll = onUnhideAll.takeIf { exposedCount < rows.size },
-						)
+					if (state.failedAttemptAlert != null) {
+						item {
+							SecurityAlert(
+								stringResource(R.string.failed_attempts_title),
+								state.failedAttemptAlert.resolve(resources),
+								onDismissAttempts,
+							)
+						}
 					}
-					items(rows, key = { it.key }) { FolderTile(it, state.busy) }
+					// No seeding button under duress: it would be the one thing on screen calling this a
+					// decoy. The owner fills it from settings in the real space.
+					if (count == 0) {
+						item {
+							EmptyState(
+								stringResource(R.string.vault_empty_title),
+								stringResource(R.string.empty_hint),
+								painterResource(R.drawable.ic_folder),
+							)
+						}
+					} else {
+						item {
+							FolderListHeader(
+								enabled = !state.busy,
+								onHideAll = onHideAll.takeIf { exposedCount > 0 },
+								onUnhideAll = onUnhideAll.takeIf { exposedCount < rows.size },
+							)
+						}
+						items(rows, key = { it.key }) { FolderTile(it, state.busy) }
+					}
+				}
+				if (state.busy) {
+					LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
 				}
 			}
 		}
@@ -408,18 +410,6 @@ private fun VaultScreen(
 		}
 	}
 
-	if (naming) {
-		TextEntryDialog(
-			title = stringResource(R.string.hide_folder),
-			label = stringResource(R.string.decoy_item_name),
-			subtitle = stringResource(R.string.decoy_item_hint),
-			onAdd = {
-				onAddDecoyItem(it)
-				naming = false
-			},
-			onDismiss = { naming = false },
-		)
-	}
 	discarding?.let { item ->
 		ConfirmDialog(
 			title = stringResource(R.string.forget_record),
@@ -491,162 +481,92 @@ private data class ShelfRow(
 	val onViewMedia: (() -> Unit)? = null,
 )
 
-/** The header: which method is in use, how many folders, and the busy spinner. */
-@Composable
-private fun VaultStatus(count: Int, state: AppUiState) {
-	val method = state.method.label()
-	Surface(
-		modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp),
-		shape = MaterialTheme.shapes.extraLarge,
-		color = MaterialTheme.colorScheme.primaryContainer,
-	) {
-		Row(
-			Modifier.padding(20.dp),
-			verticalAlignment = Alignment.CenterVertically,
-		) {
-			Box(
-				Modifier.size(48.dp).clip(CircleShape).background(
-					MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-				),
-				contentAlignment = Alignment.Center,
-			) {
-				Icon(
-					painterResource(R.drawable.ic_lock_open),
-					contentDescription = null,
-					tint = MaterialTheme.colorScheme.primary,
-				)
-			}
-			Column(Modifier.padding(start = 16.dp).weight(1f)) {
-				Text(
-					stringResource(R.string.vault_status_unlocked),
-					style = MaterialTheme.typography.titleMedium,
-					color = MaterialTheme.colorScheme.onPrimaryContainer,
-				)
-				Text(
-					"${pluralStringResource(R.plurals.folder_total, count, count)}  ·  $method",
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.76f),
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis,
-				)
-			}
-			if (state.busy) {
-				CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-			}
-		}
-	}
-}
-
 /**
  * Whichever bulk actions the list can currently use, which is both of them when some folders are
  * hidden and some are not. Offering only one left the other half of a mixed list reachable a row at
  * a time, which is where a partial unhide leaves you.
  */
 @Composable
-private fun FolderListHeader(count: Int, enabled: Boolean, onHideAll: (() -> Unit)?, onUnhideAll: (() -> Unit)?,) {
+private fun FolderListHeader(enabled: Boolean, onHideAll: (() -> Unit)?, onUnhideAll: (() -> Unit)?) {
 	Row(
-		Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 2.dp),
+		Modifier.fillMaxWidth().padding(start = 4.dp, top = 12.dp),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		Text(
 			stringResource(R.string.folders),
-			style = MaterialTheme.typography.titleMedium,
-			color = MaterialTheme.colorScheme.onSurface,
-		)
-		Text(
-			count.toString(),
-			modifier = Modifier.padding(start = 8.dp).weight(1f),
-			style = MaterialTheme.typography.labelLarge,
+			modifier = Modifier.weight(1f),
+			style = MaterialTheme.typography.titleSmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
-		// Both together do not fit a phone at full length, and the header has already said Folders.
-		val both = onHideAll != null && onUnhideAll != null
 		onHideAll?.let {
-			TextButton(onClick = it, enabled = enabled) {
-				Text(stringResource(if (both) R.string.hide_all_short else R.string.hide_all))
-			}
+			TextButton(onClick = it, enabled = enabled) { Text(stringResource(R.string.hide_all_short)) }
 		}
 		onUnhideAll?.let {
-			TextButton(onClick = it, enabled = enabled) {
-				Text(stringResource(if (both) R.string.unhide_all_short else R.string.unhide_all))
-			}
+			TextButton(onClick = it, enabled = enabled) { Text(stringResource(R.string.unhide_all_short)) }
 		}
 	}
 }
 
-/** One folder. Lock state is an icon and a subtitle, not a coloured warning band. */
+/**
+ * One folder. A visible folder is the one that needs doing something about, so it carries the
+ * filled button and a coloured status; a hidden one sits quietly.
+ */
 @Composable
 private fun FolderTile(row: ShelfRow, busy: Boolean) {
 	var menu by remember { mutableStateOf(false) }
+	val colors = MaterialTheme.colorScheme
 	Surface(
 		modifier = Modifier
 			.fillMaxWidth()
+			.clip(MaterialTheme.shapes.large)
 			.clickable(enabled = !busy && row.onViewMedia != null) { row.onViewMedia?.invoke() },
 		shape = MaterialTheme.shapes.large,
-		color = if (row.hidden) {
-			MaterialTheme.colorScheme.surfaceContainerLow
-		} else {
-			MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.52f)
-		},
-		tonalElevation = 0.dp,
+		color = colors.surfaceContainer,
 	) {
-		Row(verticalAlignment = Alignment.CenterVertically) {
+		Row(
+			Modifier.padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
 			Box(
-				Modifier.padding(start = 16.dp).size(40.dp).clip(CircleShape).background(
-					if (row.hidden) {
-						MaterialTheme.colorScheme.primaryContainer
-					} else {
-						MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
-					},
-				),
+				Modifier.size(44.dp).clip(MaterialTheme.shapes.medium)
+					.background(if (row.hidden) colors.primaryContainer else colors.tertiaryContainer),
 				contentAlignment = Alignment.Center,
 			) {
-				val iconTint = if (row.hidden) {
-					MaterialTheme.colorScheme.onPrimaryContainer
-				} else {
-					MaterialTheme.colorScheme.primary
-				}
-				if (row.hidden) {
-					Icon(
-						Icons.Filled.Lock,
-						contentDescription = null,
-						modifier = Modifier.size(18.dp),
-						tint = iconTint,
-					)
-				} else {
-					Icon(
-						painterResource(R.drawable.ic_lock_open),
-						contentDescription = null,
-						modifier = Modifier.size(18.dp),
-						tint = iconTint,
-					)
-				}
+				Icon(
+					if (row.hidden) rememberVectorPainter(Icons.Filled.Lock) else painterResource(R.drawable.ic_folder),
+					contentDescription = null,
+					modifier = Modifier.size(22.dp),
+					tint = if (row.hidden) colors.onPrimaryContainer else colors.onTertiaryContainer,
+				)
 			}
-			Column(
-				Modifier.padding(start = 12.dp, top = 14.dp, bottom = 14.dp)
-					.weight(1f),
-			) {
+			Column(Modifier.padding(horizontal = 14.dp).weight(1f)) {
 				Text(
 					row.title,
-					style = MaterialTheme.typography.titleSmall,
-					color = if (row.hidden) {
-						MaterialTheme.colorScheme.onSurfaceVariant
-					} else {
-						MaterialTheme.colorScheme.onSurface
-					},
+					style = MaterialTheme.typography.titleMedium,
+					color = colors.onSurface,
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis,
 				)
 				Text(
 					row.subtitle,
 					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					color = if (row.hidden) colors.onSurfaceVariant else colors.tertiary,
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis,
 				)
 			}
-			TextButton(onClick = row.onToggle, enabled = !busy) {
-				Text(stringResource(if (row.hidden) R.string.restore else R.string.hide))
+			if (row.hidden) {
+				OutlinedButton(
+					onClick = row.onToggle,
+					enabled = !busy,
+					contentPadding = PaddingValues(horizontal = 14.dp),
+				) { Text(stringResource(R.string.restore)) }
+			} else {
+				Button(
+					onClick = row.onToggle,
+					enabled = !busy,
+					contentPadding = PaddingValues(horizontal = 18.dp),
+				) { Text(stringResource(R.string.hide)) }
 			}
 			if (row.onForget != null || row.onViewMedia != null) {
 				Box {
@@ -700,6 +620,7 @@ private fun SettingsScreen(
 	onQuickLockChange: (Boolean) -> Unit,
 	onAllowScreenshotsChange: (Boolean) -> Unit,
 	onAutoHideMode: (AutoHideMode) -> Unit,
+	onRehideMinutes: (Int) -> Unit,
 	onFlipToHideChange: (Boolean) -> Unit,
 	onUsbPanicChange: (Boolean) -> Unit,
 	onDeepProtectionChange: (Boolean) -> Unit,
@@ -799,6 +720,7 @@ private fun SettingsScreen(
 						state = state,
 						onQuickLockChange = { onQuickLockChange(!state.quickLockNotification) },
 						onAutoHideMode = onAutoHideMode,
+						onRehideMinutes = onRehideMinutes,
 						onFlipToHideChange = { onFlipToHideChange(!state.flipToHide) },
 						onUsbPanicChange = { onUsbPanicChange(!state.usbPanic) },
 						onAllowScreenshotsChange = { onAllowScreenshotsChange(!state.allowScreenshots) },

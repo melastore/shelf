@@ -258,6 +258,49 @@ class HideStrategiesRobolectricTest {
 	}
 
 	@Test
+	fun `a failed restore leaves a shallow hide untouched`() = runBlocking {
+		ContentCredential.set("48261357".toCharArray())
+		val paths = testPaths(FakeRoot())
+		val journal = Journal(File(temporaryFolder.root, "shallow-failed-restore.json"))
+		val source = File(paths.emulatedRoot, "Download/Holiday").apply { mkdirs() }
+		File(source, "clip.mp4").writeText("keep me")
+		val hider = DotRenameHider(context, journal, paths, deepProtection = { false })
+		assertTrue(hider.hide(FolderTarget(source.path, "Holiday", null)) is HideResult.Ok)
+		val entry = journal.read().single()
+		// Something else now answers to the original name, so the rename back cannot happen.
+		source.writeText("squatter")
+
+		val restored = hider.restore(entry)
+
+		assertTrue(restored is HideResult.Failed)
+		val hidden = File(entry.hiddenPath)
+		assertEquals(listOf("clip.mp4"), hidden.listFiles().orEmpty().map { it.name })
+		assertEquals("keep me", File(hidden, "clip.mp4").readText())
+		ContentCredential.clear()
+	}
+
+	@Test
+	fun `a failed restore keeps the folder's own name in its manifest`() = runBlocking {
+		ContentCredential.set("48261357".toCharArray())
+		val paths = testPaths(FakeRoot())
+		val journal = Journal(File(temporaryFolder.root, "deep-failed-restore.json"))
+		val source = File(paths.emulatedRoot, "Download/Holiday").apply { mkdirs() }
+		File(source, "clip.mp4").writeText("x")
+		val hider = DotRenameHider(context, journal, paths, nameStyle = { HiddenNameStyle.CAMOUFLAGE })
+		assertTrue(hider.hide(FolderTarget(source.path, "Holiday", null)) is HideResult.Ok)
+		val entry = journal.read().single()
+		assertEquals("Holiday", hider.recordedName(entry.hiddenPath))
+		source.writeText("squatter")
+
+		assertTrue(hider.restore(entry) is HideResult.Failed)
+
+		// With the journal gone this is the only thing that can say what the folder was called.
+		assertEquals("Holiday", hider.recordedName(entry.hiddenPath))
+		assertTrue(File(entry.hiddenPath).listFiles().orEmpty().none { it.name == "clip.mp4" })
+		ContentCredential.clear()
+	}
+
+	@Test
 	fun `a hide that cannot protect does not record protection`() = runBlocking {
 		ContentCredential.clear()
 		val paths = testPaths(FakeRoot())

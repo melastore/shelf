@@ -61,14 +61,17 @@ SHA-256  c0a840767117551defe6282499cf23a10c586a42da67a8bb4f038ef297d6a405
 **Tap the top-right corner five times.** That always works, on every disguise,
 whatever else you have set.
 
-Settings adds a quieter second way: a long press on the title, a double tap on
-it, or a long press on an ordinary-looking control inside the disguise.
+Settings adds a quieter second way: a long press on the title, or a double tap
+on it.
 
 The calculator can take your code on its own keypad instead, leaving no gesture
 to find. Type a PIN and press equals. A knock code works there too: tap it on
 the blank space above the keys and hold to open, or type the quarters as 1 to 4,
 left to right and top to bottom, then equals. The keypad has only digits, so it
 is offered for a PIN or a knock code and not for a password or a pattern.
+Since every equals could be someone guessing, the keypad stops checking for a
+while after ten codes that open nothing. It shows nothing when that happens, and
+the corner taps still bring up the prompt.
 
 Then enter your credential:
 
@@ -145,6 +148,11 @@ out to be opened, so no other app is handed the file and nothing is left behind.
 **Auto hide** closes the private space and puts folders back on its own: after
 the screen turns off, immediately when you leave the app, or never.
 
+You can also have anything left in the open put back after 5, 15, 30 or 60
+minutes, whatever the screen is doing. That covers a phone left awake on a
+charger or playing a video, where screen-off never comes. It runs with Shelf
+closed and survives a restart, though Android may run it a few minutes late.
+
 Two panic triggers do it without touching the screen:
 
 - **Turn the phone face down.**
@@ -187,6 +195,9 @@ tells you about it the next time you get in.
 entered, at any unlock prompt. Your folders stay where they are on disk, but
 Shelf can no longer find or unscramble them, and neither can anyone holding the
 phone. There is no undo, and no recovery file will bring them back afterwards.
+The disguise stays up and answers as if the PIN were simply wrong, and from then
+on nothing opens it, your real credential included. To use Shelf again, clear
+its storage in Android's app settings.
 
 ## Read this before you rely on it
 

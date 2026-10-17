@@ -2,9 +2,17 @@ package io.github.melastore.shelf.ui
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import io.github.melastore.shelf.R
 import io.github.melastore.shelf.data.HideMethod
@@ -55,12 +63,24 @@ internal fun SettingsCategory.status(state: AppUiState): String = when (this) {
 }
 
 @Composable
+private fun SettingsCategory.icon(): Painter = when (this) {
+	SettingsCategory.DISGUISE -> rememberVectorPainter(Icons.Filled.Face)
+	SettingsCategory.CREDENTIALS -> rememberVectorPainter(Icons.Filled.Lock)
+	SettingsCategory.LOCKING -> rememberVectorPainter(Icons.Filled.Warning)
+	SettingsCategory.HIDING -> painterResource(R.drawable.ic_folder)
+	SettingsCategory.APPEARANCE -> rememberVectorPainter(Icons.Filled.Star)
+	SettingsCategory.RECOVERY -> rememberVectorPainter(Icons.Filled.Refresh)
+}
+
+@Composable
 internal fun SettingsHome(state: AppUiState, onOpen: (SettingsCategory) -> Unit) {
-	SettingsGroup(stringResource(R.string.settings)) {
+	// No group title: the screen is already called Settings.
+	SettingsGroup(null) {
 		SettingsCategory.entries.forEach { category ->
 			SettingsRow(
 				title = category.title(),
 				summary = category.status(state),
+				leading = category.icon(),
 				trailing = {
 					Icon(
 						Icons.AutoMirrored.Filled.KeyboardArrowRight,

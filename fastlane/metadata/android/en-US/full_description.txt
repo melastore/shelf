@@ -3,8 +3,8 @@ tracker, calendar, or calculator. Each decoy is a functional app with its own
 name, icon, and colour scheme.
 
 Five taps in the top-right corner open the credential prompt. Settings adds a
-second, quieter gesture: a long press on the decoy title, or on a natural
-control inside the decoy. Access uses a PIN, a password, a 3×3 pattern, or a
+second, quieter gesture: a long or double tap on the decoy title, or the PIN
+typed straight into the calculator. Access uses a PIN, a password, a 3×3 pattern, or a
 knock code on four unmarked quarters. The knock pad shows a blank screen while
 it is entered, so a watcher learns neither the length of the code nor how far
 through it you are. Optional strong-biometric unlock always opens the real
@@ -14,7 +14,7 @@ credential.
 
 Auto hide runs after screen off, immediately when Shelf leaves the foreground,
 or never. It closes the private space and puts exposed folders back out of
-sight. An optional quiet notification, under the disguise's own name, offers
+sight. A timer can also put them back after a set time with the screen on. An optional quiet notification, under the disguise's own name, offers
 the same emergency hide on demand.
 
 Folders you add stay on the list whether or not they are hidden, and one control

@@ -229,6 +229,9 @@ class DotRenameHider(
 			journal.remove(entry.path)
 			return@withContext HideResult.Ok(entry)
 		}
+		// The manifest goes with a names restore, and it is the only place the folder's own name
+		// survives a lost journal. Putting names back on a failure has to write it again.
+		val folderName = SafPaths.nameOf(entry.path)
 		val nameRestore = names.restore(entry.hiddenPath)
 		when (nameRestore) {
 			is NameProtectionResult.Done, NameProtectionResult.NoFiles -> Unit
@@ -250,26 +253,27 @@ class DotRenameHider(
 				entry.displayName,
 			)
 		}
-		when (val contentRestore = content.restore(entry.hiddenPath)) {
+		val contentRestore = content.restore(entry.hiddenPath)
+		when (contentRestore) {
 			is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> Unit
 
 			ContentProtectionResult.CredentialRequired -> {
-				if (nameRestore is NameProtectionResult.Done) names.protect(entry.hiddenPath)
+				if (nameRestore is NameProtectionResult.Done) names.protect(entry.hiddenPath, folderName)
 				return@withContext HideResult.Failed(HideFailure.ContentCredentialRequired)
 			}
 
 			ContentProtectionResult.WrongCredential -> {
-				if (nameRestore is NameProtectionResult.Done) names.protect(entry.hiddenPath)
+				if (nameRestore is NameProtectionResult.Done) names.protect(entry.hiddenPath, folderName)
 				return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
 			}
 
 			is ContentProtectionResult.Failed -> {
-				if (nameRestore is NameProtectionResult.Done) names.protect(entry.hiddenPath)
+				if (nameRestore is NameProtectionResult.Done) names.protect(entry.hiddenPath, folderName)
 				return@withContext HideResult.Failed(HideFailure.ContentRestoreFailed(contentRestore.count))
 			}
 
 			ContentProtectionResult.AccessUnavailable -> {
-				if (nameRestore is NameProtectionResult.Done) names.protect(entry.hiddenPath)
+				if (nameRestore is NameProtectionResult.Done) names.protect(entry.hiddenPath, folderName)
 				return@withContext HideResult.NeedsAccess(
 					SafPaths.parentOf(entry.path),
 					entry.displayName,
@@ -280,8 +284,10 @@ class DotRenameHider(
 		val originalFolderTime = runCatching { File(entry.hiddenPath).lastModified() }.getOrDefault(0L)
 		val wanted = SafPaths.nameOf(entry.path)
 		val restored = renameFolder(tree, entry.hiddenPath, wanted) ?: run {
-			content.protect(entry.hiddenPath)
-			names.protect(entry.hiddenPath)
+			// Only what this restore undid. A folder hidden with the second layer off has nothing to
+			// put back, and protecting it here would do what the owner turned off.
+			if (contentRestore is ContentProtectionResult.Done) content.protect(entry.hiddenPath)
+			if (nameRestore is NameProtectionResult.Done) names.protect(entry.hiddenPath, folderName)
 			return@withContext HideResult.Failed(HideFailure.RenameBackFailed(entry.displayName))
 		}
 		// The rename already happened. Some providers hand back a uri they then refuse to describe,

@@ -11,7 +11,9 @@ import io.github.melastore.shelf.security.CredentialKind
  */
 enum class DecoyType { NONE, HABITS, CALENDAR, CALCULATOR }
 
-enum class EntryMethod { TITLE_HOLD, CORNER_KNOCK, NATURAL_HOLD, DIRECT_KEYPAD, DOUBLE_TAP_TITLE }
+// NATURAL_HOLD was dropped in 0.11. A saved value no longer parses and reads as TITLE_HOLD, which
+// every disguise has.
+enum class EntryMethod { TITLE_HOLD, CORNER_KNOCK, DIRECT_KEYPAD, DOUBLE_TAP_TITLE }
 
 /**
  * Whether this kind can be entered on the calculator keypad. A knock code counts: it is tapped on
@@ -50,6 +52,7 @@ data class AppSettings(
 	val usbPanic: Boolean = false,
 	val deepProtection: Boolean = true,
 	val hiddenNameStyle: HiddenNameStyle = HiddenNameStyle.CAMOUFLAGE,
+	val rehideMinutes: Int = 0,
 )
 
 /** Small, non-sensitive settings. Secrets live in [io.github.melastore.shelf.security.PassphraseGate]. */
@@ -73,6 +76,7 @@ class AppPreferences(context: Context) {
 		usbPanic = values.getBoolean(KEY_USB_PANIC, false),
 		deepProtection = deepProtection(),
 		hiddenNameStyle = hiddenNameStyle(),
+		rehideMinutes = rehideMinutes(),
 	)
 
 	fun setDecoy(value: DecoyType) = putString(KEY_DECOY, value.name)
@@ -190,6 +194,20 @@ class AppPreferences(context: Context) {
 	 */
 	fun hiddenNameStyle(): HiddenNameStyle = enumValue(KEY_HIDDEN_NAME_STYLE, HiddenNameStyle.CAMOUFLAGE)
 
+	/** Zero is off. */
+	fun rehideMinutes(): Int = values.getInt(KEY_REHIDE_MINUTES, 0)
+
+	fun setRehideMinutes(value: Int) {
+		values.edit(commit = true) { putInt(KEY_REHIDE_MINUTES, value) }
+	}
+
+	/** Against elapsedRealtime, like the lockout. Zero when nothing is scheduled. */
+	fun rehideAt(): Long = values.getLong(KEY_REHIDE_AT, 0L)
+
+	fun setRehideAt(value: Long) {
+		values.edit(commit = true) { putLong(KEY_REHIDE_AT, value) }
+	}
+
 	fun autoHideMode(): AutoHideMode {
 		if (values.contains(KEY_AUTO_HIDE)) return enumValue(KEY_AUTO_HIDE, AutoHideMode.IMMEDIATE)
 		// Migrating the two older controls: immediate stays immediate, a screen-off trigger stays
@@ -216,10 +234,22 @@ class AppPreferences(context: Context) {
 	 * clear a lockout. A reboot restarts that counter and can leave a stale value in the future, so
 	 * anything further off than the current streak could have earned is treated as expired.
 	 */
-	fun blockedUntil(now: Long): Long {
-		val until = values.getLong(KEY_BLOCKED_UNTIL, 0L)
+	fun blockedUntil(now: Long): Long = blockedUntil(now, KEY_BLOCKED_UNTIL, KEY_LOCKOUTS)
+
+	/**
+	 * The calculator keeps its own count. Every equals there can be a guess, and saying so would give
+	 * the disguise away, so a miss never shows: past a few of them the keypad just stops matching for
+	 * a while. The prompt behind the corner taps is unaffected, so the owner always has a way in.
+	 */
+	fun keypadBlockedUntil(now: Long): Long = blockedUntil(now, KEY_KEYPAD_BLOCKED_UNTIL, KEY_KEYPAD_LOCKOUTS)
+
+	fun recordKeypadMiss(now: Long, freeMisses: Int): Long =
+		recordMiss(now, freeMisses, KEY_KEYPAD_MISSES, KEY_KEYPAD_LOCKOUTS, KEY_KEYPAD_BLOCKED_UNTIL)
+
+	private fun blockedUntil(now: Long, untilKey: String, lockoutsKey: String): Long {
+		val until = values.getLong(untilKey, 0L)
 		if (until <= now) return 0L
-		return until.takeIf { it - now <= lockoutMillis(values.getInt(KEY_LOCKOUTS, 0)) } ?: 0L
+		return until.takeIf { it - now <= lockoutMillis(values.getInt(lockoutsKey, 0)) } ?: 0L
 	}
 
 	/**
@@ -229,27 +259,34 @@ class AppPreferences(context: Context) {
 	 * rate: about three hours for every four-dot pattern, under a day for a four-digit PIN. Climbing
 	 * to an hour makes that months. Only getting in clears the streak, so waiting it out does not.
 	 */
-	fun recordFailedUnlock(now: Long, maximumAttempts: Int): Long {
-		val attempts = values.getInt(KEY_FAILED_UNLOCKS, 0) + 1
-		if (attempts < maximumAttempts) {
-			values.edit(commit = true) { putInt(KEY_FAILED_UNLOCKS, attempts) }
+	fun recordFailedUnlock(now: Long, maximumAttempts: Int): Long =
+		recordMiss(now, maximumAttempts, KEY_FAILED_UNLOCKS, KEY_LOCKOUTS, KEY_BLOCKED_UNTIL)
+
+	private fun recordMiss(now: Long, maximum: Int, countKey: String, lockoutsKey: String, untilKey: String): Long {
+		val attempts = values.getInt(countKey, 0) + 1
+		if (attempts < maximum) {
+			values.edit(commit = true) { putInt(countKey, attempts) }
 			return 0L
 		}
-		val lockouts = values.getInt(KEY_LOCKOUTS, 0) + 1
+		val lockouts = values.getInt(lockoutsKey, 0) + 1
 		val blockedUntil = now + lockoutMillis(lockouts)
 		values.edit(commit = true) {
-			putInt(KEY_FAILED_UNLOCKS, 0)
-			putInt(KEY_LOCKOUTS, lockouts)
-			putLong(KEY_BLOCKED_UNTIL, blockedUntil)
+			putInt(countKey, 0)
+			putInt(lockoutsKey, lockouts)
+			putLong(untilKey, blockedUntil)
 		}
 		return blockedUntil
 	}
 
+	/** Getting in by any route clears both streaks, the keypad's included. */
 	fun clearFailedUnlocks() {
 		values.edit(commit = true) {
 			remove(KEY_FAILED_UNLOCKS)
 			remove(KEY_LOCKOUTS)
 			remove(KEY_BLOCKED_UNTIL)
+			remove(KEY_KEYPAD_MISSES)
+			remove(KEY_KEYPAD_LOCKOUTS)
+			remove(KEY_KEYPAD_BLOCKED_UNTIL)
 		}
 	}
 
@@ -286,5 +323,10 @@ class AppPreferences(context: Context) {
 		const val KEY_FAILED_UNLOCKS = "failed_unlocks"
 		const val KEY_LOCKOUTS = "lockouts"
 		const val KEY_BLOCKED_UNTIL = "blocked_until"
+		const val KEY_KEYPAD_MISSES = "keypad_misses"
+		const val KEY_KEYPAD_LOCKOUTS = "keypad_lockouts"
+		const val KEY_KEYPAD_BLOCKED_UNTIL = "keypad_blocked_until"
+		const val KEY_REHIDE_MINUTES = "rehide_minutes"
+		const val KEY_REHIDE_AT = "rehide_at"
 	}
 }

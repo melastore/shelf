@@ -5,6 +5,7 @@ import io.github.melastore.shelf.security.CredentialKind
 import io.github.melastore.shelf.security.PassphraseGate
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 
 internal enum class CredentialMatch { PRIMARY, DECOY, BURNER, NONE }
@@ -19,11 +20,16 @@ internal class AuthCoordinator(filesDir: File, private val preferences: AppPrefe
 	suspend fun decoyIsSet(): Boolean = decoyGate.isSet()
 	suspend fun burnerIsSet(): Boolean = burnerGate.isSet()
 
+	// Each gate is a full PBKDF2 run, so they go side by side. Taken one after another, the owner's
+	// own PIN waited for the burner hash first, and a wrong one for all three.
 	suspend fun match(input: CharArray): CredentialMatch = withContext(Dispatchers.Default) {
+		val burner = async { burnerGate.matches(input) }
+		val primary = async { primaryGate.matches(input) }
+		val decoy = async { decoyGate.matches(input) }
 		when {
-			burnerGate.matches(input) -> CredentialMatch.BURNER
-			primaryGate.matches(input) -> CredentialMatch.PRIMARY
-			decoyGate.matches(input) -> CredentialMatch.DECOY
+			burner.await() -> CredentialMatch.BURNER
+			primary.await() -> CredentialMatch.PRIMARY
+			decoy.await() -> CredentialMatch.DECOY
 			else -> CredentialMatch.NONE
 		}
 	}

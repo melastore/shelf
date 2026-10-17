@@ -210,7 +210,7 @@ internal fun AuthenticationSettingsSection(
 					else -> R.string.biometric_unavailable_summary
 				},
 			),
-			trailing = { SelectionMark(state.biometricEnabled) },
+			trailing = { ToggleMark(state.biometricEnabled) },
 			enabled = state.biometricAvailable || state.biometricEnabled,
 			onClick = onBiometricChange,
 		)
@@ -257,6 +257,7 @@ internal fun AutomaticLockSettingsSection(
 	state: AppUiState,
 	onQuickLockChange: () -> Unit,
 	onAutoHideMode: (AutoHideMode) -> Unit,
+	onRehideMinutes: (Int) -> Unit,
 	onFlipToHideChange: () -> Unit,
 	onUsbPanicChange: () -> Unit,
 	onAllowScreenshotsChange: () -> Unit,
@@ -269,13 +270,13 @@ internal fun AutomaticLockSettingsSection(
 		SettingsRow(
 			title = stringResource(R.string.flip_to_hide_title),
 			summary = stringResource(R.string.flip_to_hide_summary),
-			trailing = { SelectionMark(state.flipToHide) },
+			trailing = { ToggleMark(state.flipToHide) },
 			onClick = onFlipToHideChange,
 		)
 		SettingsRow(
 			title = stringResource(R.string.usb_panic_title),
 			summary = stringResource(R.string.usb_panic_summary),
-			trailing = { SelectionMark(state.usbPanic) },
+			trailing = { ToggleMark(state.usbPanic) },
 			onClick = onUsbPanicChange,
 		)
 		ChoiceRow(
@@ -284,10 +285,16 @@ internal fun AutomaticLockSettingsSection(
 			options = AutoHideMode.entries.map { it to it.label() },
 			onSelected = onAutoHideMode,
 		)
+		ChoiceRow(
+			title = stringResource(R.string.rehide_after),
+			selected = rehideLabel(state.rehideMinutes),
+			options = REHIDE_CHOICES.map { it to rehideLabel(it) },
+			onSelected = onRehideMinutes,
+		)
 		SettingsRow(
 			title = stringResource(R.string.quick_lock_notification),
 			summary = stringResource(R.string.quick_lock_notification_summary),
-			trailing = { SelectionMark(state.quickLockNotification) },
+			trailing = { ToggleMark(state.quickLockNotification) },
 			onClick = onQuickLockChange,
 		)
 		// Same question as auto hide, which is who else gets to see this, so they sit in the one group
@@ -295,14 +302,14 @@ internal fun AutomaticLockSettingsSection(
 		SettingsRow(
 			title = stringResource(R.string.hide_from_recents),
 			summary = stringResource(R.string.hide_from_recents_summary),
-			trailing = { SelectionMark(state.hideFromRecents) },
+			trailing = { ToggleMark(state.hideFromRecents) },
 			onClick = onHideFromRecentsChange,
 		)
 		SettingsRow(
 			title = stringResource(R.string.allow_screenshots),
 			summary = stringResource(R.string.allow_screenshots_summary),
 			dangerous = state.allowScreenshots,
-			trailing = { SelectionMark(state.allowScreenshots) },
+			trailing = { ToggleMark(state.allowScreenshots) },
 			onClick = onAllowScreenshotsChange,
 		)
 	}
@@ -319,28 +326,23 @@ internal fun DisguiseSettingsSection(
 		stringResource(R.string.disguise),
 		stringResource(R.string.disguise_description),
 	) {
-		Row(
-			Modifier.fillMaxWidth().padding(12.dp),
-			horizontalArrangement = Arrangement.spacedBy(12.dp),
-		) {
-			DecoyType.entries.forEach { decoy ->
-				ChoiceTile(
-					label = decoy.label(),
-					selected = state.decoy == decoy,
-					modifier = Modifier.weight(1f),
-					icon = { DecoyBadge(decoy) },
-					onClick = {
-						onDecoy(decoy)
-						val keypadUsable = decoy == DecoyType.CALCULATOR &&
-							state.credentialKind.worksOnCalculatorKeypad()
-						if (keypadUsable) {
-							onEntryMethod(EntryMethod.DIRECT_KEYPAD)
-						} else if (state.entryMethod == EntryMethod.DIRECT_KEYPAD) {
-							onEntryMethod(EntryMethod.DOUBLE_TAP_TITLE)
-						}
-					},
-				)
-			}
+		TwoColumnGrid(DecoyType.entries, Modifier.fillMaxWidth().padding(12.dp)) { decoy, cellModifier ->
+			ChoiceTile(
+				label = decoy.label(),
+				selected = state.decoy == decoy,
+				modifier = cellModifier,
+				icon = { DecoyBadge(decoy) },
+				onClick = {
+					onDecoy(decoy)
+					val keypadUsable = decoy == DecoyType.CALCULATOR &&
+						state.credentialKind.worksOnCalculatorKeypad()
+					if (keypadUsable) {
+						onEntryMethod(EntryMethod.DIRECT_KEYPAD)
+					} else if (state.entryMethod == EntryMethod.DIRECT_KEYPAD) {
+						onEntryMethod(EntryMethod.DOUBLE_TAP_TITLE)
+					}
+				},
+			)
 		}
 	}
 }
@@ -375,7 +377,7 @@ internal fun EntrySettingsSection(
 		SettingsRow(
 			title = stringResource(R.string.fake_crash),
 			summary = stringResource(R.string.fake_crash_summary),
-			trailing = { SelectionMark(state.fakeCrash) },
+			trailing = { ToggleMark(state.fakeCrash) },
 			onClick = { onFakeCrash(!state.fakeCrash) },
 		)
 	}
@@ -427,7 +429,7 @@ internal fun FolderSettingsSection(
 		SettingsRow(
 			title = stringResource(R.string.deep_protection_title),
 			summary = stringResource(R.string.deep_protection_summary),
-			trailing = { SelectionMark(state.deepProtection) },
+			trailing = { ToggleMark(state.deepProtection) },
 			onClick = onDeepProtectionChange,
 		)
 		if (state.canRequestAllFiles) {

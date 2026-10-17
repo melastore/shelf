@@ -249,7 +249,8 @@ class PrivateMoveHider(
 				HideFailure.AllFilesRequired(entry.displayName),
 			)
 		}
-		when (val restored = content.restore(hidden.path)) {
+		val contentRestore = content.restore(hidden.path)
+		when (val restored = contentRestore) {
 			is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> Unit
 
 			ContentProtectionResult.CredentialRequired -> {
@@ -274,7 +275,8 @@ class PrivateMoveHider(
 		}
 		original.parentFile?.mkdirs()
 		if (!hidden.renameTo(original)) {
-			content.protect(hidden.path)
+			// Only what this restore undid, so a folder moved with the second layer off stays as it was.
+			if (contentRestore is ContentProtectionResult.Done) content.protect(hidden.path)
 			if (nameRestore is NameProtectionResult.Done) names.protect(hidden.path)
 			return@withContext HideResult.Failed(
 				HideFailure.MoveBackFailed(entry.displayName, entry.path),

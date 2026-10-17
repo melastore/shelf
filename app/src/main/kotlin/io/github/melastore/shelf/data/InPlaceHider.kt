@@ -135,48 +135,61 @@ class InPlaceHider(context: Context, private val journal: Journal, private val p
 		// Before the names go back, not after. Name protection treats a .nomedia the owner put there
 		// as content and renames it, so ours has to be gone by the time that one is restored or the
 		// provider hands the owner's back under a name it invented to dodge the collision.
-		if (markedOurNoMedia(root)) deleteChild(root, NO_MEDIA)
+		val droppedNoMedia = markedOurNoMedia(root) && deleteChild(root, NO_MEDIA)
 
-		when (val nameRestore = names.restore(path)) {
+		// A restore that stops partway leaves the folder hidden, so the scanner has to stay out of it.
+		fun keepNoMedia() {
+			if (droppedNoMedia) createEmpty(root, NO_MEDIA)
+		}
+
+		val nameRestore = names.restore(path)
+		when (nameRestore) {
 			is NameProtectionResult.Done, NameProtectionResult.NoFiles -> Unit
 
-			NameProtectionResult.CredentialRequired -> return@withContext HideResult.Failed(
-				HideFailure.ContentCredentialRequired,
-			)
+			NameProtectionResult.CredentialRequired -> {
+				keepNoMedia()
+				return@withContext HideResult.Failed(HideFailure.ContentCredentialRequired)
+			}
 
-			NameProtectionResult.WrongCredential -> return@withContext HideResult.Failed(
-				HideFailure.ContentCredentialIncorrect,
-			)
+			NameProtectionResult.WrongCredential -> {
+				keepNoMedia()
+				return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
+			}
 
-			is NameProtectionResult.Failed -> return@withContext HideResult.Failed(
-				HideFailure.NameRestoreFailed(nameRestore.count),
-			)
+			is NameProtectionResult.Failed -> {
+				keepNoMedia()
+				return@withContext HideResult.Failed(HideFailure.NameRestoreFailed(nameRestore.count))
+			}
 
-			NameProtectionResult.AccessUnavailable -> return@withContext HideResult.NeedsAccess(
-				path,
-				entry.displayName,
-			)
+			NameProtectionResult.AccessUnavailable -> {
+				keepNoMedia()
+				return@withContext HideResult.NeedsAccess(path, entry.displayName)
+			}
 		}
 		when (val contentRestore = content.restore(path)) {
 			is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> Unit
 
 			ContentProtectionResult.CredentialRequired -> {
-				names.protect(path)
+				if (nameRestore is NameProtectionResult.Done) names.protect(path)
+				keepNoMedia()
 				return@withContext HideResult.Failed(HideFailure.ContentCredentialRequired)
 			}
 
 			ContentProtectionResult.WrongCredential -> {
-				names.protect(path)
+				if (nameRestore is NameProtectionResult.Done) names.protect(path)
+				keepNoMedia()
 				return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
 			}
 
 			is ContentProtectionResult.Failed -> {
-				names.protect(path)
+				if (nameRestore is NameProtectionResult.Done) names.protect(path)
+				keepNoMedia()
 				return@withContext HideResult.Failed(HideFailure.ContentRestoreFailed(contentRestore.count))
 			}
 
 			ContentProtectionResult.AccessUnavailable -> {
-				names.protect(path)
+				if (nameRestore is NameProtectionResult.Done) names.protect(path)
+				keepNoMedia()
 				return@withContext HideResult.NeedsAccess(path, entry.displayName)
 			}
 		}

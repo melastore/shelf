@@ -193,6 +193,8 @@ object QuickLockNotification {
 		)
 	}
 
+	internal fun hideBroadcast(context: Context) = hideIntent(context, identity(context))
+
 	private fun hideIntent(context: Context, identity: QuickLockIdentity) =
 		Intent(context, QuickLockReceiver::class.java).withIdentity(identity)
 
@@ -394,5 +396,7 @@ private suspend fun performQuickHide(context: Context): Int {
 	ShelfCore.hideAllExposed(ShelfCore.preferences.hidingPreference())
 	val remaining = runCatching { ShelfCore.exposedFolders().size }.getOrDefault(1)
 	if (remaining == 0) EmergencyCredentialStore.clear(context)
+	// Cancelled when it worked. Otherwise another window, so a folder that needed a grant gets retried.
+	RehideTimer.sync(context, remaining > 0)
 	return remaining
 }

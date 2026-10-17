@@ -51,6 +51,7 @@ import io.github.melastore.shelf.security.KnockCode
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.security.SecureRandom
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -123,6 +124,8 @@ data class AppUiState(
 	val flipToHide: Boolean = false,
 	val usbPanic: Boolean = false,
 	val deepProtection: Boolean = true,
+	/** Minutes a folder may stay exposed before it is put back regardless. Zero is off. */
+	val rehideMinutes: Int = 0,
 	/** Set when an operation stopped to ask for access to a folder above the target. */
 	val accessNeededFor: Uri? = null,
 	/** Where the folder picker opens, so the first hide does not start at an empty Recents list. */
@@ -253,6 +256,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					flipToHide = settings.flipToHide,
 					usbPanic = settings.usbPanic,
 					deepProtection = settings.deepProtection,
+					rehideMinutes = settings.rehideMinutes,
 					setupStep = if (credentialSet) 0 else preferences.setupStep(),
 					habits = habits,
 					calendarEvents = events,
@@ -347,7 +351,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				}
 
 				CredentialMatch.BURNER -> {
-					nukeAndWipe()
+					nukeAndWipe(announce = true)
 				}
 
 				CredentialMatch.NONE -> recordFailedUnlock()
@@ -374,7 +378,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		val alias = KnockCode.fromOneBased(input)
 		try {
 			val uptime = SystemClock.elapsedRealtime()
-			val blockedUntil = withContext(Dispatchers.IO) { preferences.blockedUntil(uptime) }
+			val blockedUntil = withContext(Dispatchers.IO) {
+				maxOf(preferences.blockedUntil(uptime), preferences.keypadBlockedUntil(uptime))
+			}
 			if (uptime < blockedUntil) return@launch
 			// Keep the spelling that matched, not the keys pressed: that is what folders are sealed
 			// under.
@@ -400,11 +406,15 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					openDecoyVault(System.currentTimeMillis())
 				}
 
+				// The keypad says nothing about a wrong code, so a wipe from there says nothing either.
 				CredentialMatch.BURNER -> {
-					nukeAndWipe()
+					nukeAndWipe(announce = false)
 				}
 
-				CredentialMatch.NONE -> Unit
+				// Silent, like everything else here. Most of these are someone doing sums.
+				CredentialMatch.NONE -> withContext(Dispatchers.IO) {
+					preferences.recordKeypadMiss(uptime, KEYPAD_FREE_MISSES)
+				}
 			}
 		} catch (_: Exception) {
 		} finally {
@@ -414,9 +424,11 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		}
 	}
 
-	private suspend fun nukeAndWipe() = withContext(Dispatchers.IO) {
+	private suspend fun nukeAndWipe(announce: Boolean) = withContext(Dispatchers.IO) {
 		ContentCredential.clear()
+		EphemeralMediaLoader.clearCache()
 		EmergencyCredentialStore.clear(getApplication())
+		RehideTimer.sync(getApplication(), exposed = false)
 		preferences.clearFailedUnlocks()
 		preferences.setBiometricEnabled(false)
 		BiometricAuth.reset(getApplication())
@@ -432,19 +444,32 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				file.delete()
 			}
 		}
+		// With no credential at all the next frame is the setup wizard, which names the app and shows
+		// a wipe just happened. A gate nobody knows keeps the disguise up and refuses every entry.
+		val unknowable = randomCredential()
+		try {
+			auth.setPrimary(unknowable, _state.value.credentialKind)
+		} finally {
+			unknowable.fill(' ')
+		}
 		withContext(Dispatchers.Main) {
+			// The prompt also opens from inside the second space, so everything a lock drops goes too.
+			lockVault()
 			_state.update {
 				it.copy(
-					screen = Screen.DECOY,
-					credentialSet = false,
 					burnerPinSet = false,
 					decoyPinSet = false,
 					biometricEnabled = false,
-					folders = emptyList(),
-					fakeCrash = true,
+					exposedFolders = 0,
+					message = if (announce) uiMessage(R.string.wrong_credential) else it.message,
 				)
 			}
 		}
+	}
+
+	private fun randomCredential(): CharArray {
+		val random = SecureRandom()
+		return CharArray(UNKNOWABLE_LENGTH) { UNKNOWABLE_ALPHABET[random.nextInt(UNKNOWABLE_ALPHABET.length)] }
 	}
 
 	/**
@@ -648,6 +673,14 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		_state.update { it.copy(autoHideMode = mode, message = uiMessage(R.string.auto_hide_updated)) }
 	}
 
+	fun setRehideMinutes(minutes: Int) = viewModelScope.launch {
+		withContext(Dispatchers.IO) {
+			preferences.setRehideMinutes(minutes)
+			RehideTimer.sync(getApplication(), _state.value.exposedFolders > 0)
+		}
+		_state.update { it.copy(rehideMinutes = minutes, message = uiMessage(R.string.auto_hide_updated)) }
+	}
+
 	fun setQuickLockNotification(enabled: Boolean) = viewModelScope.launch {
 		withContext(Dispatchers.IO) { preferences.setQuickLockNotification(enabled) }
 		_state.update { it.copy(quickLockNotification = enabled) }
@@ -791,15 +824,18 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 * The decoy list is the owner's to write.
 	 *
 	 * As seeded it is the same four names on every install of an app anyone can read the source of,
-	 * and a decoy someone recognises is not a decoy. Adding and removing rows from inside the decoy
-	 * space is how it becomes this phone's list. Nothing here touches storage: a row is a name and a
-	 * flag, and restoring one strikes it off exactly as the real space would.
+	 * and a decoy someone recognises is not a decoy. Picking folders from inside the decoy space is
+	 * how it becomes this phone's list. Nothing here touches storage: a row is a name and a flag, and
+	 * no grant is kept, so the folder picked is left exactly as it was.
 	 */
-	fun addDecoyItem(name: String) = launchBusy {
-		val clean = name.trim()
-		if (clean.isEmpty()) return@launchBusy
-		runCatching { decoyVault.add(clean) }
-		refreshDecoyItems(uiMessage(R.string.folder_hidden_named, clean))
+	private suspend fun addDecoyFolder(treeUri: Uri) {
+		val path = resolveDocumentPath(treeUri, isTree = true)
+			?: return fail(uiMessage(R.string.folder_path_unresolved))
+		// Only the check that needs nothing tracked. The overlap check names a real folder.
+		reservedFolder(path)?.let { return fail(it) }
+		val name = DocumentFile.fromTreeUri(getApplication(), treeUri)?.name ?: File(path).name
+		runCatching { decoyVault.add(name) }
+		refreshDecoyItems(uiMessage(R.string.folder_hidden_named, name))
 	}
 
 	fun removeDecoyItem(item: DecoyItem) = launchBusy {
@@ -1000,6 +1036,12 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		_state.update { it.copy(entryMethod = method, message = uiMessage(R.string.entry_gesture_changed)) }
 	}
 
+	/** The setup form of [setEntryMethod]: no snackbar over the wizard's Continue button. */
+	fun chooseEntryMethod(method: EntryMethod) = viewModelScope.launch {
+		withContext(Dispatchers.IO) { preferences.setEntryMethod(method) }
+		_state.update { it.copy(entryMethod = method) }
+	}
+
 	/**
 	 * Puts the entrance back within reach of the credential just set. The keypad takes the title
 	 * gesture and the corner taps with it, so a credential that cannot be typed there leaves no way
@@ -1184,6 +1226,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	// Folder operations
 
 	fun hideFolder(treeUri: Uri) = launchBusy {
+		if (_state.value.duress) return@launchBusy addDecoyFolder(treeUri)
 		val path = resolveDocumentPath(treeUri, isTree = true)
 			?: return@launchBusy fail(uiMessage(R.string.folder_path_unresolved))
 		unsuitable(path)?.let { return@launchBusy fail(it) }
@@ -1204,14 +1247,17 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 * recorded path out from under it, and nothing is left that can find it again.
 	 */
 	private suspend fun unsuitable(path: String): UiMessage? {
-		val relative = path.removePrefix(paths.emulatedRoot).trim('/')
-		if (relative.isEmpty() || relative.lowercase() in RESERVED_FOLDERS) {
-			return uiMessage(R.string.folder_is_reserved, relative.ifEmpty { "/" })
-		}
+		reservedFolder(path)?.let { return it }
 		val tracked = guard { registry.read() }.orEmpty()
 		return tracked
 			.firstOrNull { path.startsWith("${it.path}/") || it.path.startsWith("$path/") }
 			?.let { uiMessage(R.string.folder_overlaps_tracked, it.displayName) }
+	}
+
+	private fun reservedFolder(path: String): UiMessage? {
+		val relative = path.removePrefix(paths.emulatedRoot).trim('/')
+		if (relative.isNotEmpty() && relative.lowercase() !in RESERVED_FOLDERS) return null
+		return uiMessage(R.string.folder_is_reserved, relative.ifEmpty { "/" })
 	}
 
 	private suspend fun hide(target: FolderTarget) {
@@ -1274,10 +1320,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		restoreEntry(entry)
 	}
 
-	/**
-	 * The one control at the top of the private space: everything out of sight, or everything back.
-	 * A half-hidden list unhides, since anything still visible means the useful direction is out.
-	 */
+	/** The header's bulk actions. A mixed list offers both, so neither decides for the other. */
 	fun hideAll() = launchBusy {
 		if (_state.value.duress) setAllDecoyItemsHidden(true) else hideEverythingTracked()
 	}
@@ -1412,14 +1455,16 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			}
 			encrypted = recoveryCoordinator.export(password)
 			val resolver = getApplication<Application>().contentResolver
-			val descriptor = resolver.openFileDescriptor(destination, "rwt")
-				?: return@launchBusy fail(uiMessage(R.string.recovery_destination_open_failed))
-			descriptor.use { pfd ->
-				FileOutputStream(pfd.fileDescriptor).use { output ->
-					output.write(encrypted)
-					output.fd.sync()
-				}
+			// The destination can be a cloud provider, which blocks for as long as the upload takes.
+			val written = withContext(Dispatchers.IO) {
+				resolver.openFileDescriptor(destination, "rwt")?.use { pfd ->
+					FileOutputStream(pfd.fileDescriptor).use { output ->
+						output.write(encrypted)
+						output.fd.sync()
+					}
+				} != null
 			}
+			if (!written) return@launchBusy fail(uiMessage(R.string.recovery_destination_open_failed))
 			_state.update { it.copy(message = uiMessage(R.string.recovery_exported)) }
 		} finally {
 			password.fill(' ')
@@ -1434,20 +1479,30 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				return@launchBusy fail(uiMessage(R.string.recovery_password_too_short))
 			}
 			val resolver = getApplication<Application>().contentResolver
-			encrypted = resolver.openInputStream(source)?.use { input ->
-				val bytes = ByteArrayOutputStream()
-				val buffer = ByteArray(16 * 1024)
-				while (true) {
-					val read = input.read(buffer)
-					if (read < 0) break
-					if (bytes.size() + read > RecoveryCoordinator.MAX_ENVELOPE_BYTES) {
-						return@launchBusy fail(uiMessage(R.string.recovery_file_too_large))
+			val read = withContext(Dispatchers.IO) {
+				resolver.openInputStream(source)?.use { input ->
+					val bytes = ByteArrayOutputStream()
+					val buffer = ByteArray(16 * 1024)
+					try {
+						while (true) {
+							val count = input.read(buffer)
+							if (count < 0) break
+							if (bytes.size() + count > RecoveryCoordinator.MAX_ENVELOPE_BYTES) {
+								return@withContext RecoveryRead.TooLarge
+							}
+							bytes.write(buffer, 0, count)
+						}
+					} finally {
+						buffer.fill(0)
 					}
-					bytes.write(buffer, 0, read)
-				}
-				buffer.fill(0)
-				bytes.toByteArray()
-			} ?: return@launchBusy fail(uiMessage(R.string.recovery_file_open_failed))
+					RecoveryRead.Bytes(bytes.toByteArray())
+				} ?: RecoveryRead.Unopened
+			}
+			encrypted = when (read) {
+				is RecoveryRead.Bytes -> read.bytes
+				RecoveryRead.TooLarge -> return@launchBusy fail(uiMessage(R.string.recovery_file_too_large))
+				RecoveryRead.Unopened -> return@launchBusy fail(uiMessage(R.string.recovery_file_open_failed))
+			}
 			val merged = runCatching { recoveryCoordinator.import(encrypted, password) }.getOrElse {
 				return@launchBusy if (it is InvalidRecoveryRecords) {
 					fail(uiMessage(R.string.recovery_records_invalid, it.cause?.message.orEmpty()))
@@ -1660,6 +1715,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					exposed && credential != null -> EmergencyCredentialStore.arm(getApplication(), credential)
 					!exposed -> EmergencyCredentialStore.clear(getApplication())
 				}
+				RehideTimer.sync(getApplication(), exposed)
 			}
 		} finally {
 			credential?.fill(' ')
@@ -1741,6 +1797,12 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		return paths.emulatedRoot + if (relative.isEmpty()) "" else "/$relative"
 	}
 
+	private sealed interface RecoveryRead {
+		class Bytes(val bytes: ByteArray) : RecoveryRead
+		data object TooLarge : RecoveryRead
+		data object Unopened : RecoveryRead
+	}
+
 	private companion object {
 		/**
 		 * Android's own folders under the storage root. It recreates them, indexes them, and points
@@ -1764,6 +1826,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 		const val EXTERNAL_STORAGE = "com.android.externalstorage.documents"
 		const val MAX_UNLOCK_ATTEMPTS = 5
+		const val KEYPAD_FREE_MISSES = 10
 		const val PICKER_GRACE_MILLIS = 120_000L
+		const val UNKNOWABLE_LENGTH = 48
+		const val UNKNOWABLE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
 	}
 }

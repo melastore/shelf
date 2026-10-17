@@ -89,6 +89,23 @@ class AppPreferencesLockoutTest {
 		assertEquals(0L, preferences.blockedUntil(0L))
 	}
 
+	@Test
+	fun `keypad misses block the keypad and leave the prompt alone`() {
+		repeat(KEYPAD_FREE - 1) { assertEquals(0L, preferences.recordKeypadMiss(NOW, KEYPAD_FREE)) }
+		assertEquals(NOW + LOCKOUT_LADDER.first(), preferences.recordKeypadMiss(NOW, KEYPAD_FREE))
+
+		assertEquals(NOW + LOCKOUT_LADDER.first(), preferences.keypadBlockedUntil(NOW))
+		assertEquals(0L, preferences.blockedUntil(NOW))
+	}
+
+	@Test
+	fun `getting in clears the keypad streak too`() {
+		repeat(KEYPAD_FREE) { preferences.recordKeypadMiss(NOW, KEYPAD_FREE) }
+		preferences.clearFailedUnlocks()
+
+		assertEquals(0L, preferences.keypadBlockedUntil(NOW))
+	}
+
 	private fun lockOutOnce(now: Long): Long {
 		repeat(ATTEMPTS - 1) { preferences.recordFailedUnlock(now, ATTEMPTS) }
 		return preferences.recordFailedUnlock(now, ATTEMPTS)
@@ -96,6 +113,7 @@ class AppPreferencesLockoutTest {
 
 	private companion object {
 		const val ATTEMPTS = 5
+		const val KEYPAD_FREE = 10
 		const val NOW = 1_000_000L
 	}
 }

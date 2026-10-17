@@ -318,7 +318,7 @@ class MainActivity : ComponentActivity() {
 							firstRun -> FirstRunSetup(
 								state = state,
 								onDecoy = viewModel::chooseDecoy,
-								onEntryMethod = viewModel::setEntryMethod,
+								onEntryMethod = viewModel::chooseEntryMethod,
 								onHidingPreference = viewModel::setHidingPreference,
 								onCheckMethods = viewModel::refreshCapabilities,
 								onRequestAllFiles = {

@@ -25,9 +25,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
@@ -50,6 +53,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -362,16 +366,24 @@ fun KnockTarget(onTriggered: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun EmptyState(title: String, body: String, modifier: Modifier = Modifier) {
+fun EmptyState(title: String, body: String, icon: Painter, modifier: Modifier = Modifier) {
 	Column(
-		modifier = modifier.fillMaxWidth().padding(vertical = 48.dp, horizontal = 24.dp),
+		modifier = modifier.fillMaxWidth().padding(vertical = 56.dp, horizontal = 32.dp),
 		verticalArrangement = Arrangement.Center,
 		horizontalAlignment = Alignment.CenterHorizontally,
 	) {
 		Box(
-			modifier = Modifier.size(72.dp).clip(MaterialTheme.shapes.extraLarge)
+			modifier = Modifier.size(80.dp).clip(CircleShape)
 				.background(MaterialTheme.colorScheme.primaryContainer),
-		)
+			contentAlignment = Alignment.Center,
+		) {
+			Icon(
+				icon,
+				contentDescription = null,
+				modifier = Modifier.size(36.dp),
+				tint = MaterialTheme.colorScheme.onPrimaryContainer,
+			)
+		}
 		Spacer(Modifier.height(20.dp))
 		Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
 		Spacer(Modifier.height(6.dp))
@@ -423,6 +435,7 @@ fun SettingsRow(
 	summary: String,
 	enabled: Boolean = true,
 	dangerous: Boolean = false,
+	leading: Painter? = null,
 	trailing: @Composable (() -> Unit)? = null,
 	onClick: (() -> Unit)? = null,
 ) {
@@ -432,6 +445,20 @@ fun SettingsRow(
 			.padding(horizontal = 20.dp, vertical = 14.dp),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
+		if (leading != null) {
+			Box(
+				Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
+				contentAlignment = Alignment.Center,
+			) {
+				Icon(
+					leading,
+					contentDescription = null,
+					modifier = Modifier.size(20.dp),
+					tint = MaterialTheme.colorScheme.onSecondaryContainer,
+				)
+			}
+			Spacer(Modifier.size(16.dp))
+		}
 		Column(Modifier.weight(1f)) {
 			Text(
 				title,
@@ -456,6 +483,12 @@ fun SettingsRow(
 	}
 }
 
+/** For an on/off row. The row takes the tap, so the switch only shows the state. */
+@Composable
+fun ToggleMark(checked: Boolean) {
+	Switch(checked = checked, onCheckedChange = null)
+}
+
 /** Filled circle when chosen, ring when not. Readable at a glance without a radio button. */
 @Composable
 fun SelectionMark(selected: Boolean) {
@@ -476,7 +509,7 @@ fun SelectionMark(selected: Boolean) {
 	}
 }
 
-/** A square, tappable tile used for the disguise chooser. */
+/** A tile for the disguise chooser: the launcher icon with its name beside it, two to a row. */
 @Composable
 fun ChoiceTile(
 	label: String,
@@ -487,8 +520,8 @@ fun ChoiceTile(
 ) {
 	val border by animateDpAsState(if (selected) 2.dp else 1.dp, label = "tile")
 	Surface(
-		modifier = modifier.aspectRatio(1f).clickable(onClick = onClick),
-		shape = RoundedCornerShape(24.dp),
+		modifier = modifier.clip(MaterialTheme.shapes.medium).clickable(onClick = onClick),
+		shape = MaterialTheme.shapes.medium,
 		color = if (selected) {
 			MaterialTheme.colorScheme.primaryContainer
 		} else {
@@ -499,14 +532,28 @@ fun ChoiceTile(
 			if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
 		),
 	) {
-		Column(
-			Modifier.fillMaxSize().padding(10.dp),
-			verticalArrangement = Arrangement.Center,
-			horizontalAlignment = Alignment.CenterHorizontally,
-		) {
+		Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
 			icon()
-			Spacer(Modifier.height(8.dp))
-			Text(label, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center)
+			Text(
+				label,
+				modifier = Modifier.padding(start = 12.dp),
+				style = MaterialTheme.typography.titleSmall,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis,
+			)
+		}
+	}
+}
+
+/** Lays [items] out two to a row, so a label never has to fit a quarter of the screen. */
+@Composable
+fun <T> TwoColumnGrid(items: List<T>, modifier: Modifier = Modifier, cell: @Composable (T, Modifier) -> Unit) {
+	Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+		items.chunked(2).forEach { pair ->
+			Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+				pair.forEach { cell(it, Modifier.weight(1f)) }
+				if (pair.size == 1) Spacer(Modifier.weight(1f))
+			}
 		}
 	}
 }

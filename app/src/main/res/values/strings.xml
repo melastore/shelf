@@ -305,10 +305,8 @@
 	<string name="entry_title_hold_summary">Press and hold the app name in the toolbar.</string>
 	<string name="entry_corner_knock">Corner taps only</string>
 	<string name="entry_corner_knock_summary">No long-press gesture. Only the five top-right taps open the private space.</string>
-	<string name="entry_natural_hold">Hold a natural control</string>
-	<string name="entry_natural_hold_summary">Hold the progress card, the schedule heading, or the equals key.</string>
 	<string name="entry_direct_keypad">Type it on the keypad</string>
-	<string name="entry_direct_keypad_summary">Enter your PIN on the calculator and press equals. No gesture at all, and no corner taps either, so the calculator is only a calculator.</string>
+	<string name="entry_direct_keypad_summary">Enter your PIN on the calculator and press equals. There is no gesture on the calculator itself. Five taps in the top-right corner still open the prompt, as on every disguise. After ten codes that open nothing, the keypad stops checking for a while without saying so. Opening the prompt always works.</string>
 	<string name="entry_double_tap_title">Double tap the title</string>
 	<string name="entry_double_tap_title_summary">Tap the app name in the toolbar twice, quickly.</string>
 	<string name="credentials">Unlocking</string>
@@ -325,6 +323,12 @@
 	<string name="auto_hide_immediately">Immediately</string>
 	<string name="auto_hide_never">Never</string>
 	<string name="auto_hide_updated">Auto hide updated.</string>
+	<string name="rehide_after">Hide again after</string>
+	<string name="rehide_off">Off</string>
+	<plurals name="rehide_minutes">
+		<item quantity="one">%1$d minute exposed</item>
+		<item quantity="other">%1$d minutes exposed</item>
+	</plurals>
 	<string name="quick_lock_notification">Emergency hide notification</string>
 	<string name="quick_lock_notification_summary">A quiet notification with an action that closes the private space and hides every folder.</string>
 	<string name="notification_channel_name">Background activity</string>
@@ -358,8 +362,6 @@
 	<string name="change_decoy_pin">Change the second PIN</string>
 	<string name="decoy_pin_summary">Opens a separate space holding nothing of yours. Your own PIN is required to change it.</string>
 	<string name="decoy_pin_hint">Pick one you could hand over. It must differ from your own.</string>
-	<string name="decoy_item_name">Folder name</string>
-	<string name="decoy_item_hint">Nothing is hidden. This adds a name to the list so it reads as yours.</string>
 	<string name="remove_decoy_pin">Remove the second PIN</string>
 	<string name="remove_decoy_pin_summary">Wrong PINs will show an error again.</string>
 	<string name="remove_decoy_pin_confirm">The second PIN will stop working immediately.</string>
@@ -495,6 +497,6 @@
 
 	<!-- Setup -->
 	<string name="setup_credential_keypad_hint">The calculator takes your code on its own keypad, so it has to be one you can tap out there: a PIN on the keys, or a knock code on the display. A password or a pattern would leave no way in.</string>
-	<string name="setup_entry_calculator_hint">The calculator can take your code on its own keypad. Type it and press equals, and there is no gesture for anyone to find. A knock code also works on the blank space above the keys: tap the quarters, then hold.</string>
+	<string name="setup_entry_calculator_hint">Choose to type it on the keypad and the calculator takes your code on its own keys. Type it and press equals, and there is no gesture for anyone to find. A knock code also works on the blank space above the keys: tap the quarters, then hold.</string>
 	<string name="setup_method_recommendation">Automatic uses the most thorough method this phone actually offers. Leave it unless you have a reason not to.</string>
 </resources>

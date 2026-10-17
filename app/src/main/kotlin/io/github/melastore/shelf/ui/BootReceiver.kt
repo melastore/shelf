@@ -10,7 +10,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
- * Puts the emergency-hide notification back after a restart.
+ * Puts the emergency-hide notification and the re-hide timer back after a restart.
  *
  * Folders left in the open survive a reboot in every hiding method. The notification does not, and
  * nothing reposts it until the app is opened again, which leaves the one state the button exists for
@@ -29,9 +29,9 @@ class BootReceiver : BroadcastReceiver() {
 		val finish = goAsync()
 		CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
 			try {
-				if (!ShelfCore.preferences.quickLockNotification()) return@launch
 				val exposed = runCatching { ShelfCore.exposedFolders().size }.getOrDefault(0)
-				if (exposed == 0) return@launch
+				RehideTimer.reschedule(appContext, exposed > 0)
+				if (exposed == 0 || !ShelfCore.preferences.quickLockNotification()) return@launch
 				val identity = QuickLockNotification.identity(appContext)
 				QuickLockNotification.show(appContext, identity.label, identity.icon)
 			} finally {

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
@@ -58,6 +59,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
@@ -209,8 +211,7 @@ private fun HabitDecoy(state: AppUiState, viewModel: ShelfViewModel, onSecretEnt
 					done = done,
 					total = state.habits.size,
 					modifier = Modifier.secretHold(
-						state.entryMethod == EntryMethod.NATURAL_HOLD ||
-							state.entryMethod == EntryMethod.DIRECT_KEYPAD,
+						state.entryMethod == EntryMethod.DIRECT_KEYPAD,
 						onSecretEntry,
 					),
 				)
@@ -220,6 +221,7 @@ private fun HabitDecoy(state: AppUiState, viewModel: ShelfViewModel, onSecretEnt
 					EmptyState(
 						stringResource(R.string.start_small),
 						stringResource(R.string.habits_empty),
+						rememberVectorPainter(Icons.Filled.CheckCircle),
 					)
 				}
 			} else {
@@ -468,8 +470,7 @@ private fun CalendarDecoy(state: AppUiState, viewModel: ShelfViewModel, onSecret
 			item {
 				Column(
 					Modifier.padding(top = 4.dp).secretHold(
-						state.entryMethod == EntryMethod.NATURAL_HOLD ||
-							state.entryMethod == EntryMethod.DIRECT_KEYPAD,
+						state.entryMethod == EntryMethod.DIRECT_KEYPAD,
 						onSecretEntry,
 					),
 				) {
@@ -634,6 +635,9 @@ private fun CalculatorDecoy(
 	var typed by remember { mutableStateOf("") }
 	var lastOperand by remember { mutableStateOf("") }
 	val haptics = LocalHapticFeedback.current
+	// Only when it is the chosen way in. Otherwise every equals was a free guess, with no lockout
+	// and no record, for anyone who knows the app, and the display buzzed under a tap.
+	val keypadEntry = entryMethod == EntryMethod.DIRECT_KEYPAD
 	val rows = listOf(
 		listOf("C", "±", "%", "÷"),
 		listOf("7", "8", "9", "×"),
@@ -662,7 +666,8 @@ private fun CalculatorDecoy(
 				modifier = Modifier
 					.weight(1f)
 					.fillMaxWidth()
-					.pointerInput(Unit) {
+					.pointerInput(keypadEntry) {
+						if (!keypadEntry) return@pointerInput
 						detectTapGestures(
 							onTap = { position ->
 								val col = if (position.x < size.width / 2f) 0 else 1
@@ -742,7 +747,9 @@ private fun CalculatorDecoy(
 
 									"=" -> {
 										val next = calculator.press(key)
-										stealthUnlock(knockTaps, typed, lastOperand, next)?.let(onStealthUnlock)
+										if (keypadEntry) {
+											stealthUnlock(knockTaps, typed, lastOperand, next)?.let(onStealthUnlock)
+										}
 										knockTaps.clear()
 										typed = ""
 										lastOperand = ""
@@ -758,7 +765,7 @@ private fun CalculatorDecoy(
 								}
 							},
 							onLongClick = onSecretEntry.takeIf {
-								key == "=" && (entryMethod == EntryMethod.NATURAL_HOLD || entryMethod == EntryMethod.DIRECT_KEYPAD)
+								key == "=" && keypadEntry
 							},
 						)
 					}

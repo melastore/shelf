@@ -531,7 +531,7 @@ class ShelfViewModelRobolectricTest {
 	}
 
 	@Test
-	fun `unlocking with burner PIN nukes vault and wipes credentials and data`() {
+	fun `unlocking with burner PIN wipes everything and keeps the disguise up`() {
 		val store = ViewModelStore()
 		val viewModel = ViewModelProvider(
 			store,
@@ -550,16 +550,64 @@ class ShelfViewModelRobolectricTest {
 			await { viewModel.state.value.screen == Screen.DECOY }
 
 			viewModel.unlockVault("1234".toCharArray())
-			await { viewModel.state.value.fakeCrash }
+			await { !viewModel.state.value.burnerPinSet }
 
-			assertFalse(viewModel.state.value.credentialSet)
-			assertFalse(viewModel.state.value.burnerPinSet)
+			// Still set up, or the next frame is the setup wizard naming the app.
+			assertTrue(viewModel.state.value.credentialSet)
 			assertFalse(viewModel.state.value.decoyPinSet)
 			assertFalse(viewModel.state.value.biometricEnabled)
 			assertEquals(Screen.DECOY, viewModel.state.value.screen)
-			assertTrue(viewModel.state.value.fakeCrash)
-			assertFalse(File(application.filesDir, "gate").exists())
+			assertTrue(viewModel.state.value.message != null)
 			assertFalse(File(application.filesDir, "burner_gate").exists())
+			assertFalse(File(application.filesDir, "journal.json").exists())
+			viewModel.consumeMessage()
+
+			// Nothing opens it any more, the old PIN included.
+			viewModel.unlockVault("4826".toCharArray())
+			await { viewModel.state.value.message != null }
+			assertEquals(Screen.DECOY, viewModel.state.value.screen)
+			viewModel.unlockVault("1234".toCharArray())
+			shadowOf(Looper.getMainLooper()).idle()
+			assertEquals(Screen.DECOY, viewModel.state.value.screen)
+		} finally {
+			store.clear()
+			ContentCredential.clear()
+		}
+	}
+
+	@Test
+	fun `a folder picked under duress becomes a row and nothing else`() {
+		val store = ViewModelStore()
+		val viewModel = ViewModelProvider(
+			store,
+			ViewModelProvider.AndroidViewModelFactory.getInstance(application),
+		)[ShelfViewModel::class.java]
+		try {
+			await { viewModel.state.value.ready }
+			viewModel.setVaultCredential(CredentialKind.PIN, "4826".toCharArray())
+			await { viewModel.state.value.screen == Screen.VAULT }
+			viewModel.setDecoyCredential("4826".toCharArray(), "5555".toCharArray())
+			await { viewModel.state.value.decoyPinSet }
+			viewModel.lockVault()
+			await { viewModel.state.value.screen == Screen.DECOY }
+
+			viewModel.unlockVault("5555".toCharArray())
+			await { viewModel.state.value.duress && viewModel.state.value.decoyItems.isNotEmpty() }
+			val before = viewModel.state.value.decoyItems.size
+			// Shared across tests in this process, so compared rather than expected empty.
+			val tracked = runBlocking { ShelfCore.registry.read() }
+
+			val tree = android.provider.DocumentsContract.buildTreeDocumentUri(
+				"com.android.externalstorage.documents",
+				"primary:Holiday",
+			)
+			viewModel.hideFolder(tree)
+			await { viewModel.state.value.decoyItems.size == before + 1 }
+
+			assertTrue(viewModel.state.value.decoyItems.any { it.name == "Holiday" && it.hidden })
+			// No record in the real space, and no grant taken.
+			assertEquals(tracked, runBlocking { ShelfCore.registry.read() })
+			assertTrue(application.contentResolver.persistedUriPermissions.isEmpty())
 		} finally {
 			store.clear()
 			ContentCredential.clear()

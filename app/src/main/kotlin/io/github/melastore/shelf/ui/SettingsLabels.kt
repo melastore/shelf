@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.melastore.shelf.R
@@ -49,7 +50,6 @@ internal fun EntryMethod.title(): String = stringResource(
 	when (this) {
 		EntryMethod.TITLE_HOLD -> R.string.entry_title_hold
 		EntryMethod.CORNER_KNOCK -> R.string.entry_corner_knock
-		EntryMethod.NATURAL_HOLD -> R.string.entry_natural_hold
 		EntryMethod.DIRECT_KEYPAD -> R.string.entry_direct_keypad
 		EntryMethod.DOUBLE_TAP_TITLE -> R.string.entry_double_tap_title
 	},
@@ -60,7 +60,6 @@ internal fun EntryMethod.summary(): String = stringResource(
 	when (this) {
 		EntryMethod.TITLE_HOLD -> R.string.entry_title_hold_summary
 		EntryMethod.CORNER_KNOCK -> R.string.entry_corner_knock_summary
-		EntryMethod.NATURAL_HOLD -> R.string.entry_natural_hold_summary
 		EntryMethod.DIRECT_KEYPAD -> R.string.entry_direct_keypad_summary
 		EntryMethod.DOUBLE_TAP_TITLE -> R.string.entry_double_tap_title_summary
 	},
@@ -167,4 +166,13 @@ internal fun DecoyBadge(decoy: DecoyType) {
 		Image(painterResource(background), null, Modifier.fillMaxSize())
 		Image(painterResource(foreground), null, Modifier.fillMaxSize())
 	}
+}
+
+internal val REHIDE_CHOICES = listOf(0, 5, 15, 30, 60)
+
+@Composable
+internal fun rehideLabel(minutes: Int): String = if (minutes <= 0) {
+	stringResource(R.string.rehide_off)
+} else {
+	pluralStringResource(R.plurals.rehide_minutes, minutes, minutes)
 }
