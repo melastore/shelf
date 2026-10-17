@@ -1,0 +1,7 @@
+- New: hide folders again after 5 to 60 minutes exposed, even with the screen on.
+- The calculator keypad quietly stops checking after ten wrong codes.
+- Removed the "hold a natural control" way in. It falls back to holding the title.
+- Unlocking is faster.
+- Fixed a burner wipe from the second space leaving it half open.
+- Failed restores no longer re-protect what they never undid.
+- Simpler folder list and settings, with switches.
