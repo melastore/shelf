@@ -30,9 +30,13 @@ object HeaderCipher {
 	fun deriveKey(passphrase: CharArray, salt: ByteArray): SecretKey {
 		require(salt.size == SALT_LENGTH) { "unexpected salt length" }
 		val spec = PBEKeySpec(passphrase, salt, PBKDF2_ROUNDS, KEY_BITS)
+		var key = byteArrayOf()
 		return try {
-			SecretKeySpec(SecretKeyFactory.getInstance(PBKDF2_ALG).generateSecret(spec).encoded, "AES")
+			key = SecretKeyFactory.getInstance(PBKDF2_ALG).generateSecret(spec).encoded
+			// SecretKeySpec keeps its own copy.
+			SecretKeySpec(key, "AES")
 		} finally {
+			key.fill(0)
 			spec.clearPassword()
 		}
 	}

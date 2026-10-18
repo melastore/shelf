@@ -23,14 +23,17 @@ internal class AuthCoordinator(filesDir: File, private val preferences: AppPrefe
 	// Each gate is a full PBKDF2 run, so they go side by side. Taken one after another, the owner's
 	// own PIN waited for the burner hash first, and a wrong one for all three.
 	suspend fun match(input: CharArray): CredentialMatch = withContext(Dispatchers.Default) {
-		val burner = async { burnerGate.matches(input) }
-		val primary = async { primaryGate.matches(input) }
-		val decoy = async { decoyGate.matches(input) }
+		// One unreadable gate must not stop the others: a damaged decoy file would lock out the owner.
+		// It only surfaces when nothing matched, as an error rather than a wrong credential.
+		val burner = async { runCatching { burnerGate.matches(input) } }
+		val primary = async { runCatching { primaryGate.matches(input) } }
+		val decoy = async { runCatching { decoyGate.matches(input) } }
+		val results = listOf(burner.await(), primary.await(), decoy.await())
 		when {
-			burner.await() -> CredentialMatch.BURNER
-			primary.await() -> CredentialMatch.PRIMARY
-			decoy.await() -> CredentialMatch.DECOY
-			else -> CredentialMatch.NONE
+			results[0].getOrDefault(false) -> CredentialMatch.BURNER
+			results[1].getOrDefault(false) -> CredentialMatch.PRIMARY
+			results[2].getOrDefault(false) -> CredentialMatch.DECOY
+			else -> results.firstNotNullOfOrNull { it.exceptionOrNull() }?.let { throw it } ?: CredentialMatch.NONE
 		}
 	}
 

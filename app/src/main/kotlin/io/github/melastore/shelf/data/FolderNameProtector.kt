@@ -540,15 +540,15 @@ class FolderNameProtector(
 		private val json = Json { ignoreUnknownKeys = false }
 
 		/**
-		 * Opaque name to original name, for a reader that has the manifest bytes and the credential but
-		 * no reason to build a protector. Held to the same checks as [readManifest]: a manifest that
-		 * fails them is not one this app wrote, and the names in it are not shown.
+		 * Opaque name to original path within the folder, for a reader that has the manifest bytes and
+		 * the credential but no reason to build a protector. The path and not only the name, or
+		 * 2025/IMG_1.jpg and 2026/IMG_1.jpg are two rows nobody can tell apart. Held to the same checks
+		 * as [readManifest]: a manifest that fails them is not one this app wrote, and the names in it
+		 * are not shown.
 		 */
 		fun decryptManifest(encrypted: ByteArray, password: CharArray): Map<String, String>? {
 			val files = parseManifest(encrypted, password)?.files ?: return null
-			return files.associate { mapping ->
-				mapping.opaque.substringAfterLast('/') to mapping.original.substringAfterLast('/')
-			}
+			return files.associate { mapping -> mapping.opaque.substringAfterLast('/') to mapping.original }
 		}
 
 		private fun parseManifest(encrypted: ByteArray, password: CharArray): NameManifest? {

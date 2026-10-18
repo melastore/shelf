@@ -47,6 +47,9 @@ class RootChmodHider(
 		if (!mode.matches(modePattern) || !owner.matches(ownerPattern)) {
 			return HideResult.Failed(HideFailure.InvalidPermissions(backing))
 		}
+		// Recorded as the mode to restore, 000 would leave the folder unopenable for good, and the
+		// passes below could not reach its files either.
+		if (mode.toInt(8) == 0) return HideResult.Failed(HideFailure.InvalidPermissions(backing))
 
 		// The two per-file passes are the whole cost of a hide on a folder of any size. The chmod on
 		// its own already puts the folder out of reach of every app, so an owner can turn them off and
@@ -128,6 +131,12 @@ class RootChmodHider(
 			}
 		}
 
+		// Restore skips the per-file passes when deep is off, so it stays on if either pass changed
+		// anything. Off when both were skipped: a restore that asked for access it never needed would
+		// strand a folder that has nothing to put back.
+		val recorded = entry.copy(deep = deep && (protectionWarning == null || nameWarning == null))
+		if (recorded.deep != entry.deep) journal.replace(recorded)
+
 		val hidden = root.run("chmod 000 ${RootShell.quote(backing)}")
 		if (!hidden.ok) {
 			names.restore(target.emulatedPath)
@@ -143,7 +152,7 @@ class RootChmodHider(
 			nameWarning,
 			MediaStorePurge.forFolder(appContext, paths.toEmulated(backing), root),
 		)
-		return HideResult.Ok(entry, warning)
+		return HideResult.Ok(recorded, warning)
 	}
 
 	override suspend fun restore(entry: HiddenEntry): HideResult {
@@ -243,7 +252,8 @@ class RootChmodHider(
 		val mode = root.run("stat -c %a ${RootShell.quote(entry.path)}")
 		if (!mode.ok) return HiddenHealth(HiddenHealthStatus.MISSING, HiddenHealthDetail.BACKING_FOLDER_MISSING)
 		val current = mode.stdout.firstOrNull()?.trim()
-		if (current != "0" && current != "000") {
+		// Open in the viewer, which puts it back to 000 when it closes.
+		if (current != "0" && current != "000" && !OpenFolders.isOpen(entry.path)) {
 			return HiddenHealth(HiddenHealthStatus.ALREADY_RESTORED, HiddenHealthDetail.PERMISSIONS_RESTORED)
 		}
 		val marker = markerPathOrNull(entry)
@@ -284,6 +294,14 @@ class RootChmodHider(
 			if (journal.addNew(entry)) recovered++
 		}
 		return recovered
+	}
+
+	override suspend fun dropRecoveryMarkers() {
+		if (!isAvailable()) return
+		root.run(
+			"find ${RootShell.quote(paths.backingRoot)} -type f " +
+				"-name ${RootShell.quote("$MARKER_PREFIX*")} -delete 2>/dev/null",
+		)
 	}
 
 	private fun markerPath(entry: HiddenEntry): String =

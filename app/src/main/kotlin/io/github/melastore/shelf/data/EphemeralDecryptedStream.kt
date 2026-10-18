@@ -14,15 +14,24 @@ class EphemeralDecryptedStream(
 
 	private var position: Long = 0L
 
+	// Past the head every target read opens the file, so a caller reading byte by byte without its
+	// own buffer used to cost an open per byte. Read ahead for it instead.
+	private var ahead = byteArrayOf()
+	private var aheadStart = 0L
+
 	override fun read(): Int {
 		if (position >= totalSize) return -1
-		val b = if (position < head.size) {
-			head[position.toInt()].toInt() and 0xFF
-		} else {
-			target.read(position, 1).firstOrNull()?.let { it.toInt() and 0xFF } ?: -1
+		if (position < head.size) return head[position++.toInt()].toInt() and 0xFF
+		if (position < aheadStart || position >= aheadStart + ahead.size) {
+			ahead = target.read(position, minOf(READ_AHEAD.toLong(), totalSize - position).toInt())
+			aheadStart = position
+			if (ahead.isEmpty()) return -1
 		}
-		if (b != -1) position++
-		return b
+		return ahead[(position++ - aheadStart).toInt()].toInt() and 0xFF
+	}
+
+	private companion object {
+		const val READ_AHEAD = 64 * 1024
 	}
 
 	override fun read(b: ByteArray, off: Int, len: Int): Int {

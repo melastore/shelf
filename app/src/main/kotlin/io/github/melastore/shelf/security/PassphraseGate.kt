@@ -1,7 +1,10 @@
 package io.github.melastore.shelf.security
 
+import android.system.Os
+import android.system.OsConstants
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
@@ -17,6 +20,10 @@ import javax.crypto.spec.PBEKeySpec
  */
 class PassphraseGate(private val file: File) {
 
+	// The same hash as the gate, not the one it replaced: falling back to an older generation would
+	// let the previous credential in.
+	private val backup = File(file.parentFile, "${file.name}.bak")
+
 	fun isSet(): Boolean = file.exists()
 
 	fun set(passphrase: CharArray) {
@@ -25,10 +32,9 @@ class PassphraseGate(private val file: File) {
 		val hash = hash(passphrase, salt)
 		val temporary = File(file.parentFile, ".${file.name}.tmp")
 		try {
-			FileOutputStream(temporary).use { output ->
-				output.write("${salt.encode()}:${hash.encode()}".toByteArray(Charsets.US_ASCII))
-				output.fd.sync()
-			}
+			val record = "${salt.encode()}:${hash.encode()}".toByteArray(Charsets.US_ASCII)
+			temporary.writeSynced(record)
+			backup.writeSynced(record)
 			runCatching {
 				Files.move(
 					temporary.toPath(),
@@ -39,25 +45,60 @@ class PassphraseGate(private val file: File) {
 			}.getOrElse {
 				Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
 			}
+			syncParentDirectory()
 		} finally {
+			hash.fill(0)
 			temporary.delete()
 		}
 	}
 
 	fun clear() {
 		file.delete()
+		backup.delete()
 	}
 
-	/** True when [input] matches the stored passphrase. Uses a constant-time comparison. */
+	/**
+	 * True when [input] matches the stored passphrase. Uses a constant-time comparison.
+	 *
+	 * @throws GateUnreadable when neither the gate nor its backup can be read. A damaged file is not a
+	 * wrong credential, and counting it as one put the owner into a lockout.
+	 */
 	fun matches(input: CharArray): Boolean {
 		if (!file.exists()) return false
-		return runCatching {
-			val (saltPart, hashPart) = file.readText().split(':', limit = 2).takeIf { it.size == 2 }
-				?: return@runCatching false
-			val salt = saltPart.decode()
-			val expected = hashPart.decode()
-			MessageDigest.isEqual(hash(input, salt), expected)
-		}.getOrDefault(false)
+		val (salt, expected) = read(file) ?: read(backup) ?: throw GateUnreadable(file)
+		val actual = hash(input, salt)
+		return try {
+			MessageDigest.isEqual(actual, expected)
+		} finally {
+			actual.fill(0)
+			expected.fill(0)
+		}
+	}
+
+	private fun read(source: File): Pair<ByteArray, ByteArray>? = runCatching {
+		val (saltPart, hashPart) = source.readText().split(':', limit = 2).takeIf { it.size == 2 }
+			?: return@runCatching null
+		saltPart.decode() to hashPart.decode()
+	}.getOrNull()?.takeIf { (salt, hash) -> salt.size == SALT_LEN && hash.size == KEY_BITS / 8 }
+
+	private fun File.writeSynced(bytes: ByteArray) {
+		FileOutputStream(this).use { output ->
+			output.write(bytes)
+			output.fd.sync()
+		}
+	}
+
+	// The rename is only durable once the directory entry is flushed too.
+	private fun syncParentDirectory() {
+		val dir = file.parentFile ?: return
+		runCatching {
+			val fd = Os.open(dir.path, OsConstants.O_RDONLY, 0)
+			try {
+				Os.fsync(fd)
+			} finally {
+				Os.close(fd)
+			}
+		}
 	}
 
 	private fun hash(passphrase: CharArray, salt: ByteArray): ByteArray {
@@ -72,6 +113,8 @@ class PassphraseGate(private val file: File) {
 
 	private fun ByteArray.encode(): String = Base64.getEncoder().encodeToString(this)
 	private fun String.decode(): ByteArray = Base64.getDecoder().decode(this)
+
+	class GateUnreadable(file: File) : IOException("credential file unreadable: ${file.name}")
 
 	private companion object {
 		const val PBKDF2_ALG = "PBKDF2withHmacSHA256"

@@ -67,6 +67,7 @@ import io.github.melastore.shelf.data.EphemeralMediaLoader
 import io.github.melastore.shelf.data.EphemeralMediaType
 import io.github.melastore.shelf.data.EphemeralThumbnail
 import io.github.melastore.shelf.data.HideMethod
+import io.github.melastore.shelf.data.OpenFolders
 import io.github.melastore.shelf.data.ShelfCore
 import io.github.melastore.shelf.root.RootShell
 import javax.crypto.SecretKey
@@ -133,7 +134,9 @@ fun EphemeralMediaViewer(folder: VaultFolder, onDismiss: () -> Unit,) {
 			// dispatcher, which is a crash rather than a message.
 			val scanned = withContext(Dispatchers.IO) {
 				if (rootEntry != null) {
-					RootShell.run("chmod 755 ${RootShell.quote(rootEntry.path)}")
+					OpenFolders.open(rootEntry.path) {
+						RootShell.run("chmod 755 ${RootShell.quote(rootEntry.path)}")
+					}
 				}
 				try {
 					EphemeralMediaLoader.scanMediaItems(
@@ -153,7 +156,9 @@ fun EphemeralMediaViewer(folder: VaultFolder, onDismiss: () -> Unit,) {
 		} finally {
 			if (rootEntry != null) {
 				withContext(NonCancellable + Dispatchers.IO) {
-					RootShell.run("chmod 000 ${RootShell.quote(rootEntry.path)}")
+					OpenFolders.close(rootEntry.path) {
+						RootShell.run("chmod 000 ${RootShell.quote(rootEntry.path)}")
+					}
 				}
 			}
 		}
@@ -263,12 +268,12 @@ private fun MediaRow(item: EphemeralMediaItem, keyFor: (ByteArray) -> SecretKey?
 		EphemeralMediaType.VIDEO -> R.drawable.ic_video_badge
 		EphemeralMediaType.AUDIO -> R.drawable.ic_audio_badge
 	}
-	// Documents never render a tile, and an image that would not decode is still worth opening.
-	val openable = thumbnail != null
+	// Not held back for the thumbnail: a large video or PDF can take seconds to render one, and the
+	// file opens the same without it.
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
-			.clickable(enabled = openable, onClick = onClick)
+			.clickable(onClick = onClick)
 			.padding(horizontal = 12.dp, vertical = 8.dp),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(12.dp),

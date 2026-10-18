@@ -60,7 +60,7 @@ class ShelfViewModelRobolectricTest {
 			ContentCredential.clear()
 
 			// The quarters counted one to four, which is what a calculator can actually show.
-			viewModel.tryStealthUnlock("1144".toCharArray())
+			viewModel.tryStealthUnlock(listOf("1144".toCharArray()))
 			await { viewModel.state.value.screen == Screen.VAULT }
 
 			// The folders were sealed under the zero-based form, so that is what has to be held.
@@ -85,7 +85,7 @@ class ShelfViewModelRobolectricTest {
 			viewModel.lockVault()
 			await { viewModel.state.value.screen != Screen.VAULT }
 
-			viewModel.tryStealthUnlock("1244".toCharArray())
+			viewModel.tryStealthUnlock(listOf("1244".toCharArray()))
 
 			shadowOf(Looper.getMainLooper()).idle()
 			assertTrue(viewModel.state.value.screen != Screen.VAULT)
@@ -111,7 +111,7 @@ class ShelfViewModelRobolectricTest {
 
 			// The same quarters typed on the keys. A knock code is stored as the digits of the
 			// quarters it taps, so the keypad reaches it without knowing it is a knock code at all.
-			viewModel.tryStealthUnlock("0033".toCharArray())
+			viewModel.tryStealthUnlock(listOf("0033".toCharArray()))
 
 			await { viewModel.state.value.screen == Screen.VAULT }
 		} finally {

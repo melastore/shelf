@@ -626,7 +626,7 @@ private fun CalendarEventCard(event: CalendarEvent, onDelete: () -> Unit) {
 private fun CalculatorDecoy(
 	entryMethod: EntryMethod,
 	onSecretEntry: () -> Unit,
-	onStealthUnlock: (CharArray) -> Unit = {},
+	onStealthUnlock: (List<CharArray>) -> Unit = {},
 ) {
 	var calculator by remember { mutableStateOf(CalculatorState()) }
 	val knockTaps = remember { mutableStateListOf<Int>() }
@@ -680,7 +680,7 @@ private fun CalculatorDecoy(
 							onLongPress = {
 								if (knockTaps.size in KnockCode.MIN_TAPS..KnockCode.MAX_TAPS) {
 									haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-									onStealthUnlock(KnockCode.encode(knockTaps.toList()))
+									onStealthUnlock(listOf(KnockCode.encode(knockTaps.toList())))
 									knockTaps.clear()
 								}
 							},
@@ -748,7 +748,9 @@ private fun CalculatorDecoy(
 									"=" -> {
 										val next = calculator.press(key)
 										if (keypadEntry) {
-											stealthUnlock(knockTaps, typed, lastOperand, next)?.let(onStealthUnlock)
+											stealthUnlock(knockTaps, typed, lastOperand, next)
+												.takeIf { it.isNotEmpty() }
+												?.let(onStealthUnlock)
 										}
 										knockTaps.clear()
 										typed = ""
@@ -777,31 +779,35 @@ private fun CalculatorDecoy(
 }
 
 /**
- * What pressing equals should be read as, or null if it is only arithmetic.
+ * Everything pressing equals could be offering as the secret, in the order to try it, or empty if
+ * it is only arithmetic.
  *
  * Four ways to offer the same secret: a knock code tapped on the display, direct digits entered
  * before equals (PIN=), digits before an operator (PIN+=), and the evaluated result worked out
- * to the secret PIN. Whether any of them is right is decided elsewhere.
+ * to the secret PIN. All of them, not the first that fits: in 1250 + 1250 the second operand is
+ * PIN-shaped too and used to hide the 2500 it adds up to. Whether any is right is decided elsewhere,
+ * and counts as one attempt however many there are.
  */
-private fun stealthUnlock(
+internal fun stealthUnlock(
 	knockTaps: List<Int>,
 	typed: String,
 	lastOperand: String,
 	evaluatedCalculator: CalculatorState,
-): CharArray? {
+): List<CharArray> {
 	val pinLength = CredentialRules.MIN_PIN..CredentialRules.MAX_PIN
-	return when {
-		knockTaps.size in KnockCode.MIN_TAPS..KnockCode.MAX_TAPS -> KnockCode.encode(knockTaps)
-
-		typed.length in pinLength -> typed.toCharArray()
-
-		lastOperand.length in pinLength && typed.isEmpty() -> lastOperand.toCharArray()
-
-		evaluatedCalculator.display.length in pinLength &&
-			evaluatedCalculator.display.all { it.isDigit() } -> evaluatedCalculator.display.toCharArray()
-
-		else -> null
+	val display = evaluatedCalculator.display
+	val candidates = listOfNotNull(
+		KnockCode.encode(knockTaps).takeIf { knockTaps.size in KnockCode.MIN_TAPS..KnockCode.MAX_TAPS },
+		typed.toCharArray().takeIf { typed.length in pinLength },
+		lastOperand.toCharArray().takeIf { lastOperand.length in pinLength && typed.isEmpty() },
+		display.toCharArray().takeIf { display.length in pinLength && display.all { it.isDigit() } },
+	)
+	// 1234 = shows 1234 as well. Each candidate costs three key derivations, so not twice.
+	val kept = mutableListOf<CharArray>()
+	for (candidate in candidates) {
+		if (kept.any { it.contentEquals(candidate) }) candidate.fill(' ') else kept += candidate
 	}
+	return kept
 }
 
 private enum class KeyKind { DIGIT, FUNCTION, OPERATOR }

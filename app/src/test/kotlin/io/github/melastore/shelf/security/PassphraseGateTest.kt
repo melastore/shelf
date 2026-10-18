@@ -2,6 +2,7 @@ package io.github.melastore.shelf.security
 
 import java.nio.file.Files
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -37,6 +38,29 @@ class PassphraseGateTest {
 			assertFalse(primary.matches("1937".toCharArray()))
 			assertTrue(decoy.matches("1937".toCharArray()))
 			assertFalse(decoy.matches("4826".toCharArray()))
+		} finally {
+			directory.deleteRecursively()
+		}
+	}
+
+	@Test
+	fun `a damaged gate falls back to its backup and never reads as a wrong pin`() {
+		val directory = Files.createTempDirectory("shelf-damaged-gate-test").toFile()
+		try {
+			val file = directory.resolve("gate")
+			val gate = PassphraseGate(file)
+			gate.set("4826".toCharArray())
+
+			file.writeText("not a gate")
+			assertTrue(gate.matches("4826".toCharArray()))
+			assertFalse(gate.matches("1111".toCharArray()))
+
+			directory.resolve("gate.bak").delete()
+			assertThrows(PassphraseGate.GateUnreadable::class.java) { gate.matches("4826".toCharArray()) }
+
+			gate.clear()
+			assertFalse(directory.resolve("gate.bak").exists())
+			assertFalse(gate.matches("4826".toCharArray()))
 		} finally {
 			directory.deleteRecursively()
 		}

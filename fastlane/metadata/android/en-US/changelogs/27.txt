@@ -1,0 +1,6 @@
+- Fixed a root-hidden folder getting stuck if it was re-hidden while open in the viewer.
+- Root hides that could not reach the files no longer need file access to unhide.
+- The calculator opens with a sum that adds up to your PIN.
+- Emergency wipe also removes recovery markers and folder access grants.
+- A damaged PIN file shows an error instead of counting as wrong tries.
+- Viewer files open before their thumbnail loads and show their subfolder.

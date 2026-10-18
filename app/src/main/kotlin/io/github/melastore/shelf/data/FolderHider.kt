@@ -80,15 +80,17 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 	 */
 	suspend fun rehide(target: FolderTarget, preference: HidingPreference, interrupted: HiddenEntry?,): HideResult =
 		withContext(Dispatchers.IO) {
-			if (interrupted != null) {
-				val health = health(interrupted)
-				if (health.status != HiddenHealthStatus.ALREADY_RESTORED) {
-					return@withContext HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
+			OpenFolders.transition {
+				if (interrupted != null) {
+					val health = health(interrupted)
+					if (health.status != HiddenHealthStatus.ALREADY_RESTORED) {
+						return@transition HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
+					}
+					val rolledBack = restore(interrupted)
+					if (rolledBack !is HideResult.Ok) return@transition rolledBack
 				}
-				val rolledBack = restore(interrupted)
-				if (rolledBack !is HideResult.Ok) return@withContext rolledBack
+				hide(target, preference)
 			}
-			hide(target, preference)
 		}
 
 	/**
@@ -144,6 +146,10 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 	 */
 	suspend fun recoverEverything(): Int = withContext(Dispatchers.IO) {
 		strategies.sumOf { it.recoverOrphans() }
+	}
+
+	suspend fun dropRecoveryMarkers() = withContext(Dispatchers.IO) {
+		strategies.forEach { runCatching { it.dropRecoveryMarkers() } }
 	}
 }
 

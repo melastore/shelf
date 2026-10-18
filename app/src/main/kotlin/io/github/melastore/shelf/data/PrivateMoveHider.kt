@@ -355,6 +355,12 @@ class PrivateMoveHider(
 		if (!marker.exists()) runCatching { marker.createNewFile() }
 	}
 
+	override suspend fun dropRecoveryMarkers() = withContext(Dispatchers.IO) {
+		for (vault in vaults()) {
+			vault.listFiles()?.filter { it.isDirectory }?.forEach { File(it, ORIGIN_MARKER).delete() }
+		}
+	}
+
 	private fun writeOrigin(marker: File, path: String): Boolean = runCatching {
 		val encoded = Base64.getUrlEncoder().withoutPadding()
 			.encodeToString(path.toByteArray(Charsets.UTF_8))

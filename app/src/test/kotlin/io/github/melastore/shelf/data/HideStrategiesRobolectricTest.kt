@@ -84,6 +84,79 @@ class HideStrategiesRobolectricTest {
 	}
 
 	@Test
+	fun `a root hide that reached no files is recorded as shallow`() = runBlocking {
+		val root = FakeRoot()
+		val paths = testPaths(root)
+		val journal = Journal(File(temporaryFolder.root, "unreached-journal.json"))
+		val targetPath = "${paths.emulatedRoot}/Secret"
+		val backingPath = "${paths.backingRoot}/Secret"
+		root.responses += { command ->
+			when {
+				command.startsWith("realpath ") -> success(backingPath)
+				command.startsWith("stat -c '%a %u:%g'") -> success("750 1023:1023")
+				else -> success()
+			}
+		}
+		val hider = RootChmodHider(context, journal, paths, root)
+
+		val hidden = hider.hide(FolderTarget(targetPath, "Secret", null))
+
+		assertTrue(hidden is HideResult.Ok)
+		assertEquals(false, (hidden as HideResult.Ok).entry.deep)
+		assertEquals(false, journal.read().single().deep)
+		assertTrue(hider.restore(journal.read().single()) is HideResult.Ok)
+		assertTrue(journal.read().isEmpty())
+	}
+
+	@Test
+	fun `root hide refuses a folder already at 000`() = runBlocking {
+		val root = FakeRoot()
+		val paths = testPaths(root)
+		val journal = Journal(File(temporaryFolder.root, "zero-journal.json"))
+		val backingPath = "${paths.backingRoot}/Secret"
+		root.responses += { command ->
+			when {
+				command.startsWith("realpath ") -> success(backingPath)
+				command.startsWith("stat -c '%a %u:%g'") -> success("0 1023:1023")
+				else -> success()
+			}
+		}
+		val hider = RootChmodHider(context, journal, paths, root)
+
+		val result = hider.hide(FolderTarget("${paths.emulatedRoot}/Secret", "Secret", null))
+
+		assertTrue((result as HideResult.Failed).failure is HideFailure.InvalidPermissions)
+		assertTrue(journal.read().isEmpty())
+		assertTrue(root.commands.none { it.startsWith("chmod 000") })
+	}
+
+	@Test
+	fun `a root folder open in the viewer is not taken for restored`() = runBlocking {
+		val root = FakeRoot()
+		val paths = testPaths(root)
+		val journal = Journal(File(temporaryFolder.root, "viewer-journal.json"))
+		val entry = HiddenEntry(
+			path = "${paths.backingRoot}/Secret",
+			displayName = "Secret",
+			hiddenAt = 0L,
+			method = HideMethod.ROOT_CHMOD,
+			originalMode = "750",
+			originalOwner = "1023:1023",
+		)
+		root.responses += { command -> if (command.startsWith("stat -c %a")) success("755") else success() }
+		val hider = RootChmodHider(context, journal, paths, root)
+
+		assertEquals(HiddenHealthStatus.ALREADY_RESTORED, hider.health(entry).status)
+		OpenFolders.open(entry.path) {}
+		try {
+			assertEquals(HiddenHealthStatus.HEALTHY, hider.health(entry).status)
+		} finally {
+			OpenFolders.close(entry.path) {}
+		}
+		assertEquals(HiddenHealthStatus.ALREADY_RESTORED, hider.health(entry).status)
+	}
+
+	@Test
 	fun `private move strategy moves to a random vault and restores`() = runBlocking {
 		ContentCredential.set("48261357".toCharArray())
 		val paths = testPaths(FakeRoot())

@@ -59,6 +59,7 @@ import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -368,14 +369,15 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		}
 	}
 
-	fun tryStealthUnlock(input: CharArray) = viewModelScope.launch {
+	/** [inputs] are every reading of one press, so a miss on all of them is a single miss. */
+	fun tryStealthUnlock(inputs: List<CharArray>) = viewModelScope.launch {
 		if (!authenticationMutex.tryLock()) {
-			input.fill(' ')
+			inputs.forEach { it.fill(' ') }
 			return@launch
 		}
 		// A knock code can be typed as well as tapped, and a calculator swallows the leading zero of
 		// the stored form, so the one-based spelling is tried too.
-		val alias = KnockCode.fromOneBased(input)
+		val aliases = inputs.mapNotNull(KnockCode::fromOneBased)
 		try {
 			val uptime = SystemClock.elapsedRealtime()
 			val blockedUntil = withContext(Dispatchers.IO) {
@@ -385,8 +387,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			// Keep the spelling that matched, not the keys pressed: that is what folders are sealed
 			// under.
 			var matched = CredentialMatch.NONE
-			var credential = input
-			for (candidate in listOfNotNull(input, alias)) {
+			var credential = inputs.first()
+			for (candidate in inputs + aliases) {
 				val result = auth.match(candidate)
 				if (result != CredentialMatch.NONE) {
 					matched = result
@@ -418,8 +420,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			}
 		} catch (_: Exception) {
 		} finally {
-			input.fill(' ')
-			alias?.fill(' ')
+			inputs.forEach { it.fill(' ') }
+			aliases.forEach { it.fill(' ') }
 			authenticationMutex.unlock()
 		}
 	}
@@ -463,6 +465,20 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					exposedFolders = 0,
 					message = if (announce) uiMessage(R.string.wrong_credential) else it.message,
 				)
+			}
+		}
+		// The journal is not the only record. Recovery markers in shared storage name the original
+		// paths, and the persisted grants list every parent folder in system state. Its own job: the
+		// root sweep walks all of storage, and neither the screen nor the next PIN should wait on it.
+		viewModelScope.launch(Dispatchers.IO + NonCancellable) {
+			runCatching { hider.dropRecoveryMarkers() }
+			runCatching {
+				val resolver = app.contentResolver
+				for (grant in resolver.persistedUriPermissions) {
+					val flags = (if (grant.isReadPermission) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0) or
+						(if (grant.isWritePermission) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+					runCatching { resolver.releasePersistableUriPermission(grant.uri, flags) }
+				}
 			}
 		}
 	}
