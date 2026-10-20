@@ -87,6 +87,9 @@ interface HideStrategy {
 	suspend fun restore(entry: HiddenEntry): HideResult
 	suspend fun blocker(path: String): HideFailure? = null
 
+	/** Whether [path] still carries this method's marker, hidden by it before. */
+	suspend fun hiddenHere(path: String): Boolean = false
+
 	/**
 	 * Renames an already hidden folder to what the hidden-name setting asks for now. Only the rename
 	 * method has a visible name to change; the others hand the entry back untouched.

@@ -1,18 +1,25 @@
 package io.github.melastore.shelf.data
 
 import android.content.Context
+import io.github.melastore.shelf.crypto.KeyCache
 import io.github.melastore.shelf.root.StoragePaths
 import java.io.File
 
 /**
  * The primary credential, held only while the real private space is open. It lets a hide protect
- * file headers without asking for a second password, and is wiped with every lock.
+ * file headers without asking for a second password, and is wiped with every lock, together with
+ * the keys [KeyCache] derived from it.
  */
 object ContentCredential {
 	private var value: CharArray? = null
 	private val retained = mutableListOf<CharArray>()
 
+	init {
+		KeyCache.keepWhile = ::isAvailable
+	}
+
 	@Synchronized fun set(input: CharArray) {
+		if (value?.contentEquals(input) != true) KeyCache.clear()
 		value?.fill(' ')
 		value = input.copyOf()
 	}
@@ -35,6 +42,8 @@ object ContentCredential {
 			synchronized(this) {
 				retained.remove(snapshot)
 				snapshot.fill(' ')
+				// Keys derived while the lease ran would otherwise outlive the lock it finished.
+				if (value == null && retained.isEmpty()) KeyCache.clear()
 			}
 		}
 	}
@@ -42,6 +51,7 @@ object ContentCredential {
 	@Synchronized fun clear() {
 		value?.fill(' ')
 		value = null
+		KeyCache.clear()
 	}
 }
 
@@ -78,7 +88,7 @@ class FolderContentProtector(
 			ContentProtectionResult.CredentialRequired
 		}
 		return try {
-			val summary = locker.lock(targets, password)
+			val summary = locker.lock(targets, password, ContentKeys.headerSalt(appContext))
 			when {
 				summary.failed > 0 -> {
 					// Never leave a visible folder half protected after an I/O error. Only what this

@@ -553,6 +553,57 @@ class HideStrategiesRobolectricTest {
 		assertEquals(listOf(HideMethod.DOT_RENAME), reached)
 	}
 
+	@Test
+	fun `a folder still hidden in place goes back to that method whatever is chosen`() = runBlocking {
+		val paths = testPaths(FakeRoot())
+		val reached = mutableListOf<HideMethod>()
+		val entry = HiddenEntry(path = "${paths.emulatedRoot}/Pictures/album", displayName = "album", hiddenAt = 1L)
+		fun strategy(hideMethod: HideMethod, marked: Boolean) = object : HideStrategy {
+			override val method = hideMethod
+			override suspend fun isAvailable() = true
+			override suspend fun hide(target: FolderTarget): HideResult {
+				reached += hideMethod
+				return HideResult.Ok(entry)
+			}
+
+			override suspend fun restore(entry: HiddenEntry) = HideResult.Ok(entry)
+			override suspend fun hiddenHere(path: String) = marked
+		}
+		val hider = FolderHider(
+			listOf(strategy(HideMethod.DOT_RENAME, marked = false), strategy(HideMethod.IN_PLACE, marked = true)),
+		)
+
+		hider.hide(FolderTarget(entry.path, "album", null), HidingPreference.AUTO)
+
+		assertEquals(listOf(HideMethod.IN_PLACE), reached)
+	}
+
+	@Test
+	fun `recovered root folders are deep only when their files were renamed`() = runBlocking {
+		val root = FakeRoot()
+		val paths = testPaths(root)
+		val journal = Journal(File(temporaryFolder.root, "orphan-journal.json"))
+		val deep = "${paths.backingRoot}/Deep"
+		val shallow = "${paths.backingRoot}/Shallow"
+		val markers = listOf(deep, shallow).joinToString("") { "$it/.shelf-recovery-v1-771-1023-1023\u0000" }
+		val encoded = java.util.Base64.getEncoder().encodeToString(markers.toByteArray())
+		root.responses += { command ->
+			when {
+				command.startsWith("find ") -> success(encoded)
+				command.startsWith("stat -c %a") -> success("0")
+				command == "test -f '$deep/${FolderNameProtector.MANIFEST}'" -> success()
+				command.startsWith("test -f ") -> ShellResult(1, emptyList(), emptyList())
+				else -> success()
+			}
+		}
+		val hider = RootChmodHider(context, journal, paths, root)
+
+		assertEquals(2, hider.recoverOrphans())
+
+		val recorded = journal.read().associate { it.path to it.deep }
+		assertEquals(mapOf(deep to true, shallow to false), recorded)
+	}
+
 	private fun testPaths(root: RootCommandRunner): StoragePaths {
 		val base = temporaryFolder.newFolder()
 		return StoragePaths.forTest(

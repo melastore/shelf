@@ -3,9 +3,7 @@ package io.github.melastore.shelf.crypto
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
-import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
@@ -13,8 +11,8 @@ import javax.crypto.spec.SecretKeySpec
  * on its own.
  *
  * Key derivation is separate from [seal] and [open] on purpose: PBKDF2 at this work factor takes
- * about a second, which is fine once per folder and hopeless once per file. Callers derive once per
- * pass and pass the key in; every file still gets its own nonce, which GCM requires.
+ * about a second, which is fine once per session and hopeless once per file. Keys are kept in
+ * [KeyCache] until lock; every file still gets its own nonce, which GCM requires.
  */
 object HeaderCipher {
 
@@ -29,15 +27,14 @@ object HeaderCipher {
 
 	fun deriveKey(passphrase: CharArray, salt: ByteArray): SecretKey {
 		require(salt.size == SALT_LENGTH) { "unexpected salt length" }
-		val spec = PBEKeySpec(passphrase, salt, PBKDF2_ROUNDS, KEY_BITS)
-		var key = byteArrayOf()
+		val key = KeyCache.get(passphrase, salt, PBKDF2_ROUNDS) {
+			Pbkdf2.sha256(passphrase, salt, PBKDF2_ROUNDS, KEY_BITS)
+		}
 		return try {
-			key = SecretKeyFactory.getInstance(PBKDF2_ALG).generateSecret(spec).encoded
 			// SecretKeySpec keeps its own copy.
 			SecretKeySpec(key, "AES")
 		} finally {
 			key.fill(0)
-			spec.clearPassword()
 		}
 	}
 
@@ -74,8 +71,7 @@ object HeaderCipher {
 	private fun randomBytes(n: Int): ByteArray = ByteArray(n).also(secureRandom::nextBytes)
 
 	private const val TRANSFORM = "AES/GCM/NoPadding"
-	private const val PBKDF2_ALG = "PBKDF2withHmacSHA256"
-	private const val PBKDF2_ROUNDS = 210_000
+	const val PBKDF2_ROUNDS = 210_000
 	private const val KEY_BITS = 256
 	private const val TAG_BITS = 128
 	private val secureRandom = SecureRandom()

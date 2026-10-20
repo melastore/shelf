@@ -54,4 +54,16 @@ class JournalMergeTest {
 		assertEquals(0, result.conflicts)
 		assertEquals(1, journal.read().size)
 	}
+
+	@Test
+	fun `a record that differs only in its SAF grant is a duplicate`() = runBlocking {
+		val journal = Journal(File(temp.root, "journal.json"))
+		journal.addNew(entry("/storage/emulated/0/Granted").copy(treeUri = "content://grant"))
+
+		val result = journal.merge(listOf(entry("/storage/emulated/0/Granted")))
+
+		assertEquals(1, result.duplicates)
+		assertEquals(0, result.conflicts)
+		assertEquals("content://grant", journal.read().single().treeUri)
+	}
 }

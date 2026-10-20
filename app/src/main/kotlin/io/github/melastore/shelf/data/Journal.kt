@@ -47,7 +47,8 @@ open class Journal(file: File) {
 	suspend fun merge(entries: List<HiddenEntry>): RecoveryMergeResult = store.mutate { current ->
 		val additions = entries.filterNot { incoming -> current.any { it.path == incoming.path } }
 		val conflicts = entries.count { incoming ->
-			current.any { it.path == incoming.path && it != incoming }
+			// The file never carries a SAF grant, so a record differing only in that is the same folder.
+			current.any { it.path == incoming.path && it.copy(treeUri = "") != incoming }
 		}
 		(current + additions) to RecoveryMergeResult(
 			added = additions.size,

@@ -1,5 +1,6 @@
 package io.github.melastore.shelf.data
 
+import io.github.melastore.shelf.crypto.KeyCache
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -46,5 +47,30 @@ class ContentCredentialTest {
 
 		second.close()
 		assertNull(ContentCredential.copy())
+	}
+
+	@Test
+	fun `derived keys go with the credential, and with the last lease`() {
+		var derivations = 0
+		val derive = {
+			KeyCache.get("1234".toCharArray(), ByteArray(16), 1_000) {
+				derivations++
+				ByteArray(32)
+			}
+		}
+		ContentCredential.set(charArrayOf('1', '2', '3', '4'))
+		derive()
+		derive()
+		assertEquals(1, derivations)
+
+		val lease = ContentCredential.retain()
+		ContentCredential.clear()
+		derive()
+		derive()
+		assertEquals(2, derivations)
+
+		lease.close()
+		derive()
+		assertEquals(3, derivations)
 	}
 }

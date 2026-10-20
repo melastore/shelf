@@ -3,6 +3,8 @@ package io.github.melastore.shelf.data
 import android.content.Context
 import androidx.core.content.edit
 import io.github.melastore.shelf.security.CredentialKind
+import java.security.SecureRandom
+import java.util.Base64
 
 /**
  * The face the app wears. [NONE] is the default: Shelf is itself and opens on the credential prompt.
@@ -290,6 +292,17 @@ class AppPreferences(context: Context) {
 		}
 	}
 
+	/** Made on first use and kept. Not secret: see [ContentKeys]. */
+	fun installSalt(name: String, length: Int): ByteArray = synchronized(saltLock) {
+		val key = KEY_SALT_PREFIX + name
+		values.getString(key, null)
+			?.let { runCatching { Base64.getDecoder().decode(it) }.getOrNull() }
+			?.takeIf { it.size == length }
+			?: ByteArray(length).also(SecureRandom()::nextBytes).also { salt ->
+				values.edit(commit = true) { putString(key, Base64.getEncoder().encodeToString(salt)) }
+			}
+	}
+
 	private fun lockoutMillis(lockouts: Int): Long = LOCKOUT_LADDER[(lockouts - 1).coerceIn(0, LOCKOUT_LADDER.lastIndex)]
 
 	private inline fun <reified T : Enum<T>> enumValue(key: String, fallback: T): T =
@@ -300,6 +313,8 @@ class AppPreferences(context: Context) {
 	}
 
 	private companion object {
+		// Every instance shares the file, so two first hides at once must not each make a salt.
+		val saltLock = Any()
 		const val FILE_NAME = "settings"
 		const val KEY_DECOY = "decoy"
 		const val KEY_SETUP_STEP = "setup_step"
@@ -328,5 +343,6 @@ class AppPreferences(context: Context) {
 		const val KEY_KEYPAD_BLOCKED_UNTIL = "keypad_blocked_until"
 		const val KEY_REHIDE_MINUTES = "rehide_minutes"
 		const val KEY_REHIDE_AT = "rehide_at"
+		const val KEY_SALT_PREFIX = "salt_"
 	}
 }

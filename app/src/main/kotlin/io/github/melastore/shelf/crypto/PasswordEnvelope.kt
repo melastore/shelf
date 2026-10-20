@@ -6,22 +6,32 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.security.SecureRandom
 import javax.crypto.Cipher
-import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
-/** Versioned password-encrypted envelope. Used for small recovery bundles, never folder contents. */
+/**
+ * Versioned password-encrypted envelope. Used for small recovery bundles and name manifests, never
+ * folder contents.
+ *
+ * [cached] keeps the derived key in [KeyCache] for the session. Only for the vault credential: an
+ * export passphrase is typed once and has no business outliving the dialog.
+ */
 object PasswordEnvelope {
 
-	fun encrypt(plaintext: ByteArray, password: CharArray, iterations: Int = DEFAULT_ITERATIONS): ByteArray {
+	fun encrypt(
+		plaintext: ByteArray,
+		password: CharArray,
+		iterations: Int = DEFAULT_ITERATIONS,
+		salt: ByteArray = ByteArray(SALT_BYTES).also(SecureRandom()::nextBytes),
+		cached: Boolean = false,
+	): ByteArray {
 		require(plaintext.size <= MAX_PLAINTEXT_BYTES) { "recovery data is too large" }
 		require(iterations in MIN_ITERATIONS..MAX_ITERATIONS) { "invalid KDF work factor" }
-		val salt = ByteArray(SALT_BYTES).also(SecureRandom()::nextBytes)
+		require(salt.size == SALT_BYTES) { "unexpected salt length" }
 		val nonce = ByteArray(NONCE_BYTES).also(SecureRandom()::nextBytes)
 		val encryptedLength = plaintext.size + GCM_TAG_BYTES
 		val header = header(iterations, salt, nonce, encryptedLength)
-		val key = derive(password, salt, iterations)
+		val key = derive(password, salt, iterations, cached)
 		return try {
 			val cipher = Cipher.getInstance("AES/GCM/NoPadding")
 			cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce))
@@ -32,7 +42,7 @@ object PasswordEnvelope {
 		}
 	}
 
-	fun decrypt(envelope: ByteArray, password: CharArray): ByteArray {
+	fun decrypt(envelope: ByteArray, password: CharArray, cached: Boolean = false): ByteArray {
 		require(envelope.size <= MAX_ENVELOPE_BYTES) { "recovery file is too large" }
 		val input = DataInputStream(ByteArrayInputStream(envelope))
 		val magic = ByteArray(MAGIC.size).also(input::readFully)
@@ -49,7 +59,7 @@ object PasswordEnvelope {
 		val headerLength = envelope.size - encryptedLength
 		val header = envelope.copyOfRange(0, headerLength)
 		val encrypted = ByteArray(encryptedLength).also(input::readFully)
-		val key = derive(password, salt, iterations)
+		val key = derive(password, salt, iterations, cached)
 		return try {
 			val cipher = Cipher.getInstance("AES/GCM/NoPadding")
 			cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce))
@@ -73,18 +83,23 @@ object PasswordEnvelope {
 			bytes.toByteArray()
 		}
 
-	private fun derive(password: CharArray, salt: ByteArray, iterations: Int): ByteArray {
-		val spec = PBEKeySpec(password, salt, iterations, KEY_BITS)
-		return try {
-			SecretKeyFactory.getInstance("PBKDF2withHmacSHA256").generateSecret(spec).encoded
-		} finally {
-			spec.clearPassword()
-		}
+	/** Warms [KeyCache] for an envelope [encrypt] will later write with [salt] and [iterations]. */
+	fun prepareKey(password: CharArray, salt: ByteArray, iterations: Int) {
+		derive(password, salt, iterations, cached = true).fill(0)
 	}
+
+	private fun derive(password: CharArray, salt: ByteArray, iterations: Int, cached: Boolean): ByteArray = if (cached) {
+		KeyCache.get(password, salt, iterations) { derive(password, salt, iterations) }
+	} else {
+		derive(password, salt, iterations)
+	}
+
+	private fun derive(password: CharArray, salt: ByteArray, iterations: Int): ByteArray =
+		Pbkdf2.sha256(password, salt, iterations, KEY_BITS)
 
 	private val MAGIC = "SHELFREC".toByteArray(Charsets.US_ASCII)
 	private const val VERSION = 1
-	private const val SALT_BYTES = 16
+	const val SALT_BYTES = 16
 	private const val NONCE_BYTES = 12
 	private const val GCM_TAG_BYTES = 16
 	private const val KEY_BITS = 256

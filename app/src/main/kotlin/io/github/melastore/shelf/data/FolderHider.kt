@@ -69,7 +69,11 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 		val method = activeMethod(preference)
 			?: return@withContext HideResult.Failed(HideFailure.MethodUnavailable)
 		val strategy = strategies.first { it.method == method }
-		val fallback = inPlaceStrategy()?.takeIf { strategy.blocker(target.emulatedPath) != null }
+		// A folder still hidden in place from before a reinstall goes back to that method, which takes
+		// it over. Any other method would hide it a second time over its scrambled contents.
+		val fallback = inPlaceStrategy()?.takeIf {
+			it.hiddenHere(target.emulatedPath) || strategy.blocker(target.emulatedPath) != null
+		}
 		(fallback ?: strategy).hide(target)
 	}
 

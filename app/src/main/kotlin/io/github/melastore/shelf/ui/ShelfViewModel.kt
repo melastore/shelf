@@ -15,6 +15,7 @@ import io.github.melastore.shelf.data.AutoHideMode
 import io.github.melastore.shelf.data.CalendarEvent
 import io.github.melastore.shelf.data.CalendarEventStore
 import io.github.melastore.shelf.data.ContentCredential
+import io.github.melastore.shelf.data.ContentKeys
 import io.github.melastore.shelf.data.DecoyItem
 import io.github.melastore.shelf.data.DecoyType
 import io.github.melastore.shelf.data.DuressEvent
@@ -488,6 +489,13 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		return CharArray(UNKNOWABLE_LENGTH) { UNKNOWABLE_ALPHABET[random.nextInt(UNKNOWABLE_ALPHABET.length)] }
 	}
 
+	/** Asked before the prompts too, so nobody types three credentials only to be told to unhide first. */
+	fun credentialChangeAllowed(): Boolean {
+		val blocked = _state.value.folders.any { it.hidden }
+		if (blocked) fail(uiMessage(R.string.unhide_before_credential_change))
+		return !blocked
+	}
+
 	/**
 	 * Changing the credential re-keys every file header a hide would encrypt, so it is refused while
 	 * anything is hidden. Changing only the kind counts: a pattern and a PIN that happen to be the
@@ -793,6 +801,14 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			)
 		}
 		runCatching { refreshCapabilitiesNow() }
+		prepareContentKeys(loaded.getOrNull().orEmpty())
+	}
+
+	/** Seconds of CPU per unlock, so only when a hide or restore is going to need the keys. */
+	private fun prepareContentKeys(folders: List<VaultFolder>) = viewModelScope.launch(Dispatchers.IO) {
+		if (preferences.deepProtection() || folders.any { it.entry?.deep == true }) {
+			ContentKeys.prepare(getApplication())
+		}
 	}
 
 	private fun listFailure(cause: Throwable): UiMessage = when (cause) {
@@ -1465,6 +1481,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 	fun exportRecoveryBundle(destination: Uri, password: CharArray) = launchBusy {
 		var encrypted = byteArrayOf()
+		var exported = false
 		try {
 			if (password.size < MIN_RECOVERY_PASSWORD) {
 				return@launchBusy fail(uiMessage(R.string.recovery_password_too_short))
@@ -1481,11 +1498,18 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				} != null
 			}
 			if (!written) return@launchBusy fail(uiMessage(R.string.recovery_destination_open_failed))
+			exported = true
 			_state.update { it.copy(message = uiMessage(R.string.recovery_exported)) }
 		} finally {
 			password.fill(' ')
 			encrypted.fill(0)
+			if (!exported) discardRecoveryDestination(destination)
 		}
+	}
+
+	/** The picker creates the file before the passphrase is asked for, so an export that stops leaves it empty. */
+	fun discardRecoveryDestination(destination: Uri) = viewModelScope.launch(Dispatchers.IO) {
+		runCatching { DocumentsContract.deleteDocument(getApplication<Application>().contentResolver, destination) }
 	}
 
 	fun importRecoveryBundle(source: Uri, password: CharArray) = launchBusy {

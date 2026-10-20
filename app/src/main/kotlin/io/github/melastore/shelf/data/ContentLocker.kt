@@ -30,8 +30,9 @@ data class LockSummary(
 /**
  * Applies [FileLocker] across every file in a folder.
  *
- * One key derivation per pass. PBKDF2 is expensive on purpose, and paying it per file would make a
- * few thousand photos slower than copying them. Each file still gets its own nonce and carries the
+ * One key derivation per pass at most, and none once [io.github.melastore.shelf.crypto.KeyCache] has
+ * it. PBKDF2 is expensive on purpose, and paying it per file would make a few thousand photos slower
+ * than copying them. Each file still gets its own nonce and carries the
  * salt in its own trailer, so a file that turns up on its own is recoverable from the passphrase.
  *
  * A pass never stops at the first failure: half a locked folder with no report is worse than
@@ -39,8 +40,12 @@ data class LockSummary(
  */
 class ContentLocker(private val slice: Int = FileLocker.SLICE_LENGTH) {
 
-	suspend fun lock(targets: List<LockTarget>, passphrase: CharArray): LockSummary = withContext(Dispatchers.IO) {
-		val salt = HeaderCipher.newSalt()
+	/** [salt] is the install's, so the key is the one already cached for the session. */
+	suspend fun lock(
+		targets: List<LockTarget>,
+		passphrase: CharArray,
+		salt: ByteArray = HeaderCipher.newSalt(),
+	): LockSummary = withContext(Dispatchers.IO) {
 		val key = HeaderCipher.deriveKey(passphrase, salt)
 		targets.summarise { FileLocker.lock(it, key, salt) }
 	}

@@ -177,6 +177,15 @@ class SafGrantsRobolectricTest {
 		)
 	}
 
+	@Test
+	fun `a child is found by its exact name in one lookup`() {
+		val root = requireNotNull(SafGrants.folder(context, paths, folder.path))
+
+		assertEquals("one.jpg", SafTree.child(context, root.uri, "one.jpg")?.name)
+		assertEquals(true, SafTree.child(context, root.uri, "nested")?.isDirectory)
+		assertEquals(null, SafTree.child(context, root.uri, "missing.jpg"))
+	}
+
 	/** Just enough of the storage provider to describe a real directory tree under [root]. */
 	private class FakeDocuments(private val root: () -> String) : ContentProvider() {
 

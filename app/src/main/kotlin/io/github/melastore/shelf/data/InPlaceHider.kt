@@ -1,9 +1,11 @@
 package io.github.melastore.shelf.data
 
 import android.content.Context
+import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import io.github.melastore.shelf.root.StoragePaths
+import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import kotlinx.coroutines.Dispatchers
@@ -46,11 +48,9 @@ class InPlaceHider(context: Context, private val journal: Journal, private val p
 		}
 		val root = SafGrants.folder(appContext, paths, path)
 			?: return@withContext HideResult.NeedsAccess(path, target.displayName)
-		if (root.findFile(MARKER)?.isFile == true) {
-			return@withContext HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
-		}
 		val tree = SafGrants.covering(resolver, paths.emulatedRoot, path)
 			?: return@withContext HideResult.NeedsAccess(path, target.displayName)
+		if (SafTree.child(appContext, root.uri, MARKER)?.isFile == true) return@withContext adopt(target, tree)
 
 		val entry = HiddenEntry(
 			path = path,
@@ -111,7 +111,7 @@ class InPlaceHider(context: Context, private val journal: Journal, private val p
 
 		// Written last, so a hide killed partway leaves no marker claiming work that did not finish.
 		// Whether the .nomedia was ours is recorded in it: one the owner put there is theirs to keep.
-		val ourNoMedia = root.findFile(NO_MEDIA) == null && createEmpty(root, NO_MEDIA)
+		val ourNoMedia = SafTree.child(appContext, root.uri, NO_MEDIA) == null && createEmpty(root, NO_MEDIA)
 		if (!writeMarker(root, ourNoMedia)) {
 			names.restore(path)
 			content.restore(path)
@@ -125,6 +125,30 @@ class InPlaceHider(context: Context, private val journal: Journal, private val p
 			recorded,
 			mergeWarnings(HideWarning.FolderNameVisible, protectionWarning, nameWarning),
 		)
+	}
+
+	/**
+	 * Takes back a folder this method hid whose record is gone, after a reinstall or cleared data.
+	 * Nothing scans for those: the grants went with the old install, so the owner adding the folder
+	 * again is the first moment Shelf can see it. Refusing it as already hidden left the contents
+	 * scrambled with no way back.
+	 */
+	private suspend fun adopt(target: FolderTarget, tree: Uri): HideResult {
+		val entry = HiddenEntry(
+			path = target.emulatedPath,
+			displayName = target.displayName,
+			hiddenAt = System.currentTimeMillis(),
+			method = method,
+			hiddenPath = target.emulatedPath,
+			treeUri = tree.toString(),
+		)
+		if (!journal.addNew(entry)) return HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
+		return HideResult.Ok(entry, HideWarning.FolderNameVisible)
+	}
+
+	override suspend fun hiddenHere(path: String): Boolean = withContext(Dispatchers.IO) {
+		val marker = SafGrants.folder(appContext, paths, path)?.let { SafTree.child(appContext, it.uri, MARKER) }
+		marker?.isFile ?: runCatching { File(path, MARKER).isFile }.getOrDefault(false)
 	}
 
 	override suspend fun restore(entry: HiddenEntry): HideResult = withContext(Dispatchers.IO) {
@@ -207,7 +231,7 @@ class InPlaceHider(context: Context, private val journal: Journal, private val p
 				HiddenHealthDetail.SAF_ACCESS_REQUIRED,
 			)
 		when {
-			root.findFile(MARKER)?.isFile == true -> HiddenHealth(
+			SafTree.child(appContext, root.uri, MARKER)?.isFile == true -> HiddenHealth(
 				HiddenHealthStatus.HEALTHY,
 				HiddenHealthDetail.IN_PLACE_INTACT,
 			)
@@ -223,7 +247,7 @@ class InPlaceHider(context: Context, private val journal: Journal, private val p
 	}
 
 	private fun writeMarker(root: DocumentFile, ourNoMedia: Boolean): Boolean {
-		if (root.findFile(MARKER) != null && !deleteChild(root, MARKER)) return false
+		if (SafTree.child(appContext, root.uri, MARKER) != null && !deleteChild(root, MARKER)) return false
 		val body = if (ourNoMedia) OWNS_NO_MEDIA else KEEPS_NO_MEDIA
 		return createExactly(root, MARKER, body.toByteArray())
 	}
@@ -261,7 +285,7 @@ class InPlaceHider(context: Context, private val journal: Journal, private val p
 	}
 
 	private fun markedOurNoMedia(root: DocumentFile): Boolean {
-		val marker = root.findFile(MARKER)?.takeIf { it.isFile } ?: return false
+		val marker = SafTree.child(appContext, root.uri, MARKER)?.takeIf { it.isFile } ?: return false
 		// openInputStream comes back null on this document however the provider is asked, so the
 		// marker is read the way the name manifest is: a descriptor, then a plain stream over it.
 		val text = runCatching {
@@ -275,7 +299,7 @@ class InPlaceHider(context: Context, private val journal: Journal, private val p
 	private fun createEmpty(root: DocumentFile, name: String): Boolean = createExactly(root, name, ByteArray(0))
 
 	private fun deleteChild(root: DocumentFile, name: String): Boolean {
-		val child = root.findFile(name) ?: return true
+		val child = SafTree.child(appContext, root.uri, name) ?: return true
 		return runCatching { DocumentsContract.deleteDocument(resolver, child.uri) }.getOrDefault(false)
 	}
 

@@ -165,6 +165,7 @@ fun PrivateArea(
 			onThemeMode = viewModel::setThemeMode,
 			onHidingPreference = viewModel::setHidingPreference,
 			onHiddenNameStyle = viewModel::setHiddenNameStyle,
+			canChangeCredential = viewModel::credentialChangeAllowed,
 			onChangeCredential = viewModel::changeVaultCredential,
 			onSetDecoyCredential = viewModel::setDecoyCredential,
 			onClearDecoyPin = viewModel::clearDecoyPin,
@@ -212,7 +213,10 @@ fun PrivateArea(
 				viewModel.exportRecoveryBundle(uri, it)
 				exportUri = null
 			},
-			onDismiss = { exportUri = null },
+			onDismiss = {
+				viewModel.discardRecoveryDestination(uri)
+				exportUri = null
+			},
 		)
 	}
 	importUri?.let { uri ->
@@ -318,7 +322,15 @@ private fun VaultScreen(
 					ShelfRow(
 						key = item.id,
 						title = item.name,
-						subtitle = stringResource(R.string.hidden_folder_label),
+						// The real rows' wording. A label only the decoy used, and one that stayed
+						// "hidden" after Unhide, told anyone who knew the app which space this was.
+						subtitle = stringResource(
+							when {
+								!item.hidden -> R.string.folder_status_unlocked
+								state.deepProtection -> R.string.folder_status_hidden
+								else -> R.string.folder_status_hidden_only
+							},
+						),
 						hidden = item.hidden,
 						onToggle = { onToggleDecoyItem(item) },
 						onForget = { discarding = item },
@@ -611,6 +623,7 @@ private fun SettingsScreen(
 	onThemeMode: (ThemeMode) -> Unit,
 	onHidingPreference: (HidingPreference) -> Unit,
 	onHiddenNameStyle: (HiddenNameStyle) -> Unit,
+	canChangeCredential: () -> Boolean,
 	onChangeCredential: (CredentialKind, CharArray, CharArray) -> Unit,
 	onSetDecoyCredential: (CharArray, CharArray) -> Unit,
 	onClearDecoyPin: (CharArray) -> Unit,
@@ -698,12 +711,16 @@ private fun SettingsScreen(
 					AuthenticationSettingsSection(
 						state = state,
 						onChangePin = {
-							changingTo = null
-							askCurrent = true
+							if (canChangeCredential()) {
+								changingTo = null
+								askCurrent = true
+							}
 						},
 						onCredentialKind = { kind ->
-							changingTo = kind
-							askCurrent = true
+							if (canChangeCredential()) {
+								changingTo = kind
+								askCurrent = true
+							}
 						},
 						onBiometricChange = { onBiometricChange(!state.biometricEnabled) },
 						onSetDecoyPin = { decoyAction = DecoyPinAction.SET },

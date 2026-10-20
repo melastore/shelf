@@ -73,7 +73,10 @@ class RootChmodHider(
 			return HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
 		}
 		val marker = markerPath(entry)
+		// The folder is not at 000 and has no record, so any marker in it is left from a hide that failed
+		// after losing root and could not clean up. Kept, it refused every later hide of this folder.
 		val marked = root.run(
+			"rm -f ${RootShell.quote(backing)}/$MARKER_PREFIX*",
 			"[ ! -e ${RootShell.quote(marker)} ]",
 			": > ${RootShell.quote(marker)}",
 			"chmod 600 ${RootShell.quote(marker)}",
@@ -202,9 +205,11 @@ class RootChmodHider(
 				return HideResult.Failed(HideFailure.NameRestoreFailed(nameRestore.count))
 			}
 
+			// Root opens the folder but cannot rename inside it for the app, which has no way to read
+			// the files without all-files access. "0 filenames failed" told the owner nothing to do.
 			NameProtectionResult.AccessUnavailable -> {
 				root.run("chmod 000 ${RootShell.quote(entry.path)}")
-				return HideResult.Failed(HideFailure.NameRestoreFailed(0))
+				return HideResult.Failed(HideFailure.AllFilesRequired(entry.displayName))
 			}
 		}
 		when (val contentRestore = content.restore(paths.toEmulated(entry.path))) {
@@ -231,7 +236,7 @@ class RootChmodHider(
 			ContentProtectionResult.AccessUnavailable -> {
 				if (nameRestore is NameProtectionResult.Done) names.protect(paths.toEmulated(entry.path))
 				root.run("chmod 000 ${RootShell.quote(entry.path)}")
-				return HideResult.Failed(HideFailure.ContentRestoreFailed(0))
+				return HideResult.Failed(HideFailure.AllFilesRequired(entry.displayName))
 			}
 		}
 
@@ -282,6 +287,11 @@ class RootChmodHider(
 			val currentMode = root.run("stat -c %a ${RootShell.quote(parent)}")
 				.takeIf { it.ok }?.stdout?.firstOrNull()?.trim()
 			if (currentMode?.toIntOrNull() != 0) continue
+			// The marker does not say whether the per-file passes ran, and assuming they did sent every
+			// recovered folder off to ask for access it may never have needed, then back to 000. A
+			// folder whose files were touched has the name manifest at its root.
+			val manifest = "$parent/${FolderNameProtector.MANIFEST}"
+			val deep = root.run("test -f ${RootShell.quote(manifest)}").ok
 
 			val entry = HiddenEntry(
 				path = parent,
@@ -290,6 +300,7 @@ class RootChmodHider(
 				method = method,
 				originalMode = match.groupValues[1],
 				originalOwner = "${match.groupValues[2]}:${match.groupValues[3]}",
+				deep = deep,
 			)
 			if (journal.addNew(entry)) recovered++
 		}

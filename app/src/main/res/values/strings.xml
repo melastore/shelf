@@ -54,7 +54,7 @@
 	<string name="current_pin">Current PIN</string>
 	<string name="current_pin_subtitle">Confirm the PIN you use today.</string>
 	<string name="confirm_primary_pin">Confirm primary PIN</string>
-	<string name="confirm_primary_pin_summary">This keeps your two PINs separate.</string>
+	<string name="confirm_primary_pin_summary">This keeps your PINs apart.</string>
 	<string name="new_pin">New PIN</string>
 	<string name="new_pattern">New pattern</string>
 	<string name="new_password">New password</string>
@@ -93,7 +93,6 @@
 	<string name="back">Back</string>
 	<string name="method_unavailable">No method available. Check Settings</string>
 	<string name="hide_folder">Add a folder</string>
-	<string name="hidden_folder_label">Hidden folder</string>
 	<string name="vault_empty_title">Nothing added yet</string>
 	<string name="empty_hint">Add a folder and it disappears from your gallery and file manager.</string>
 	<string name="vault_status_unlocked">Private space unlocked</string>
@@ -147,7 +146,7 @@
 	<string name="error_folder_unreadable">%1$s is not a folder Shelf can read.</string>
 	<string name="error_move_failed">Could not move %1$s without copying it.</string>
 	<string name="error_parent_not_grantable">Android will not grant access to the folder above %1$s, so hiding it this way needs all-files access. Turn it on in Settings, or move the folder inside another one.</string>
-	<string name="error_all_files_required">%1$s needs all-files access to restore. Turn it back on in Settings and try again.</string>
+	<string name="error_all_files_required">%1$s needs all-files access to restore. Allow it and try again.</string>
 	<string name="error_hidden_folder_missing">%1$s is no longer at %2$s.</string>
 	<string name="error_destination_exists">Something already exists at %1$s, so %2$s was left hidden. Move or rename it and try again.</string>
 	<string name="error_move_back_failed">Could not move %1$s back to %2$s.</string>
@@ -306,7 +305,7 @@
 	<string name="entry_corner_knock">Corner taps only</string>
 	<string name="entry_corner_knock_summary">No long-press gesture. Only the five top-right taps open the private space.</string>
 	<string name="entry_direct_keypad">Type it on the keypad</string>
-	<string name="entry_direct_keypad_summary">Enter your PIN on the calculator and press equals. There is no gesture on the calculator itself. Five taps in the top-right corner still open the prompt, as on every disguise. After ten codes that open nothing, the keypad stops checking for a while without saying so. Opening the prompt always works.</string>
+	<string name="entry_direct_keypad_summary">Enter your PIN on the calculator and press equals. Holding equals, or five taps in the top-right corner, opens the prompt instead. After ten codes that open nothing, the keypad stops checking for a while without saying so. Opening the prompt always works.</string>
 	<string name="entry_double_tap_title">Double tap the title</string>
 	<string name="entry_double_tap_title_summary">Tap the app name in the toolbar twice, quickly.</string>
 	<string name="credentials">Unlocking</string>
@@ -377,7 +376,7 @@
 	<string name="all_files_unavailable">Tap to grant Android\'s all-files access, which this method needs.</string>
 	<string name="in_place_mode">Contents only</string>
 	<string name="saf_mode">Folder rename</string>
-	<string name="saf_mode_summary">Adds a leading dot, randomizes file names, and protects headers after primary-PIN unlock. Hidden-file browsers still list the folder, under the name chosen below.</string>
+	<string name="saf_mode_summary">Adds a leading dot to the folder name. Anything that shows hidden files still lists it.</string>
 	<string name="hidden_name_title">Hidden folder name</string>
 	<string name="hidden_name_description">What the folder is called while it is hidden. Changing this renames the folders already hidden.</string>
 	<string name="hidden_name_keep">Keep the real name</string>

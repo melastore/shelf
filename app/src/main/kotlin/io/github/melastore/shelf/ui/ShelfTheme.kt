@@ -1,5 +1,6 @@
 package io.github.melastore.shelf.ui
 
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -8,11 +9,13 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 import io.github.melastore.shelf.data.DecoyType
 import io.github.melastore.shelf.data.ThemeMode
 
@@ -234,6 +237,17 @@ fun ShelfTheme(decoy: DecoyType?, mode: ThemeMode = ThemeMode.SYSTEM, content: @
 		DecoyType.NONE, null -> if (dark) VaultDark else Vault
 	}
 	val colors = if (mode == ThemeMode.AMOLED) base.amoled() else base
+	// enableEdgeToEdge picks bar icons from the system's dark mode, not ours, so a forced theme left
+	// dark icons on a dark bar.
+	val window = LocalActivity.current?.window
+	SideEffect {
+		if (window != null) {
+			WindowCompat.getInsetsController(window, window.decorView).apply {
+				isAppearanceLightStatusBars = !dark
+				isAppearanceLightNavigationBars = !dark
+			}
+		}
+	}
 	MaterialTheme(
 		colorScheme = colors,
 		shapes = ShelfShapes,

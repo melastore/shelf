@@ -27,12 +27,31 @@ class RecoveryBundleTest {
 				method = HideMethod.ROOT_CHMOD,
 				originalMode = "770",
 				originalOwner = "1023:1023",
+				deep = false,
 			),
 		)
 
 		val restored = codec.decode(codec.encode(entries, now = 30))
 
 		assertEquals(entries.map { it.copy(treeUri = "") }, restored)
+	}
+
+	@Test
+	fun `a file from before the deep flag reads as deep`() {
+		val json = codec.encode(
+			listOf(
+				HiddenEntry(
+					path = "/storage/emulated/0/DCIM/Old",
+					displayName = "Old",
+					hiddenAt = 1,
+					method = HideMethod.DOT_RENAME,
+					hiddenPath = "/storage/emulated/0/DCIM/.Old",
+				),
+			),
+		).toString(Charsets.UTF_8)
+
+		assertEquals(false, json.contains("deep"))
+		assertEquals(true, codec.decode(json.toByteArray()).single().deep)
 	}
 
 	@Test

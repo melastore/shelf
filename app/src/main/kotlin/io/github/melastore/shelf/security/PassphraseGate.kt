@@ -2,6 +2,7 @@ package io.github.melastore.shelf.security
 
 import android.system.Os
 import android.system.OsConstants
+import io.github.melastore.shelf.crypto.Pbkdf2
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -9,8 +10,6 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.Base64
-import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.PBEKeySpec
 
 /**
  * Guards the private space behind a credential without storing the credential.
@@ -101,15 +100,8 @@ class PassphraseGate(private val file: File) {
 		}
 	}
 
-	private fun hash(passphrase: CharArray, salt: ByteArray): ByteArray {
-		val spec = PBEKeySpec(passphrase, salt, PBKDF2_ROUNDS, KEY_BITS)
-		return try {
-			SecretKeyFactory.getInstance(PBKDF2_ALG).generateSecret(spec).encoded
-		} finally {
-			// Also on the failure path: the spec holds a copy of the credential either way.
-			spec.clearPassword()
-		}
-	}
+	private fun hash(passphrase: CharArray, salt: ByteArray): ByteArray =
+		Pbkdf2.sha256(passphrase, salt, PBKDF2_ROUNDS, KEY_BITS)
 
 	private fun ByteArray.encode(): String = Base64.getEncoder().encodeToString(this)
 	private fun String.decode(): ByteArray = Base64.getDecoder().decode(this)
@@ -117,7 +109,6 @@ class PassphraseGate(private val file: File) {
 	class GateUnreadable(file: File) : IOException("credential file unreadable: ${file.name}")
 
 	private companion object {
-		const val PBKDF2_ALG = "PBKDF2withHmacSHA256"
 		const val PBKDF2_ROUNDS = 210_000
 		const val KEY_BITS = 256
 		const val SALT_LEN = 16

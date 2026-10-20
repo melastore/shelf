@@ -594,6 +594,37 @@ class DotRenameHider(
 			DocumentProbe.MISSING
 		} catch (_: SecurityException) {
 			DocumentProbe.UNREACHABLE
+		} catch (_: IllegalArgumentException) {
+			// What ExternalStorageProvider throws for a missing document under a tree: its
+			// isChildDocument check cannot resolve the path. Recovery read that as a name conflict and
+			// refused every folder, so ask the parent instead.
+			probeInParent(tree, path)
+		} catch (_: Exception) {
+			DocumentProbe.UNKNOWN
+		}
+	}
+
+	private fun probeInParent(tree: Uri?, path: String): DocumentProbe {
+		if (tree == null) return DocumentProbe.UNKNOWN
+		val parentId = SafPaths.documentId(paths.emulatedRoot, SafPaths.parentOf(path))
+			?: return DocumentProbe.UNKNOWN
+		val name = SafPaths.nameOf(path)
+		return try {
+			resolver.query(
+				DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId),
+				arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+				null,
+				null,
+				null,
+			)?.use { cursor ->
+				var found = false
+				// Ignoring case: emulated storage is case-insensitive on most devices, and a near miss
+				// counts as taken rather than risk renaming over it.
+				while (!found && cursor.moveToNext()) found = cursor.getString(0).equals(name, ignoreCase = true)
+				if (found) DocumentProbe.PRESENT else DocumentProbe.MISSING
+			} ?: DocumentProbe.UNKNOWN
+		} catch (_: SecurityException) {
+			DocumentProbe.UNREACHABLE
 		} catch (_: Exception) {
 			DocumentProbe.UNKNOWN
 		}

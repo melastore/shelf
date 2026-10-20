@@ -16,6 +16,8 @@ private data class PortableHiddenEntry(
 	val hiddenRelativePath: String = "",
 	val originalMode: String = "",
 	val originalOwner: String = "",
+	// Missing from files written before 0.11.2, which only ever assumed it on.
+	val deep: Boolean = true,
 )
 
 data class RecoveryMergeResult(val added: Int, val duplicates: Int, val conflicts: Int = 0)
@@ -49,6 +51,7 @@ class RecoveryBundleCodec(private val paths: StoragePaths) {
 			hiddenRelativePath = entry.hiddenPath.takeIf { it.isNotEmpty() }?.let(::relative).orEmpty(),
 			originalMode = entry.originalMode,
 			originalOwner = entry.originalOwner,
+			deep = entry.deep,
 		)
 	}
 
@@ -83,6 +86,7 @@ class RecoveryBundleCodec(private val paths: StoragePaths) {
 			originalOwner = entry.originalOwner,
 			hiddenPath = hidden,
 			treeUri = "",
+			deep = entry.deep,
 		)
 	}
 

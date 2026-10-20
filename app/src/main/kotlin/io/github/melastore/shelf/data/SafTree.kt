@@ -1,9 +1,11 @@
 package io.github.melastore.shelf.data
 
 import android.content.ContentResolver
+import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
+import androidx.documentfile.provider.DocumentFile
 
 /** One child of a document tree, with everything a walk needs already read out of the cursor. */
 internal data class SafChild(val uri: Uri, val name: String, val mimeType: String?) {
@@ -46,6 +48,33 @@ internal object SafTree {
 			found
 		}
 	}.getOrNull()
+
+	/**
+	 * The child of [folder] called exactly [name], or null. DocumentFile.findFile lists the folder and
+	 * then asks for each child's name one round trip at a time, so looking for one marker in a folder
+	 * of a thousand photos cost a thousand Binder calls. External storage ids are paths, so the
+	 * child's id is known up front and one query answers; any other provider gets one listing.
+	 */
+	fun child(context: Context, folder: Uri, name: String): DocumentFile? {
+		val resolver = context.contentResolver
+		val uri = if (folder.authority == EXTERNAL_STORAGE) {
+			val parent = runCatching { DocumentsContract.getDocumentId(folder) }.getOrNull() ?: return null
+			val id = if (parent.endsWith(':')) "$parent$name" else "$parent/$name"
+			// The volume ignores case and findFile did not, so the name is checked as stored.
+			DocumentsContract.buildDocumentUriUsingTree(folder, id).takeIf { displayName(resolver, it) == name }
+		} else {
+			children(resolver, folder)?.firstOrNull { it.name == name }?.uri
+		}
+		return uri?.let { DocumentFile.fromTreeUri(context, it) }
+	}
+
+	private fun displayName(resolver: ContentResolver, uri: Uri): String? = runCatching {
+		resolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use {
+			if (it.moveToFirst()) it.getString(0) else null
+		}
+	}.getOrNull()
+
+	private const val EXTERNAL_STORAGE = "com.android.externalstorage.documents"
 
 	private val COLUMNS = arrayOf(
 		DocumentsContract.Document.COLUMN_DOCUMENT_ID,

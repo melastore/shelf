@@ -3,6 +3,7 @@ package io.github.melastore.shelf.ui
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
+import android.os.Build
 import android.os.SystemClock
 import io.github.melastore.shelf.data.ShelfCore
 
@@ -11,7 +12,8 @@ import io.github.melastore.shelf.data.ShelfCore
  * fires on a phone left awake on a charger or playing a video.
  *
  * The alarm goes to the receiver the notification action uses, so it works with the app gone.
- * Inexact on purpose: no exact-alarm permission to ask for, and a few minutes late is fine here.
+ * Exact, because an inexact one may land up to three quarters of the interval late. An exact alarm
+ * also lets the receiver start the hide service, where an inexact one leaves it the broadcast window.
  */
 internal object RehideTimer {
 
@@ -32,7 +34,13 @@ internal object RehideTimer {
 		if (at > now && at - now <= window) return
 		val next = now + window
 		preferences.setRehideAt(next)
-		alarms.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, next, alarm(context))
+		// Some builds still refuse the permission, so late beats never.
+		val exact = runCatching {
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarms.canScheduleExactAlarms()) return@runCatching false
+			alarms.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, next, alarm(context))
+			true
+		}.getOrDefault(false)
+		if (!exact) alarms.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, next, alarm(context))
 	}
 
 	/** Alarms do not survive a reboot, so whatever was recorded is dropped and set again. */

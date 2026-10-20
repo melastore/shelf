@@ -61,8 +61,10 @@ class FileLockTarget(val file: File) : LockTarget {
 
 	override fun setLastModified(time: Long): Boolean = file.setLastModified(time)
 
+	// Plain "rw": the protocol calls sync() at each point it needs the bytes down, and "rwd" flushed
+	// every write a second time on top of that.
 	override fun <T> withSession(mode: String, block: (LockTarget) -> T): T =
-		RandomAccessFile(file, if (mode == "r") "r" else "rwd").use { raf -> block(OpenFile(file, raf)) }
+		RandomAccessFile(file, if (mode == "r") "r" else "rw").use { raf -> block(OpenFile(file, raf)) }
 
 	/** One handle, serving every call until the session ends. */
 	private class OpenFile(private val file: File, private val raf: RandomAccessFile) : LockTarget {

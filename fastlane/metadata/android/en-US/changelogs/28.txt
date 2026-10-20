@@ -1,0 +1,7 @@
+- Hiding and unhiding are much faster.
+- Folders hidden before a reinstall or cleared data can be unhidden again.
+- "Recover renamed folder" works again.
+- "Hide again after" now fires on time. This adds one permission, exact alarms, granted at install.
+- Status bar icons follow the app theme.
+- A cancelled export no longer leaves an empty file.
+- Recovery files remember which folders had scrambled contents.

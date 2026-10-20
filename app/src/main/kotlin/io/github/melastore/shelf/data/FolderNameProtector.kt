@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
+import io.github.melastore.shelf.crypto.HeaderCipher
 import io.github.melastore.shelf.crypto.PasswordEnvelope
 import io.github.melastore.shelf.root.StoragePaths
 import java.io.File
@@ -78,7 +79,7 @@ class FolderNameProtector(
 	/** The folder name recorded when [path] was hidden, or null if there is none to read. */
 	suspend fun folderName(path: String): String? = withContext(Dispatchers.IO) {
 		val encrypted = File(path, MANIFEST).takeIf { it.isFile }?.let(::readFile)
-			?: safRoot(path)?.findFile(MANIFEST)?.takeIf { it.isFile }?.let { readSaf(it.uri) }
+			?: safRoot(path)?.let { SafTree.child(appContext, it.uri, MANIFEST) }?.takeIf { it.isFile }?.let { readSaf(it.uri) }
 			?: return@withContext null
 		val password = credential() ?: return@withContext null
 		try {
@@ -113,7 +114,7 @@ class FolderNameProtector(
 		return !manifest.isFile || readFile(manifest) != null
 	}
 
-	private fun protectFile(root: File, folderName: String?): NameProtectionResult {
+	private suspend fun protectFile(root: File, folderName: String?): NameProtectionResult {
 		val manifestFile = File(root, MANIFEST)
 		val mappings = if (manifestFile.isFile) {
 			readManifest(readFile(manifestFile) ?: return NameProtectionResult.Failed())
@@ -139,7 +140,7 @@ class FolderNameProtector(
 		return applyFileMappings(root, mappings, protect = true)
 	}
 
-	private fun restoreFile(root: File): NameProtectionResult {
+	private suspend fun restoreFile(root: File): NameProtectionResult {
 		val manifestFile = File(root, MANIFEST)
 		if (!manifestFile.isFile) return NameProtectionResult.NoFiles
 		val mappings = readManifest(readFile(manifestFile) ?: return NameProtectionResult.Failed())
@@ -151,46 +152,63 @@ class FolderNameProtector(
 		return result
 	}
 
-	private fun applyFileMappings(root: File, mappings: List<NameMapping>, protect: Boolean,): NameProtectionResult {
-		var changed = 0
-		for (mapping in mappings) {
-			val expectedFrom = File(root, if (protect) mapping.original else mapping.opaque)
-			val from = expectedFrom.takeIf { it.exists() }
-				?: expectedFrom.takeUnless { protect }?.let { compatibleOpaqueFile(it, mapping.opaque) }
-			val to = File(root, if (protect) mapping.opaque else mapping.original)
-			if (protect) {
-				when {
-					from?.isFile == true && !to.exists() -> {
-						if (from.renameTo(to)) changed++ else return NameProtectionResult.Failed()
-					}
+	/**
+	 * Rows no other row shares a name with go several at a time: each rename is a trip through the
+	 * storage daemon, which also updates the media database. The rest keep the one-at-a-time pass,
+	 * which picks names against the folder as it stands.
+	 */
+	private suspend fun applyFileMappings(
+		root: File,
+		mappings: List<NameMapping>,
+		protect: Boolean,
+	): NameProtectionResult = coroutineScope {
+		// A restore whose name has been taken since picks a recovery name by looking at the folder,
+		// so it waits for the serial pass.
+		val independent = unshared(mappings).filter { protect || !File(root, it.original).exists() }
+		val gate = Semaphore(PARALLEL_RENAMES)
+		val outcomes = independent.map { mapping ->
+			async(Dispatchers.IO) { gate.withPermit { applyFileMapping(root, mapping, protect) } }
+		}.awaitAll()
+		if (outcomes.any { it == null }) return@coroutineScope NameProtectionResult.Failed()
+		var changed = outcomes.sumOf { it ?: 0 }
+		val done = independent.toSet()
+		for (mapping in mappings.filterNot { it in done }) {
+			changed += applyFileMapping(root, mapping, protect) ?: return@coroutineScope NameProtectionResult.Failed()
+		}
+		NameProtectionResult.Done(changed)
+	}
 
-					from == null && to.isFile -> Unit
+	/** 1 for a rename made, 0 for one already done or nothing to do, null for a failure. */
+	private fun applyFileMapping(root: File, mapping: NameMapping, protect: Boolean): Int? {
+		val expectedFrom = File(root, if (protect) mapping.original else mapping.opaque)
+		val from = expectedFrom.takeIf { it.exists() }
+			?: expectedFrom.takeUnless { protect }?.let { compatibleOpaqueFile(it, mapping.opaque) }
+		val to = File(root, if (protect) mapping.opaque else mapping.original)
+		return if (protect) {
+			when {
+				from?.isFile == true && !to.exists() -> if (from.renameTo(to)) 1 else null
+				from == null && to.isFile -> 0
+				else -> null
+			}
+		} else {
+			when {
+				from?.isFile == true && !to.exists() -> if (from.renameTo(to)) 1 else null
 
-					else -> return NameProtectionResult.Failed()
+				from?.isFile == true && to.exists() -> {
+					val recovered = recoverySibling(to, mapping.opaque)
+					if (from.renameTo(recovered)) 1 else null
 				}
-			} else {
-				when {
-					from?.isFile == true && !to.exists() -> {
-						if (from.renameTo(to)) changed++ else return NameProtectionResult.Failed()
-					}
 
-					from?.isFile == true && to.exists() -> {
-						val recovered = recoverySibling(to, mapping.opaque)
-						if (from.renameTo(recovered)) changed++ else return NameProtectionResult.Failed()
-					}
+				from == null -> 0
 
-					from == null -> Unit
-
-					// Already restored, or deleted while the folder was hidden.
-					else -> return NameProtectionResult.Failed()
-				}
+				// Already restored, or deleted while the folder was hidden.
+				else -> null
 			}
 		}
-		return NameProtectionResult.Done(changed)
 	}
 
 	private suspend fun protectSaf(root: DocumentFile, folderName: String?): NameProtectionResult {
-		val existing = root.findFile(MANIFEST)
+		val existing = SafTree.child(appContext, root.uri, MANIFEST)
 		// Held on to when the walk happens here, so applying the mappings does not list the whole
 		// tree a second time. A provider charges a query per directory and two per child for that.
 		var walked: List<SafEntry>? = null
@@ -212,7 +230,8 @@ class FolderNameProtector(
 	}
 
 	private suspend fun restoreSaf(root: DocumentFile): NameProtectionResult {
-		val manifest = root.findFile(MANIFEST)?.takeIf { it.isFile } ?: return NameProtectionResult.NoFiles
+		val manifest =
+			SafTree.child(appContext, root.uri, MANIFEST)?.takeIf { it.isFile } ?: return NameProtectionResult.NoFiles
 		val mappings = readManifest(readSaf(manifest.uri) ?: return NameProtectionResult.Failed())
 			?: return credentialFailure()
 		val result = applySafMappings(root, mappings, protect = false)
@@ -268,15 +287,17 @@ class FolderNameProtector(
 	 * there, the original name is free, and no other mapping reads or writes either of them. What is
 	 * left over needs a name picked against the folder as it stands, which only works one at a time.
 	 */
-	private fun independentRestores(mappings: List<NameMapping>, byPath: Map<String, SafEntry>,): List<NameMapping> {
+	private fun independentRestores(mappings: List<NameMapping>, byPath: Map<String, SafEntry>,): List<NameMapping> =
+		unshared(mappings).filter { byPath.containsKey(it.opaque) && !byPath.containsKey(it.original) }
+
+	/** Rows whose two names no other row reads or writes, so their renames cannot touch each other. */
+	private fun unshared(mappings: List<NameMapping>): List<NameMapping> {
 		// A manifest is decrypted user data, so two rows claiming one name is possible even though a
 		// walk cannot produce it. Those are left to the serial pass, which knows how to place both.
 		val originals = mappings.groupingBy(NameMapping::original).eachCount()
 		val opaques = mappings.groupingBy(NameMapping::opaque).eachCount()
 		return mappings.filter {
-			byPath.containsKey(it.opaque) &&
-				!byPath.containsKey(it.original) &&
-				originals.getValue(it.original) == 1 &&
+			originals.getValue(it.original) == 1 &&
 				opaques.getValue(it.opaque) == 1 &&
 				it.original !in opaques &&
 				it.opaque !in originals
@@ -379,7 +400,7 @@ class FolderNameProtector(
 	private fun writeManifestSaf(root: DocumentFile, mappings: List<NameMapping>, folderName: String?): Boolean {
 		val encrypted = encryptedManifest(mappings, folderName) ?: return false
 		return try {
-			root.findFile(MANIFEST_TEMP)?.delete()
+			SafTree.child(appContext, root.uri, MANIFEST_TEMP)?.delete()
 			val temporary = root.createFile(MIME, MANIFEST_TEMP) ?: return false
 			val actualName = temporary.name ?: return false
 			if (actualName != MANIFEST_TEMP) return false
@@ -397,7 +418,7 @@ class FolderNameProtector(
 			DocumentFile.fromSingleUri(appContext, renamed)?.name == MANIFEST
 		} finally {
 			encrypted.fill(0)
-			root.findFile(MANIFEST_TEMP)?.delete()
+			SafTree.child(appContext, root.uri, MANIFEST_TEMP)?.delete()
 		}
 	}
 
@@ -409,7 +430,13 @@ class FolderNameProtector(
 				NameManifest.serializer(),
 				NameManifest(files = mappings, folder = folderName?.takeIf(SafPaths::isSafeName)),
 			).toByteArray(Charsets.UTF_8)
-			PasswordEnvelope.encrypt(plain, password)
+			PasswordEnvelope.encrypt(
+				plain,
+				password,
+				iterations = MANIFEST_ROUNDS,
+				salt = ContentKeys.manifestSalt(appContext),
+				cached = true,
+			)
 		} catch (_: Exception) {
 			null
 		} finally {
@@ -533,6 +560,11 @@ class FolderNameProtector(
 		const val MAX_FILES = ContentLocker.MAX_FILES
 		const val MAX_DEPTH = 8
 		const val MAX_PATH = 4_096
+
+		// The headers' work factor. Both sit side by side under one credential, so a guesser takes the
+		// cheaper one and anything above this only slowed the owner. Manifests from before keep the
+		// 600k they were written with; the count travels in the envelope.
+		const val MANIFEST_ROUNDS = HeaderCipher.PBKDF2_ROUNDS
 		const val MAX_RECOVERY_NAMES = 100
 		val OPAQUE = Regex("(?:\\.sfn-|sfn_)[a-f0-9]{32}")
 		val UUID_TOKEN = Regex("[a-f0-9]{32}")
@@ -555,7 +587,7 @@ class FolderNameProtector(
 			if (encrypted.size !in 1..PasswordEnvelope.MAX_ENVELOPE_BYTES) return null
 			var plain = byteArrayOf()
 			return try {
-				plain = PasswordEnvelope.decrypt(encrypted, password)
+				plain = PasswordEnvelope.decrypt(encrypted, password, cached = true)
 				val manifest = json.decodeFromString(NameManifest.serializer(), plain.toString(Charsets.UTF_8))
 				manifest.takeIf { valid(it) }
 			} catch (_: Exception) {
