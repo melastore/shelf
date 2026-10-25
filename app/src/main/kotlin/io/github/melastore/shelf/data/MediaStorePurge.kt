@@ -2,6 +2,7 @@ package io.github.melastore.shelf.data
 
 import android.content.Context
 import android.media.MediaScannerConnection
+import android.os.Environment
 import android.provider.MediaStore
 import io.github.melastore.shelf.root.RootCommandRunner
 import io.github.melastore.shelf.root.RootShell
@@ -116,10 +117,12 @@ object MediaStorePurge : FolderMediaIndex {
 		val failures = mutableListOf<String>()
 		for (uri in collections) {
 			// A delete that reaches no rows does not fail. With no storage permission the provider
-			// narrows the selection to rows this app inserted, of which there are none, and returns
-			// zero. Anything short of a deleted row falls through to the privileged path.
+			// narrows the selection to rows this app inserted and returns how many of those went, so
+			// a count above zero proves nothing about the camera's or anyone else's. Only all-files
+			// access sees every row; short of that the privileged path runs too.
 			val direct = runCatching { context.contentResolver.delete(uri, selection, args) }
-			if (direct.getOrDefault(0) > 0) continue
+			val seesEveryRow = runCatching { Environment.isExternalStorageManager() }.getOrDefault(false)
+			if (direct.getOrDefault(0) > 0 && seesEveryRow) continue
 
 			val viaRoot = runner.run(
 				"content delete --uri ${RootShell.quote(uri.toString())} --where ${RootShell.quote(where)}",

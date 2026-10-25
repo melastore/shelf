@@ -23,7 +23,9 @@ class PassphraseGate(private val file: File) {
 	// let the previous credential in.
 	private val backup = File(file.parentFile, "${file.name}.bak")
 
-	fun isSet(): Boolean = file.exists()
+	// Either file: a gate whose primary went missing with its backup intact is still set, or the next
+	// launch offered setup to whoever opened the app.
+	fun isSet(): Boolean = file.exists() || backup.exists()
 
 	fun set(passphrase: CharArray) {
 		require(passphrase.size >= MIN_LENGTH) { "passphrase must be at least $MIN_LENGTH characters" }
@@ -32,8 +34,15 @@ class PassphraseGate(private val file: File) {
 		val temporary = File(file.parentFile, ".${file.name}.tmp")
 		try {
 			val record = "${salt.encode()}:${hash.encode()}".toByteArray(Charsets.US_ASCII)
+			// The backup is replaced by a rename of its own. Written over in place, a kill partway left
+			// it torn at the one moment it might be needed.
+			val backupTemporary = File(file.parentFile, ".${backup.name}.tmp")
+			backupTemporary.writeSynced(record)
+			if (!backupTemporary.renameTo(backup)) {
+				backupTemporary.delete()
+				backup.writeSynced(record)
+			}
 			temporary.writeSynced(record)
-			backup.writeSynced(record)
 			runCatching {
 				Files.move(
 					temporary.toPath(),
@@ -63,7 +72,7 @@ class PassphraseGate(private val file: File) {
 	 * wrong credential, and counting it as one put the owner into a lockout.
 	 */
 	fun matches(input: CharArray): Boolean {
-		if (!file.exists()) return false
+		if (!isSet()) return false
 		val (salt, expected) = read(file) ?: read(backup) ?: throw GateUnreadable(file)
 		val actual = hash(input, salt)
 		return try {

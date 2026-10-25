@@ -180,7 +180,11 @@ fun PatternPrompt(
 				mismatch = false
 			}
 
-			stored.contentEquals(entered) -> onConfirm(entered)
+			stored.contentEquals(entered) -> {
+				stored.fill(' ')
+				firstPass = null
+				onConfirm(entered)
+			}
 
 			else -> {
 				stored.fill(' ')
@@ -278,7 +282,11 @@ fun KnockPrompt(
 				mismatch = false
 			}
 
-			stored.contentEquals(entered) -> onConfirm(entered)
+			stored.contentEquals(entered) -> {
+				stored.fill(' ')
+				firstPass = null
+				onConfirm(entered)
+			}
 
 			else -> {
 				stored.fill(' ')
@@ -555,7 +563,11 @@ fun PasswordPrompt(
 				mismatch = false
 			}
 
-			stored.contentEquals(entered) -> onConfirm(entered)
+			stored.contentEquals(entered) -> {
+				stored.fill(' ')
+				firstPass = null
+				onConfirm(entered)
+			}
 
 			else -> {
 				stored.fill(' ')
@@ -567,10 +579,16 @@ fun PasswordPrompt(
 		}
 	}
 
+	// Over the limit is said here, before both entries, not by a refusal after the dialog has closed.
+	val tooLong = text.length > CredentialRules.MAX_LENGTH
 	CredentialScaffold(
 		title = if (confirming) stringResource(R.string.confirm_password) else title,
-		subtitle = if (mismatch) stringResource(R.string.password_mismatch) else subtitle,
-		error = mismatch,
+		subtitle = when {
+			mismatch -> stringResource(R.string.password_mismatch)
+			tooLong -> stringResource(R.string.password_length_error)
+			else -> subtitle
+		},
+		error = mismatch || tooLong,
 		onDismiss = onDismiss,
 	) {
 		OutlinedTextField(
@@ -590,7 +608,7 @@ fun PasswordPrompt(
 		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
 			TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
 			Spacer(Modifier.width(8.dp))
-			TextButton(onClick = ::finish, enabled = text.length >= CredentialRules.MIN_PASSWORD) {
+			TextButton(onClick = ::finish, enabled = text.length in CredentialRules.MIN_PASSWORD..CredentialRules.MAX_LENGTH) {
 				Text(
 					if (confirmEntry && firstPass == null) {
 						stringResource(R.string.continue_action)

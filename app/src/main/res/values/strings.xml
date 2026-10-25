@@ -156,6 +156,7 @@
 	<string name="error_hidden_name_unverified">Could not verify the hidden folder name.</string>
 	<string name="error_journal_update_failed">Could not update the recovery journal.</string>
 	<string name="error_rollback_failed">%1$s The rename could not be rolled back; its recovery record was kept.</string>
+	<string name="error_files_not_put_back">%1$s Some files inside could not be put back yet. The record was kept, so hiding the folder again finishes undoing them.</string>
 	<string name="error_invalid_folder_name">Choose a valid folder name without slashes.</string>
 	<string name="error_invalid_recovery_grant">The recovery grant is invalid.</string>
 	<string name="error_recovery_name_conflict">A folder named %1$s already exists or could not be checked.</string>

@@ -191,7 +191,7 @@ class EphemeralMediaLoaderTest {
 		val keyFor: (ByteArray) -> SecretKey? = { null }
 
 		val text = EphemeralMediaLoader.loadText(target, keyFor)
-		assertEquals("", text)
+		assertEquals("", text?.text)
 	}
 
 	@Test
@@ -221,5 +221,22 @@ class EphemeralMediaLoaderTest {
 		assertEquals(EphemeralMediaType.AUDIO, byName["track.ogg"])
 		assertEquals(EphemeralMediaType.AUDIO, byName["sound.flac"])
 		assertEquals(EphemeralMediaType.AUDIO, byName["recording.m4a"])
+	}
+
+	@Test
+	fun `long text is cut on a character boundary and says it was cut`() {
+		val folder = temp.newFolder("long_text")
+		// Three bytes a character, so the limit falls inside one.
+		val file = File(folder, "long.txt").apply { writeText("ሀ".repeat(EphemeralMediaLoader.MAX_TEXT_BYTES / 3 + 10)) }
+		val short = File(folder, "short.txt").apply { writeText("a".repeat(EphemeralMediaLoader.MAX_TEXT_BYTES / 2 + 10)) }
+		val keyFor: (ByteArray) -> SecretKey? = { null }
+
+		val long = EphemeralMediaLoader.loadText(FileLockTarget(file), keyFor)!!
+		assertTrue(long.truncated)
+		assertTrue(long.text.all { it == 'ሀ' })
+		assertEquals(EphemeralMediaLoader.MAX_TEXT_BYTES / 3, long.text.length)
+
+		val whole = EphemeralMediaLoader.loadText(FileLockTarget(short), keyFor)!!
+		assertEquals(false, whole.truncated)
 	}
 }

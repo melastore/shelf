@@ -49,6 +49,7 @@ class ContentCredentialTest {
 		assertNull(ContentCredential.copy())
 	}
 
+	/** A lease is held for a hide that is about to need them, so a lock under it keeps the keys. */
 	@Test
 	fun `derived keys go with the credential, and with the last lease`() {
 		var derivations = 0
@@ -67,10 +68,16 @@ class ContentCredentialTest {
 		ContentCredential.clear()
 		derive()
 		derive()
-		assertEquals(2, derivations)
+		assertEquals(1, derivations)
 
 		lease.close()
 		derive()
-		assertEquals(3, derivations)
+		assertEquals(2, derivations)
+
+		ContentCredential.set(charArrayOf('1', '2', '3', '4'))
+		derive()
+		ContentCredential.clear()
+		derive()
+		assertEquals(4, derivations)
 	}
 }

@@ -140,9 +140,10 @@ class SafLockTarget(val resolver: ContentResolver, val uri: Uri, override val na
 			resolver: ContentResolver,
 			folder: DocumentFile,
 			limit: Int = ContentLocker.MAX_FILES + 1,
+			skip: (String) -> Boolean = { false },
 		): List<LockTarget>? {
 			val found = mutableListOf<LockTarget>()
-			return found.takeIf { collect(resolver, folder.uri, it, limit, depth = 0) }
+			return found.takeIf { collect(resolver, folder.uri, it, limit, skip, depth = 0) }
 		}
 
 		private fun collect(
@@ -150,6 +151,7 @@ class SafLockTarget(val resolver: ContentResolver, val uri: Uri, override val na
 			folder: Uri,
 			found: MutableList<LockTarget>,
 			limit: Int,
+			skip: (String) -> Boolean,
 			depth: Int,
 		): Boolean {
 			if (found.size >= limit) return true
@@ -158,8 +160,8 @@ class SafLockTarget(val resolver: ContentResolver, val uri: Uri, override val na
 			for (child in children) {
 				if (found.size >= limit) return true
 				when {
-					child.isDirectory -> if (!collect(resolver, child.uri, found, limit, depth + 1)) return false
-					child.isFile -> found += SafLockTarget(resolver, child.uri, child.name)
+					child.isDirectory -> if (!collect(resolver, child.uri, found, limit, skip, depth + 1)) return false
+					child.isFile && !skip(child.name) -> found += SafLockTarget(resolver, child.uri, child.name)
 				}
 			}
 			return true

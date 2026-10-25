@@ -1,6 +1,7 @@
 package io.github.melastore.shelf.data
 
 import android.content.Context
+import io.github.melastore.shelf.root.RootShell
 import io.github.melastore.shelf.root.StoragePaths
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -18,7 +19,7 @@ object ShelfCore {
 	private lateinit var appContext: Context
 
 	val paths: StoragePaths by lazy { StoragePaths.forCurrentUser() }
-	val journal: Journal by lazy { Journal(File(appContext.filesDir, "journal.json")) }
+	val journal: Journal by lazy { Journal(File(appContext.filesDir, "journal.json"), paths::toEmulated) }
 	val registry: FolderRegistry by lazy { FolderRegistry(File(appContext.filesDir, "folders.json")) }
 	val hider: FolderHider by lazy { FolderHider(appContext, journal, paths) }
 	val preferences: AppPreferences by lazy { AppPreferences(appContext) }
@@ -26,6 +27,16 @@ object ShelfCore {
 
 	fun install(context: Context) {
 		if (!::appContext.isInitialized) appContext = context.applicationContext
+		if (OpenFolders.ledger == null) OpenFolders.ledger = File(appContext.filesDir, "open-folders")
+	}
+
+	/** Puts back to 000 any root folder a killed process left open in the viewer. No root call when there is none. */
+	suspend fun resealOpenFolders() = withContext(Dispatchers.IO) {
+		val hidden = runCatching { journal.read() }.getOrNull()
+			?.filter { it.method == HideMethod.ROOT_CHMOD }
+			?.mapTo(hashSetOf()) { it.path }
+			?: return@withContext
+		OpenFolders.reseal { path -> path !in hidden || RootShell.run("chmod 000 ${RootShell.quote(path)}").ok }
 	}
 
 	/**

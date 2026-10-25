@@ -157,7 +157,7 @@ fun EphemeralMediaViewer(folder: VaultFolder, onDismiss: () -> Unit,) {
 			if (rootEntry != null) {
 				withContext(NonCancellable + Dispatchers.IO) {
 					OpenFolders.close(rootEntry.path) {
-						RootShell.run("chmod 000 ${RootShell.quote(rootEntry.path)}")
+						RootShell.run("chmod 000 ${RootShell.quote(rootEntry.path)}").ok
 					}
 				}
 			}
@@ -354,17 +354,17 @@ private fun MediaRow(item: EphemeralMediaItem, keyFor: (ByteArray) -> SecretKey?
 @Composable
 private fun MediaPreviewDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> SecretKey?, onDismiss: () -> Unit,) {
 	var settled by remember(item) { mutableStateOf(false) }
-	val bitmapState = produceState<Bitmap?>(initialValue = null, item) {
+	val bitmap = produceState<Bitmap?>(initialValue = null, item) {
 		val loaded = withContext(Dispatchers.IO) {
 			EphemeralMediaLoader.loadBitmap(item.target, keyFor, maxDimension = 2048)
 		}
 		value = loaded
 		settled = true
-	}
-	DisposableEffect(bitmapState.value) {
-		onDispose {
-			bitmapState.value?.recycle()
-		}
+	}.value
+	// The value, not the state: read at dispose time, the state is already the new bitmap, and the
+	// load recycled the very one it was about to draw.
+	DisposableEffect(bitmap) {
+		onDispose { bitmap?.recycle() }
 	}
 	var scale by remember { mutableFloatStateOf(1f) }
 	var offset by remember { mutableStateOf(Offset.Zero) }
@@ -409,7 +409,7 @@ private fun MediaPreviewDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 					)
 				},
 		) {
-			val bmp = bitmapState.value
+			val bmp = bitmap
 			when {
 				bmp != null -> Image(
 					bitmap = bmp.asImageBitmap(),

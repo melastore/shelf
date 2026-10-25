@@ -10,6 +10,7 @@ import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import java.security.KeyStore
 import java.util.Base64
+import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -161,9 +162,14 @@ object BiometricAuth {
 			} catch (_: KeyPermanentlyInvalidatedException) {
 				reset(activity)
 				onResult(Outcome.ENROLMENT_CHANGED, null)
-			} catch (_: Exception) {
+			} catch (_: AEADBadTagException) {
+				// The wrapper itself is damaged, so it will never open again.
 				reset(activity)
 				onResult(Outcome.CREDENTIAL_MISSING, null)
+			} catch (_: Exception) {
+				// Anything else may pass, and deleting the key over it cost the owner fingerprint
+				// unlock for a hiccup in the Keystore. The prompt is the way in this time.
+				onResult(Outcome.FALLBACK, null)
 			} finally {
 				plain.fill(0)
 				blob.ciphertext.fill(0)

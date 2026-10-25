@@ -17,8 +17,9 @@ import kotlinx.coroutines.launch
  * with no button: folders exposed, and the only way back is to find the app, get past the disguise
  * and enter a credential.
  *
- * It reads a count and nothing else. No path, name or record is touched, and nothing is posted
- * unless the owner asked for the notification and something really is exposed.
+ * It reads a count and nothing else. No name or record is touched, and nothing is posted unless the
+ * owner asked for the notification and something really is exposed. The one write is putting a
+ * root folder the viewer had open back to 000, when the phone went down with it open.
  */
 class BootReceiver : BroadcastReceiver() {
 
@@ -29,6 +30,7 @@ class BootReceiver : BroadcastReceiver() {
 		val finish = goAsync()
 		CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
 			try {
+				runCatching { ShelfCore.resealOpenFolders() }
 				val exposed = runCatching { ShelfCore.exposedFolders().size }.getOrDefault(0)
 				RehideTimer.reschedule(appContext, exposed > 0)
 				if (exposed == 0 || !ShelfCore.preferences.quickLockNotification()) return@launch

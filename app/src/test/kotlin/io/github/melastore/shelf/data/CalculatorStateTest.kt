@@ -83,4 +83,22 @@ class CalculatorStateTest {
 		assertEquals("", state.expression)
 		assertEquals("0", state.display)
 	}
+
+	@Test
+	fun `squaring a huge result ends in Error rather than a crash`() {
+		var state = CalculatorState()
+		repeat(14) { state = state.digit(9) }
+		repeat(40) { state = state.operator(CalculatorOperation.MULTIPLY).evaluate() }
+
+		assertEquals("Error", state.display)
+	}
+
+	@Test
+	fun `a large result still shows in engineering form`() {
+		var state = CalculatorState()
+		repeat(14) { state = state.digit(9) }
+		state = state.operator(CalculatorOperation.MULTIPLY).evaluate()
+
+		assertEquals("10E+27", state.display)
+	}
 }

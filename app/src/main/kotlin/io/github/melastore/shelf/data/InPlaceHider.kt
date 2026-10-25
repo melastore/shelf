@@ -89,35 +89,24 @@ class InPlaceHider(context: Context, private val journal: Journal, private val p
 			NameProtectionResult.AccessUnavailable,
 			NameProtectionResult.CredentialRequired -> HideWarning.NameProtectionUnavailable
 
-			NameProtectionResult.WrongCredential -> {
-				names.restore(path)
-				content.restore(path)
-				journal.remove(entry.path)
-				return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
-			}
+			NameProtectionResult.WrongCredential ->
+				return@withContext rollBack(entry, HideFailure.ContentCredentialIncorrect)
 
-			is NameProtectionResult.Failed -> {
-				names.restore(path)
-				content.restore(path)
-				journal.remove(entry.path)
-				return@withContext HideResult.Failed(HideFailure.NameProtectionFailed(protected.count))
-			}
+			is NameProtectionResult.Failed ->
+				return@withContext rollBack(entry, HideFailure.NameProtectionFailed(protected.count))
 		}
 
 		// No second-layer setting here: protecting the contents is the whole hide, and skipping it
 		// would leave the folder exactly as it was found.
-		val recorded = entry.copy(deep = protectionWarning == null && nameWarning == null)
+		val recorded = entry.copy(deep = protectionWarning == null || nameWarning == null)
 		if (!recorded.deep) journal.replace(recorded)
 
 		// Written last, so a hide killed partway leaves no marker claiming work that did not finish.
 		// Whether the .nomedia was ours is recorded in it: one the owner put there is theirs to keep.
 		val ourNoMedia = SafTree.child(appContext, root.uri, NO_MEDIA) == null && createEmpty(root, NO_MEDIA)
 		if (!writeMarker(root, ourNoMedia)) {
-			names.restore(path)
-			content.restore(path)
 			if (ourNoMedia) deleteChild(root, NO_MEDIA)
-			journal.remove(entry.path)
-			return@withContext HideResult.Failed(HideFailure.RecoveryDataCreateFailed(target.displayName))
+			return@withContext rollBack(entry, HideFailure.RecoveryDataCreateFailed(target.displayName))
 		}
 
 		MediaStorePurge.scan(appContext, contents + path)
@@ -244,6 +233,16 @@ class InPlaceHider(context: Context, private val journal: Journal, private val p
 
 			else -> HiddenHealth(HiddenHealthStatus.MISSING, HiddenHealthDetail.IN_PLACE_MISSING)
 		}
+	}
+
+	/**
+	 * Puts back what the per-file passes changed. The record only goes when that came back clean: a
+	 * partial undo keeps it, and the next hide rolls the rest back before starting.
+	 */
+	private suspend fun rollBack(entry: HiddenEntry, failure: HideFailure): HideResult {
+		if (!undoPasses(names, content, entry.path)) return HideResult.Failed(HideFailure.FilesNotPutBack(failure))
+		journal.remove(entry.path)
+		return HideResult.Failed(failure)
 	}
 
 	private fun writeMarker(root: DocumentFile, ourNoMedia: Boolean): Boolean {

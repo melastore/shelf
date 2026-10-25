@@ -2,7 +2,9 @@ package io.github.melastore.shelf.data
 
 import android.content.Context
 import android.os.Environment
+import io.github.melastore.shelf.crypto.PasswordEnvelope
 import io.github.melastore.shelf.root.StoragePaths
+import java.io.DataInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Base64
@@ -125,26 +127,16 @@ class PrivateMoveHider(
 					NameProtectionResult.AccessUnavailable,
 					NameProtectionResult.CredentialRequired -> HideWarning.NameProtectionUnavailable
 
-					NameProtectionResult.WrongCredential -> {
-						names.restore(source.path)
-						content.restore(source.path)
-						journal.remove(entry.path)
-						destination.parentFile?.deleteRecursively()
-						return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
-					}
+					NameProtectionResult.WrongCredential ->
+						return@withContext rollBack(entry, destination, HideFailure.ContentCredentialIncorrect)
 
-					is NameProtectionResult.Failed -> {
-						names.restore(source.path)
-						content.restore(source.path)
-						journal.remove(entry.path)
-						destination.parentFile?.deleteRecursively()
-						return@withContext HideResult.Failed(HideFailure.NameProtectionFailed(protected.count))
-					}
+					is NameProtectionResult.Failed ->
+						return@withContext rollBack(entry, destination, HideFailure.NameProtectionFailed(protected.count))
 				}
 			}
 
-			// What the pass managed, which is not always what was asked for.
-			val recorded = entry.copy(deep = deep && protectionWarning == null && nameWarning == null)
+			// On if either pass changed anything, like the other methods: the vault labels a folder by it.
+			val recorded = entry.copy(deep = deep && (protectionWarning == null || nameWarning == null))
 			if (recorded.deep != entry.deep) journal.replace(recorded)
 
 			if (source.renameTo(destination)) {
@@ -152,13 +144,23 @@ class PrivateMoveHider(
 				return@withContext HideResult.Ok(recorded, mergeWarnings(protectionWarning, nameWarning))
 			}
 
-			names.restore(source.path)
-			content.restore(source.path)
-			journal.remove(entry.path)
-			destination.parentFile?.deleteRecursively()
+			val failed = rollBack(entry, destination, HideFailure.MoveFailed(target.displayName))
+			if (failed.failure is HideFailure.FilesNotPutBack) return@withContext failed
 		}
 
 		HideResult.Failed(HideFailure.MoveFailed(target.displayName))
+	}
+
+	/**
+	 * Puts back what the per-file passes changed and drops the empty container. The record only goes
+	 * when that came back clean: a partial undo keeps it, and the next hide rolls the rest back first.
+	 */
+	private suspend fun rollBack(entry: HiddenEntry, destination: File, failure: HideFailure): HideResult.Failed {
+		val clean = undoPasses(names, content, entry.path)
+		destination.parentFile?.deleteRecursively()
+		if (!clean) return HideResult.Failed(HideFailure.FilesNotPutBack(failure))
+		journal.remove(entry.path)
+		return HideResult.Failed(failure)
 	}
 
 	override suspend fun restore(entry: HiddenEntry): HideResult = withContext(Dispatchers.IO) {
@@ -306,10 +308,15 @@ class PrivateMoveHider(
 
 			hidden.isDirectory -> {
 				val marker = hidden.parentFile?.let { File(it, ORIGIN_MARKER) }
-				if (marker == null || readOrigin(marker) != entry.path) {
-					HiddenHealth(HiddenHealthStatus.RECOVERY_DAMAGED, HiddenHealthDetail.MOVE_MARKER_DAMAGED)
-				} else {
+				// A sealed marker cannot be read without the credential, which is not proof it is damaged.
+				val intact = marker != null && when (val origin = readOrigin(marker)) {
+					null -> isSealed(marker) && !ContentCredential.isAvailable()
+					else -> origin == entry.path
+				}
+				if (intact) {
 					HiddenHealth(HiddenHealthStatus.HEALTHY, HiddenHealthDetail.MOVE_INTACT)
+				} else {
+					HiddenHealth(HiddenHealthStatus.RECOVERY_DAMAGED, HiddenHealthDetail.MOVE_MARKER_DAMAGED)
 				}
 			}
 
@@ -361,22 +368,60 @@ class PrivateMoveHider(
 		}
 	}
 
+	/**
+	 * Sealed under the credential when it is held, like the name manifest: the random container
+	 * names are worth nothing if a file beside them spells out the original path. Plain Base64 is
+	 * what markers from before this hold, and what a hide with no credential still writes.
+	 */
 	private fun writeOrigin(marker: File, path: String): Boolean = runCatching {
-		val encoded = Base64.getUrlEncoder().withoutPadding()
-			.encodeToString(path.toByteArray(Charsets.UTF_8))
+		val plain = path.toByteArray(Charsets.UTF_8)
+		val credential = ContentCredential.copy()
+		val body = try {
+			if (credential != null) {
+				PasswordEnvelope.encrypt(
+					plain,
+					credential,
+					FolderNameProtector.MANIFEST_ROUNDS,
+					ContentKeys.manifestSalt(appContext),
+					cached = true,
+				)
+			} else {
+				Base64.getUrlEncoder().withoutPadding().encodeToString(plain).toByteArray(Charsets.US_ASCII)
+			}
+		} finally {
+			credential?.fill(' ')
+		}
 		FileOutputStream(marker).use { output ->
-			output.write(encoded.toByteArray(Charsets.US_ASCII))
+			output.write(body)
 			output.fd.sync()
 		}
 	}.isSuccess
 
+	/** The path [marker] names. Null when it is missing or damaged, or sealed and the credential is not held. */
 	private fun readOrigin(marker: File): String? {
 		if (!marker.isFile || marker.length() !in 1..MAX_MARKER_BYTES) return null
-		return runCatching {
-			Base64.getUrlDecoder().decode(marker.readText(Charsets.US_ASCII))
-				.toString(Charsets.UTF_8)
-		}.getOrNull()
+		val body = runCatching { marker.readBytes() }.getOrNull() ?: return null
+		if (!body.startsWith(SEALED_MAGIC)) {
+			return runCatching {
+				Base64.getUrlDecoder().decode(body.toString(Charsets.US_ASCII)).toString(Charsets.UTF_8)
+			}.getOrNull()
+		}
+		val credential = ContentCredential.copy() ?: return null
+		return try {
+			runCatching { PasswordEnvelope.decrypt(body, credential, cached = true).toString(Charsets.UTF_8) }.getOrNull()
+		} finally {
+			credential.fill(' ')
+		}
 	}
+
+	private fun isSealed(marker: File): Boolean = runCatching {
+		val head = ByteArray(SEALED_MAGIC.size)
+		DataInputStream(marker.inputStream()).use { it.readFully(head) }
+		head.contentEquals(SEALED_MAGIC)
+	}.getOrDefault(false)
+
+	private fun ByteArray.startsWith(prefix: ByteArray): Boolean =
+		size >= prefix.size && prefix.indices.all { this[it] == prefix[it] }
 
 	private fun isSafeOrigin(path: String): Boolean {
 		val backing = runCatching { paths.toBacking(path) }.getOrNull() ?: return false
@@ -394,6 +439,7 @@ class PrivateMoveHider(
 		const val ORIGIN_MARKER = ".shelf-origin-v1"
 		const val PAYLOAD_PREFIX = "payload-"
 		const val MAX_MARKER_BYTES = 16_384L
+		val SEALED_MAGIC = "SHELFREC".toByteArray(Charsets.US_ASCII)
 		const val MAX_RECOVERY_DIRECTORIES = 1_000
 	}
 }

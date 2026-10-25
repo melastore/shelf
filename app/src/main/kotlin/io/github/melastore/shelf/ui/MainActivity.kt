@@ -228,7 +228,10 @@ class MainActivity : ComponentActivity() {
 
 				val sensorManager = remember { getSystemService(SensorManager::class.java) }
 				val accelerometer = remember { sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) }
-				val flipToHideActive = state.screen != Screen.DECOY && state.flipToHide
+				// On the disguise too while something is exposed or the keypad is up, like the USB exit:
+				// the space being closed is not the same as nothing left to hide.
+				val flipToHideActive = state.flipToHide &&
+					(state.screen != Screen.DECOY || state.exposedFolders > 0 || showCredential || showFakeCrash)
 				val lifecycleOwner = LocalLifecycleOwner.current
 
 				DisposableEffect(lifecycleOwner, flipToHideActive, accelerometer) {
@@ -243,6 +246,8 @@ class MainActivity : ComponentActivity() {
 							if (z < -7.0f && !flipped) {
 								flipped = true
 								window.decorView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+								showCredential = false
+								showFakeCrash = false
 								viewModel.autoHideAndClose()
 							} else if (z > -3.0f) {
 								flipped = false

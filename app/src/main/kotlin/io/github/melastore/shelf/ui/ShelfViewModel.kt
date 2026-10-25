@@ -206,6 +206,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	private var exposureCounted = false
 
 	init {
+		viewModelScope.launch { runCatching { ShelfCore.resealOpenFolders() } }
 		viewModelScope.launch {
 			QuickLockSignal.requests.collect {
 				QuickLockSignal.consume()
@@ -1145,7 +1146,10 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		)
 		val method = folderCoordinator.selectedMethod(preference, available)
 		var recovered: List<VaultFolder>? = null
-		if (_state.value.folders.isEmpty() && method != null && method != recoveryCheckedFor) {
+		// Only in the real space: an all-files marker is sealed under the credential, and a scan from
+		// anywhere else would mark the method checked having read none of them.
+		val canRecover = ContentCredential.isAvailable() && !_state.value.duress
+		if (canRecover && _state.value.folders.isEmpty() && method != null && method != recoveryCheckedFor) {
 			recoveryCheckedFor = method
 			if ((guard { folderCoordinator.recoverOrphans(method) } ?: 0) > 0) recovered = guard { loadFolders() }
 		}
@@ -1280,15 +1284,28 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 */
 	private suspend fun unsuitable(path: String): UiMessage? {
 		reservedFolder(path)?.let { return it }
+		// Ignoring case, as emulated storage does. The hidden locations count too: the picker shows
+		// a renamed folder to anyone with hidden files on, and hiding it again would write over the
+		// manifest that holds its real names.
+		fun overlaps(other: String) = other.isNotEmpty() && (
+			path.equals(other, ignoreCase = true) ||
+				path.startsWith("$other/", ignoreCase = true) ||
+				other.startsWith("$path/", ignoreCase = true)
+			)
 		val tracked = guard { registry.read() }.orEmpty()
-		return tracked
-			.firstOrNull { path.startsWith("${it.path}/") || it.path.startsWith("$path/") }
+		tracked.firstOrNull { !it.path.equals(path, ignoreCase = true) && overlaps(it.path) }
+			?.let { return uiMessage(R.string.folder_overlaps_tracked, it.displayName) }
+		val hidden = guard { journal.read() }.orEmpty()
+		return hidden
+			.firstOrNull { it.hiddenPath != it.path && overlaps(paths.toEmulated(it.hiddenPath)) }
 			?.let { uiMessage(R.string.folder_overlaps_tracked, it.displayName) }
 	}
 
 	private fun reservedFolder(path: String): UiMessage? {
 		val relative = path.removePrefix(paths.emulatedRoot).trim('/')
-		if (relative.isNotEmpty() && relative.lowercase() !in RESERVED_FOLDERS) return null
+		// Where the all-files method keeps what it moved, at any depth.
+		val top = relative.substringBefore('/').lowercase()
+		if (relative.isNotEmpty() && relative.lowercase() !in RESERVED_FOLDERS && top != PRIVATE_VAULT) return null
 		return uiMessage(R.string.folder_is_reserved, relative.ifEmpty { "/" })
 	}
 
@@ -1691,12 +1708,13 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 	fun dismissBlocked() = _state.update { it.copy(blocked = null) }
 
-	private fun reportBlocked(title: UiMessage, problem: FolderProblem) {
-		_state.update { it.copy(blocked = BlockedReport(title, listOf(problem))) }
-	}
+	private fun reportBlocked(title: UiMessage, problem: FolderProblem) = reportBlocked(title, listOf(problem))
 
+	// Like reloadVault: a report naming folders never lands on a screen the lock already put up.
 	private fun reportBlocked(title: UiMessage, problems: List<FolderProblem>) {
-		_state.update { it.copy(blocked = BlockedReport(title, problems)) }
+		_state.update {
+			if (it.screen == Screen.DECOY || it.duress) it else it.copy(blocked = BlockedReport(title, problems))
+		}
 	}
 
 	private fun HideFailure.needsAllFiles(): Boolean = when (this) {
@@ -1731,13 +1749,17 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		val folders = guard { loadFolders() }.orEmpty()
 		syncEmergencyCredential(folders)
 		_state.update {
+			// An operation can outlive the lock that closed the space, and neither the list nor a message
+			// naming a folder is for whatever screen is up by the time it finishes. The count still is:
+			// the panic exits go by it.
+			val stillOpen = it.screen != Screen.DECOY && !it.duress
+			val joined = warning?.let { w ->
+				message?.let { m -> uiMessage(R.string.message_joined, m, w.toUiMessage()) } ?: w.toUiMessage()
+			} ?: message
 			it.copy(
-				folders = folders,
+				folders = if (stillOpen) folders else it.folders,
 				exposedFolders = folders.count { folder -> !folder.hidden },
-				message = warning?.let { w ->
-					message?.let { m -> uiMessage(R.string.message_joined, m, w.toUiMessage()) }
-						?: w.toUiMessage()
-				} ?: message,
+				message = if (stillOpen) joined else it.message,
 			)
 		}
 	}
@@ -1766,6 +1788,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		viewModelScope.launch {
 			operationMutex.withLock {
 				_state.update { it.copy(busy = true) }
+				// A lock while this runs clears the session credential. The operation keeps its own
+				// copy until it finishes, or a hide or restore loses it halfway through a folder.
+				val lease = ContentCredential.retain()
 				try {
 					block()
 				} catch (e: RecordsCorrupted) {
@@ -1776,6 +1801,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				} catch (e: Exception) {
 					fail(unexpected(e))
 				} finally {
+					lease.close()
 					_state.update { it.copy(busy = false) }
 				}
 			}
@@ -1864,6 +1890,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			"ringtones",
 		)
 
+		const val PRIVATE_VAULT = ".shelf"
 		const val EXTERNAL_STORAGE = "com.android.externalstorage.documents"
 		const val MAX_UNLOCK_ATTEMPTS = 5
 		const val KEYPAD_FREE_MISSES = 10

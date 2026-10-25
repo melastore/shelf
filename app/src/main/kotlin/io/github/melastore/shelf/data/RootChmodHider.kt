@@ -75,10 +75,12 @@ class RootChmodHider(
 		val marker = markerPath(entry)
 		// The folder is not at 000 and has no record, so any marker in it is left from a hide that failed
 		// after losing root and could not clean up. Kept, it refused every later hide of this folder.
+		// The marker says whether the per-file passes may have run, written before they start: a hide
+		// killed partway still has to put headers back after a reinstall, manifest or not.
 		val marked = root.run(
 			"rm -f ${RootShell.quote(backing)}/$MARKER_PREFIX*",
 			"[ ! -e ${RootShell.quote(marker)} ]",
-			": > ${RootShell.quote(marker)}",
+			if (deep) "echo $DEEP_MARK > ${RootShell.quote(marker)}" else ": > ${RootShell.quote(marker)}",
 			"chmod 600 ${RootShell.quote(marker)}",
 		)
 		if (!marked.ok) {
@@ -116,21 +118,11 @@ class RootChmodHider(
 				NameProtectionResult.AccessUnavailable,
 				NameProtectionResult.CredentialRequired -> HideWarning.NameProtectionUnavailable
 
-				NameProtectionResult.WrongCredential -> {
-					names.restore(target.emulatedPath)
-					content.restore(target.emulatedPath)
-					root.run("rm -f ${RootShell.quote(marker)}")
-					journal.remove(backing)
-					return HideResult.Failed(HideFailure.ContentCredentialIncorrect)
-				}
+				NameProtectionResult.WrongCredential ->
+					return rollBack(target.emulatedPath, backing, marker, HideFailure.ContentCredentialIncorrect)
 
-				is NameProtectionResult.Failed -> {
-					names.restore(target.emulatedPath)
-					content.restore(target.emulatedPath)
-					root.run("rm -f ${RootShell.quote(marker)}")
-					journal.remove(backing)
-					return HideResult.Failed(HideFailure.NameProtectionFailed(protected.count))
-				}
+				is NameProtectionResult.Failed ->
+					return rollBack(target.emulatedPath, backing, marker, HideFailure.NameProtectionFailed(protected.count))
 			}
 		}
 
@@ -138,15 +130,15 @@ class RootChmodHider(
 		// anything. Off when both were skipped: a restore that asked for access it never needed would
 		// strand a folder that has nothing to put back.
 		val recorded = entry.copy(deep = deep && (protectionWarning == null || nameWarning == null))
-		if (recorded.deep != entry.deep) journal.replace(recorded)
+		if (recorded.deep != entry.deep) {
+			journal.replace(recorded)
+			root.run(": > ${RootShell.quote(marker)}")
+		}
 
 		val hidden = root.run("chmod 000 ${RootShell.quote(backing)}")
 		if (!hidden.ok) {
-			names.restore(target.emulatedPath)
-			content.restore(target.emulatedPath)
-			root.run("rm -f ${RootShell.quote(marker)}")
-			journal.remove(backing)
-			return HideResult.Failed(HideFailure.ChmodFailed(hidden.stderr.joinToString().ifBlank { null }))
+			val failure = HideFailure.ChmodFailed(hidden.stderr.joinToString().ifBlank { null })
+			return rollBack(target.emulatedPath, backing, marker, failure)
 		}
 
 		// The files never moved, so their MediaStore rows have to be deleted outright.
@@ -287,11 +279,13 @@ class RootChmodHider(
 			val currentMode = root.run("stat -c %a ${RootShell.quote(parent)}")
 				.takeIf { it.ok }?.stdout?.firstOrNull()?.trim()
 			if (currentMode?.toIntOrNull() != 0) continue
-			// The marker does not say whether the per-file passes ran, and assuming they did sent every
-			// recovered folder off to ask for access it may never have needed, then back to 000. A
-			// folder whose files were touched has the name manifest at its root.
+			// Assuming the per-file passes ran sent every recovered folder off to ask for access it may
+			// never have needed, then back to 000. The marker says so; one written before it did is
+			// read from the name manifest, which a folder whose names were touched has at its root.
 			val manifest = "$parent/${FolderNameProtector.MANIFEST}"
-			val deep = root.run("test -f ${RootShell.quote(manifest)}").ok
+			val deep = root.run(
+				"grep -qx $DEEP_MARK ${RootShell.quote(marker)} || test -f ${RootShell.quote(manifest)}",
+			).ok
 
 			val entry = HiddenEntry(
 				path = parent,
@@ -315,6 +309,17 @@ class RootChmodHider(
 		)
 	}
 
+	/**
+	 * Puts back what the per-file passes changed. Record and marker only go when that came back clean:
+	 * a partial undo keeps them, and the next hide of the folder rolls the rest back before starting.
+	 */
+	private suspend fun rollBack(emulatedPath: String, backing: String, marker: String, failure: HideFailure): HideResult {
+		if (!undoPasses(names, content, emulatedPath)) return HideResult.Failed(HideFailure.FilesNotPutBack(failure))
+		root.run("rm -f ${RootShell.quote(marker)}")
+		journal.remove(backing)
+		return HideResult.Failed(failure)
+	}
+
 	private fun markerPath(entry: HiddenEntry): String =
 		"${entry.path}/$MARKER_PREFIX${entry.originalMode}-${entry.originalOwner.replace(':', '-')}"
 
@@ -325,6 +330,7 @@ class RootChmodHider(
 	private companion object {
 		const val MARKER_PREFIX = ".shelf-recovery-v1-"
 		const val MAX_RECOVERY_MARKERS = 1_000
+		const val DEEP_MARK = "deep"
 		val modePattern = Regex("[0-7]{1,4}")
 		val ownerPattern = Regex("[0-9]+:[0-9]+")
 		val markerPattern = Regex("\\.shelf-recovery-v1-([0-7]{1,4})-([0-9]+)-([0-9]+)")

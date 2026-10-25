@@ -110,11 +110,12 @@ class ContentLocker(private val slice: Int = FileLocker.SLICE_LENGTH) {
 		 * Every file under [root], bounded so a stray path cannot run forever.
 		 *
 		 * Directory symlinks are not followed: the walk would leave the folder, and locking files
-		 * outside it is both wrong and unrecoverable from this folder's records.
+		 * outside it is both wrong and unrecoverable from this folder's records. [skip] drops names
+		 * before the cap counts them, so files a caller ignores never push a real one past it.
 		 */
-		fun targetsUnder(root: File): List<LockTarget> = root.walkTopDown()
+		fun targetsUnder(root: File, skip: (String) -> Boolean = { false }): List<LockTarget> = root.walkTopDown()
 			.onEnter { it == root || !it.isSymbolicLink() }
-			.filter { it.isFile && !it.isSymbolicLink() }
+			.filter { it.isFile && !it.isSymbolicLink() && !skip(it.name) }
 			// The extra one is a sentinel. Callers refuse rather than leave the remainder in the clear.
 			.take(MAX_FILES + 1)
 			.map { FileLockTarget(it) as LockTarget }

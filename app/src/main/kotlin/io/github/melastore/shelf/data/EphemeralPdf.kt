@@ -6,6 +6,7 @@ import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import android.system.Os
 import android.system.OsConstants
+import java.io.InputStream
 
 /**
  * A PDF rendered from memory, with no plaintext copy on disk at any point.
@@ -49,21 +50,36 @@ class EphemeralPdf private constructor(
 	}
 
 	companion object {
-		fun open(bytes: ByteArray): EphemeralPdf? {
-			if (bytes.isEmpty()) return null
+		fun open(bytes: ByteArray): EphemeralPdf? = if (bytes.isEmpty()) null else open(bytes.inputStream())
+
+		/**
+		 * Copies [source] into the anonymous descriptor through one small buffer. Read whole into a
+		 * byte array first, a screen of large PDFs asked for one such array per thumbnail at once
+		 * and ran the heap out.
+		 */
+		fun open(source: InputStream): EphemeralPdf? {
 			val memory = runCatching { Os.memfd_create("shelf-pdf", 0) }.getOrNull() ?: return null
+			val buffer = ByteArray(COPY_BUFFER)
 			val descriptor = try {
-				var written = 0
-				while (written < bytes.size) {
-					val count = Os.write(memory, bytes, written, bytes.size - written)
-					if (count <= 0) return null
-					written += count
+				var total = 0L
+				while (true) {
+					val read = source.read(buffer)
+					if (read < 0) break
+					var written = 0
+					while (written < read) {
+						val count = Os.write(memory, buffer, written, read - written)
+						if (count <= 0) return null
+						written += count
+					}
+					total += read
 				}
+				if (total == 0L) return null
 				Os.lseek(memory, 0, OsConstants.SEEK_SET)
 				ParcelFileDescriptor.dup(memory)
 			} catch (_: Exception) {
 				return null
 			} finally {
+				buffer.fill(0)
 				runCatching { Os.close(memory) }
 			}
 			return runCatching { EphemeralPdf(descriptor, PdfRenderer(descriptor)) }.getOrElse {
@@ -71,5 +87,7 @@ class EphemeralPdf private constructor(
 				null
 			}
 		}
+
+		private const val COPY_BUFFER = 64 * 1024
 	}
 }

@@ -151,7 +151,7 @@ class HideStrategiesRobolectricTest {
 		try {
 			assertEquals(HiddenHealthStatus.HEALTHY, hider.health(entry).status)
 		} finally {
-			OpenFolders.close(entry.path) {}
+			OpenFolders.close(entry.path) { true }
 		}
 		assertEquals(HiddenHealthStatus.ALREADY_RESTORED, hider.health(entry).status)
 	}
@@ -579,29 +579,33 @@ class HideStrategiesRobolectricTest {
 	}
 
 	@Test
-	fun `recovered root folders are deep only when their files were renamed`() = runBlocking {
+	fun `recovered root folders are deep only when their files were touched`() = runBlocking {
 		val root = FakeRoot()
 		val paths = testPaths(root)
 		val journal = Journal(File(temporaryFolder.root, "orphan-journal.json"))
 		val deep = "${paths.backingRoot}/Deep"
+		// Headers protected, names not: no manifest, so only the marker can say so.
+		val marked = "${paths.backingRoot}/Marked"
 		val shallow = "${paths.backingRoot}/Shallow"
-		val markers = listOf(deep, shallow).joinToString("") { "$it/.shelf-recovery-v1-771-1023-1023\u0000" }
+		val marker = ".shelf-recovery-v1-771-1023-1023"
+		val markers = listOf(deep, marked, shallow).joinToString("") { "$it/$marker\u0000" }
 		val encoded = java.util.Base64.getEncoder().encodeToString(markers.toByteArray())
 		root.responses += { command ->
 			when {
 				command.startsWith("find ") -> success(encoded)
 				command.startsWith("stat -c %a") -> success("0")
-				command == "test -f '$deep/${FolderNameProtector.MANIFEST}'" -> success()
-				command.startsWith("test -f ") -> ShellResult(1, emptyList(), emptyList())
+				command.startsWith("grep -qx deep '$marked/$marker'") -> success()
+				command.endsWith("test -f '$deep/${FolderNameProtector.MANIFEST}'") -> success()
+				command.startsWith("grep ") -> ShellResult(1, emptyList(), emptyList())
 				else -> success()
 			}
 		}
 		val hider = RootChmodHider(context, journal, paths, root)
 
-		assertEquals(2, hider.recoverOrphans())
+		assertEquals(3, hider.recoverOrphans())
 
 		val recorded = journal.read().associate { it.path to it.deep }
-		assertEquals(mapOf(deep to true, shallow to false), recorded)
+		assertEquals(mapOf(deep to true, marked to true, shallow to false), recorded)
 	}
 
 	private fun testPaths(root: RootCommandRunner): StoragePaths {

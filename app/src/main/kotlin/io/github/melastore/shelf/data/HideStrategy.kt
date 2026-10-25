@@ -27,6 +27,7 @@ sealed interface HideFailure {
 	data object HiddenNameUnverified : HideFailure
 	data object JournalUpdateFailed : HideFailure
 	data class RollbackFailed(val cause: HideFailure) : HideFailure
+	data class FilesNotPutBack(val cause: HideFailure) : HideFailure
 	data object InvalidFolderName : HideFailure
 	data object InvalidRecoveryGrant : HideFailure
 	data class RecoveryNameConflict(val name: String) : HideFailure

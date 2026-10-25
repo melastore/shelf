@@ -147,13 +147,33 @@ object CredentialRules {
 			credential.size < MIN_PASSWORD -> CredentialFault.TOO_SHORT
 			credential.size > MAX_LENGTH -> CredentialFault.TOO_LONG
 			credential.any { it.isISOControl() } -> CredentialFault.PASSWORD_UNSUPPORTED
+			hasLoneSurrogate(credential) -> CredentialFault.PASSWORD_UNSUPPORTED
 			else -> null
 		}
 	}
 
 	/** Whether a credential survives a round trip through a Keystore-wrapped copy. */
 	fun isStorable(credential: CharArray): Boolean = credential.size in MIN_PIN..MAX_LENGTH &&
-		credential.none { it.isISOControl() }
+		credential.none { it.isISOControl() } && !hasLoneSurrogate(credential)
+
+	/**
+	 * Half of a surrogate pair with no other half, which a paste can carry. UTF-8 has no spelling
+	 * for it and the encoder swaps in U+FFFD, so the wrapped copy would be a different credential
+	 * from the one the gate holds, and folders hidden in a fingerprint session would be sealed
+	 * under it.
+	 */
+	private fun hasLoneSurrogate(credential: CharArray): Boolean {
+		var index = 0
+		while (index < credential.size) {
+			val char = credential[index]
+			when {
+				char.isHighSurrogate() && credential.getOrNull(index + 1)?.isLowSurrogate() == true -> index += 2
+				char.isSurrogate() -> return true
+				else -> index++
+			}
+		}
+		return false
+	}
 }
 
 /**

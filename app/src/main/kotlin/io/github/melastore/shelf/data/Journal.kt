@@ -8,9 +8,16 @@ import kotlinx.serialization.builtins.ListSerializer
  * at mode 000 carries no hint of what its permissions were, so losing this makes the change
  * permanent. An entry is committed before the change is applied and cleared only after a restore.
  */
-open class Journal(file: File) {
+open class Journal(
+	file: File,
+	// A root record is kept under the backing path and every other under the emulated one, so one
+	// folder has two spellings. Duplicates are caught on the shared one.
+	private val canonical: (String) -> String = { it },
+) {
 
 	private val store = AtomicJsonList(file, ListSerializer(HiddenEntry.serializer()))
+
+	private fun HiddenEntry.sameFolder(other: HiddenEntry): Boolean = canonical(path) == canonical(other.path)
 
 	open suspend fun read(): List<HiddenEntry> = store.read()
 
@@ -19,7 +26,7 @@ open class Journal(file: File) {
 	 * replace the real permissions with the 000 a second hide reads back, leaving nothing to restore.
 	 */
 	open suspend fun addNew(entry: HiddenEntry): Boolean = store.mutate { current ->
-		if (current.any { it.path == entry.path }) {
+		if (current.any { it.sameFolder(entry) }) {
 			current to false
 		} else {
 			(current + entry) to true
@@ -45,10 +52,14 @@ open class Journal(file: File) {
 	 * the same folder, and refusing the file would strand every other record in it.
 	 */
 	suspend fun merge(entries: List<HiddenEntry>): RecoveryMergeResult = store.mutate { current ->
-		val additions = entries.filterNot { incoming -> current.any { it.path == incoming.path } }
+		// One record per folder from the file too: two for the same folder would leave the list and a
+		// restore each picking whichever they met first.
+		val additions = entries
+			.filterNot { incoming -> current.any { it.sameFolder(incoming) } }
+			.distinctBy { canonical(it.path) }
 		val conflicts = entries.count { incoming ->
 			// The file never carries a SAF grant, so a record differing only in that is the same folder.
-			current.any { it.path == incoming.path && it.copy(treeUri = "") != incoming }
+			current.any { it.sameFolder(incoming) && it.copy(treeUri = "") != incoming }
 		}
 		(current + additions) to RecoveryMergeResult(
 			added = additions.size,

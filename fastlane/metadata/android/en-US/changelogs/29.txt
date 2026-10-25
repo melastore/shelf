@@ -1,0 +1,9 @@
+- Fixed a crash when opening an image in the viewer.
+- A root folder left open by a crash is hidden again on the next start.
+- A hide that fails partway keeps its record, so nothing is left scrambled.
+- Locking during a hide or unhide no longer interrupts it.
+- Private move no longer stores the original path in plain text.
+- Fixed a calculator crash on very large numbers.
+- Large PDFs no longer run the viewer out of memory.
+- Flip to hide also works from the disguise.
+- Many smaller fixes.

@@ -66,7 +66,12 @@ class AtomicJsonList<T>(private val file: File, private val serializer: KSeriali
 			// Keep the generation about to be replaced, so a torn rename or a later torn write still
 			// leaves one intact copy. Only when the primary itself parses: overwriting a good backup
 			// with a primary we could only read *via* that backup would throw the good copy away.
-			parse(file)?.let { backup.writeSynced(json.encodeToString(serializer, it)) }
+			// Replaced by its own rename, so a kill partway through never leaves the backup torn.
+			parse(file)?.let {
+				val backupTemp = File(file.parentFile, "${backup.name}.tmp")
+				backupTemp.writeSynced(json.encodeToString(serializer, it))
+				check(backupTemp.renameTo(backup)) { "could not commit ${backup.path}" }
+			}
 			check(temp.renameTo(file)) { "could not commit ${file.path}" }
 			syncParentDirectory()
 			outcome

@@ -166,3 +166,20 @@ internal fun mergeWarnings(vararg warnings: HideWarning?): HideWarning? {
 		else -> HideWarning.Multiple(present)
 	}
 }
+
+/**
+ * Undoes both per-file passes over [path] after a hide that cannot finish. False when either left
+ * files behind: the caller keeps the record then, or the folder sits there with scrambled names and
+ * headers and nothing that knows to put them back.
+ */
+internal suspend fun undoPasses(names: FolderNameProtector, content: FolderContentProtector, path: String): Boolean {
+	val namesBack = when (names.restore(path)) {
+		is NameProtectionResult.Done, NameProtectionResult.NoFiles -> true
+		else -> false
+	}
+	val contentBack = when (content.restore(path)) {
+		is ContentProtectionResult.Done, ContentProtectionResult.NoFiles -> true
+		else -> false
+	}
+	return namesBack && contentBack
+}

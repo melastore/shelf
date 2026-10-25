@@ -83,4 +83,11 @@ class CredentialTest {
 	}
 
 	private fun validate(kind: CredentialKind, value: String) = CredentialRules.validate(kind, value.toCharArray())
+
+	@Test
+	fun `a password with half a surrogate pair is refused`() {
+		assertEquals(CredentialFault.PASSWORD_UNSUPPORTED, validate(CredentialKind.PASSWORD, "secret\uD83D"))
+		assertEquals(CredentialFault.PASSWORD_UNSUPPORTED, validate(CredentialKind.PASSWORD, "\uDE00secret"))
+		assertNull(validate(CredentialKind.PASSWORD, "secret\uD83D\uDE00"))
+	}
 }

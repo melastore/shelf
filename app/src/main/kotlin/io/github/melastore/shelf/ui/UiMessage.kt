@@ -86,6 +86,8 @@ fun HideFailure.toUiMessage(): UiMessage = when (this) {
 
 	is HideFailure.RollbackFailed -> uiMessage(R.string.error_rollback_failed, cause.toUiMessage())
 
+	is HideFailure.FilesNotPutBack -> uiMessage(R.string.error_files_not_put_back, cause.toUiMessage())
+
 	HideFailure.InvalidFolderName -> uiMessage(R.string.error_invalid_folder_name)
 
 	HideFailure.InvalidRecoveryGrant -> uiMessage(R.string.error_invalid_recovery_grant)

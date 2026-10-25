@@ -14,6 +14,7 @@ import io.github.melastore.shelf.root.StoragePaths
 import java.io.BufferedInputStream
 import java.io.File
 import java.nio.ByteBuffer
+import java.util.concurrent.Semaphore
 import javax.crypto.SecretKey
 
 enum class EphemeralMediaType { IMAGE, VIDEO, AUDIO, TEXT, PDF }
@@ -27,6 +28,8 @@ data class EphemeralMediaItem(
 
 /** A row's picture and the duration shown beside it. A null [bitmap] means nothing would decode. */
 data class EphemeralThumbnail(val bitmap: Bitmap?, val durationMs: Long = 0L)
+
+class EphemeralText(val text: String, val truncated: Boolean)
 
 object EphemeralMediaLoader {
 
@@ -76,6 +79,14 @@ object EphemeralMediaLoader {
 			val realName = nameMap?.get(target.name) ?: target.name
 			val trailer = FileLocker.readTrailer(target)
 			val isLocked = trailer != null
+			// A known extension settles the type with no read at all, which on a document provider is a
+			// Binder round trip and a 64 KB slice per file before the list could show. A file whose
+			// head does not decrypt fails when it is opened instead.
+			val byName = typeByExtension(realName)
+			if (byName != null && (trailer == null || keyFor(trailer.salt) != null)) {
+				items += EphemeralMediaItem(realName, target, isLocked, byName)
+				continue
+			}
 			val sample = if (isLocked) {
 				val key = keyFor(trailer.salt)
 				if (key == null) {
@@ -183,6 +194,17 @@ object EphemeralMediaLoader {
 			offset += length
 		}
 		return false
+	}
+
+	/** The same order as the sample checks, so `ts` is still a video before it is source code. */
+	private fun typeByExtension(name: String): EphemeralMediaType? = when (name.substringAfterLast('.', "").lowercase()) {
+		"" -> null
+		"pdf" -> EphemeralMediaType.PDF
+		in VIDEO_EXTENSIONS -> EphemeralMediaType.VIDEO
+		in AUDIO_EXTENSIONS -> EphemeralMediaType.AUDIO
+		in IMAGE_EXTENSIONS -> EphemeralMediaType.IMAGE
+		in TEXT_EXTENSIONS -> EphemeralMediaType.TEXT
+		else -> null
 	}
 
 	private fun isPdf(name: String, sample: ByteArray): Boolean {
@@ -475,15 +497,46 @@ object EphemeralMediaLoader {
 		}
 	}
 
-	/** The whole file as text, or null if it will not decode. Truncated at [MAX_TEXT_BYTES]. */
-	fun loadText(target: LockTarget, keyFor: (ByteArray) -> SecretKey?): String? =
-		readPlaintext(target, keyFor, MAX_TEXT_BYTES)?.toString(Charsets.UTF_8)
+	/**
+	 * The file as text, or null if it will not decode. Cut at [MAX_TEXT_BYTES], on a character
+	 * boundary, and says so: guessing from the decoded length got both directions wrong.
+	 */
+	fun loadText(target: LockTarget, keyFor: (ByteArray) -> SecretKey?): EphemeralText? {
+		val bytes = readPlaintext(target, keyFor, MAX_TEXT_BYTES + 1) ?: return null
+		if (bytes.size <= MAX_TEXT_BYTES) return EphemeralText(bytes.toString(Charsets.UTF_8), truncated = false)
+		// Back off any UTF-8 continuation bytes, so the cut never splits a character.
+		var end = MAX_TEXT_BYTES
+		while (end > 0 && (bytes[end].toInt() and 0xC0) == 0x80) end--
+		return EphemeralText(String(bytes, 0, end, Charsets.UTF_8), truncated = true)
+	}
 
-	fun loadPdf(target: LockTarget, keyFor: (ByteArray) -> SecretKey?): EphemeralPdf? =
-		readPlaintext(target, keyFor, MAX_PDF_BYTES)?.let(EphemeralPdf::open)
+	/**
+	 * Streamed into memory outside the Java heap. One over [MAX_PDF_BYTES] is refused rather than
+	 * cut short: a PDF keeps its index at the end, so a truncated one never opened anyway.
+	 */
+	fun loadPdf(target: LockTarget, keyFor: (ByteArray) -> SecretKey?): EphemeralPdf? {
+		val (slice, totalSize) = plaintextHead(target, keyFor) ?: return null
+		return try {
+			if (totalSize <= 0 || totalSize > MAX_PDF_BYTES) return null
+			runCatching {
+				BufferedInputStream(EphemeralDecryptedStream(target, slice, totalSize), 64 * 1024).use(EphemeralPdf::open)
+			}.getOrNull()
+		} finally {
+			slice.fill(0)
+		}
+	}
 
-	private fun loadPdfThumbnail(target: LockTarget, keyFor: (ByteArray) -> SecretKey?, maxDimension: Int,): Bitmap? =
-		loadPdf(target, keyFor)?.use { it.renderPage(0, maxDimension) }
+	// Two at a time: each holds a whole document in memory while its first page renders.
+	private val pdfThumbnails = Semaphore(2)
+
+	private fun loadPdfThumbnail(target: LockTarget, keyFor: (ByteArray) -> SecretKey?, maxDimension: Int,): Bitmap? {
+		pdfThumbnails.acquire()
+		return try {
+			loadPdf(target, keyFor)?.use { it.renderPage(0, maxDimension) }
+		} finally {
+			pdfThumbnails.release()
+		}
+	}
 
 	private fun calculateInSampleSize(width: Int, height: Int, reqWidth: Int, reqHeight: Int): Int {
 		var inSampleSize = 1

@@ -66,4 +66,29 @@ class JournalMergeTest {
 		assertEquals(0, result.conflicts)
 		assertEquals("content://grant", journal.read().single().treeUri)
 	}
+
+	@Test
+	fun `a root record and a rename record for one folder are the same folder`() = runBlocking {
+		val canonical = { path: String -> path.replace("/data/media/0", "/storage/emulated/0") }
+		val journal = Journal(File(temp.root, "journal.json"), canonical)
+		journal.addNew(entry("/storage/emulated/0/Photos"))
+		val root = HiddenEntry(
+			path = "/data/media/0/Photos",
+			displayName = "Photos",
+			hiddenAt = 1,
+			method = HideMethod.ROOT_CHMOD,
+			originalMode = "771",
+			originalOwner = "1023:1023",
+		)
+
+		val result = journal.merge(listOf(root, entry("/storage/emulated/0/Fresh"), entry("/storage/emulated/0/Fresh")))
+
+		assertEquals(1, result.added)
+		assertEquals(1, result.conflicts)
+		assertEquals(false, journal.addNew(root))
+		assertEquals(
+			listOf("/storage/emulated/0/Photos", "/storage/emulated/0/Fresh"),
+			journal.read().map { it.path },
+		)
+	}
 }

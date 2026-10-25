@@ -75,6 +75,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.SecureFlagPolicy
 import io.github.melastore.shelf.R
 import io.github.melastore.shelf.data.AutoHideMode
 import io.github.melastore.shelf.data.DecoyItem
@@ -1044,6 +1046,8 @@ private fun RecoveryPassphraseDialog(
 	val valid = first.length >= MIN_RECOVERY_PASSWORD && (!confirmEntry || first == second)
 	AlertDialog(
 		onDismissRequest = onDismiss,
+		// A passphrase, so secure even when the owner allowed screenshots, like the credential prompts.
+		properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
 		title = { Text(title) },
 		text = {
 			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

@@ -48,6 +48,7 @@ import io.github.melastore.shelf.R
 import io.github.melastore.shelf.data.EphemeralMediaItem
 import io.github.melastore.shelf.data.EphemeralMediaLoader
 import io.github.melastore.shelf.data.EphemeralPdf
+import io.github.melastore.shelf.data.EphemeralText
 import javax.crypto.SecretKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -90,13 +91,14 @@ private fun DocumentScaffold(name: String, onDismiss: () -> Unit, body: @Composa
 @Composable
 fun EphemeralTextViewerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> SecretKey?, onDismiss: () -> Unit,) {
 	var settled by remember(item) { mutableStateOf(false) }
-	val text = produceState<String?>(initialValue = null, item) {
+	val loadedText = produceState<EphemeralText?>(initialValue = null, item) {
 		val loaded = withContext(Dispatchers.IO) {
 			EphemeralMediaLoader.loadText(item.target, keyFor)
 		}
 		value = loaded
 		settled = true
 	}.value
+	val text = loadedText?.text
 
 	DocumentScaffold(item.name, onDismiss) {
 		when {
@@ -123,7 +125,7 @@ fun EphemeralTextViewerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> S
 					style = MaterialTheme.typography.bodySmall,
 					fontFamily = FontFamily.Monospace,
 				)
-				if (text.length >= EphemeralMediaLoader.MAX_TEXT_BYTES / 2) {
+				if (loadedText?.truncated == true) {
 					Text(
 						text = stringResource(R.string.document_truncated),
 						style = MaterialTheme.typography.labelSmall,

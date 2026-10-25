@@ -2,6 +2,7 @@ package io.github.melastore.shelf.data
 
 import android.content.Context
 import android.net.Uri
+import android.os.Environment
 import android.provider.DocumentsContract
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
@@ -34,8 +35,11 @@ class DotRenameHider(
 	context: Context,
 	private val journal: Journal,
 	private val paths: StoragePaths,
+	// Not canWrite alone: that is access(2) against the FUSE mount, which says yes for the volume root
+	// without all-files access, so the in-place fallback was never chosen and every hide there
+	// scrambled the folder, failed the rename and put it all back.
 	private val writableThroughMount: (String) -> Boolean = {
-		runCatching { File(it).canWrite() }.getOrDefault(false)
+		runCatching { Environment.isExternalStorageManager() && File(it).canWrite() }.getOrDefault(false)
 	},
 	// Read per hide, not held: the settings can change while the app runs.
 	private val nameStyle: () -> HiddenNameStyle = { AppPreferences(context).hiddenNameStyle() },
@@ -130,33 +134,22 @@ class DotRenameHider(
 				NameProtectionResult.AccessUnavailable,
 				NameProtectionResult.CredentialRequired -> HideWarning.NameProtectionUnavailable
 
-				NameProtectionResult.WrongCredential -> {
-					names.restore(target.emulatedPath)
-					content.restore(target.emulatedPath)
-					journal.remove(entry.path)
-					return@withContext HideResult.Failed(HideFailure.ContentCredentialIncorrect)
-				}
+				NameProtectionResult.WrongCredential ->
+					return@withContext undoAndFail(entry, HideFailure.ContentCredentialIncorrect)
 
-				is NameProtectionResult.Failed -> {
-					names.restore(target.emulatedPath)
-					content.restore(target.emulatedPath)
-					journal.remove(entry.path)
-					return@withContext HideResult.Failed(HideFailure.NameProtectionFailed(protected.count))
-				}
+				is NameProtectionResult.Failed ->
+					return@withContext undoAndFail(entry, HideFailure.NameProtectionFailed(protected.count))
 			}
 		}
 
 		val originalFolderTime = runCatching { File(target.emulatedPath).lastModified() }.getOrDefault(0L)
-		val renamed = renameFolder(tree, target.emulatedPath, hiddenName) ?: run {
-			names.restore(target.emulatedPath)
-			content.restore(target.emulatedPath)
-			return@withContext fail(entry, renameFailure(tree, target.displayName))
-		}
+		val renamed = renameFolder(tree, target.emulatedPath, hiddenName)
+			?: return@withContext undoAndFail(entry, renameFailure(tree, target.displayName))
 		val finalName = renamed.name
 			?: return@withContext rollbackRename(entry, renamed.uri, name, HideFailure.HiddenNameUnverified)
 		val finalEntry = entry.copy(
 			hiddenPath = SafPaths.sibling(target.emulatedPath, finalName),
-			deep = deep && protectionWarning == null && nameWarning == null,
+			deep = deep && (protectionWarning == null || nameWarning == null),
 		)
 		if (originalFolderTime > 0L) {
 			runCatching { File(finalEntry.hiddenPath).setLastModified(originalFolderTime) }
@@ -495,7 +488,13 @@ class DotRenameHider(
 		return if (relative.isEmpty()) paths.emulatedRoot else "${paths.emulatedRoot}/$relative"
 	}
 
-	private suspend fun fail(entry: HiddenEntry, failure: HideFailure): HideResult {
+	/**
+	 * Puts back what the per-file passes changed while the folder still has its own name. The record
+	 * only goes when that came back clean: a partial undo keeps it, and the next hide rolls the rest
+	 * back before starting.
+	 */
+	private suspend fun undoAndFail(entry: HiddenEntry, failure: HideFailure): HideResult {
+		if (!undoPasses(names, content, entry.path)) return HideResult.Failed(HideFailure.FilesNotPutBack(failure))
 		journal.remove(entry.path)
 		return HideResult.Failed(failure)
 	}
@@ -515,12 +514,7 @@ class DotRenameHider(
 				!originalFile.exists() && hiddenFile.renameTo(originalFile)
 			}.getOrDefault(false)
 		}
-		if (rolledBack) {
-			names.restore(entry.path)
-			content.restore(entry.path)
-			journal.remove(entry.path)
-			return HideResult.Failed(failure)
-		}
+		if (rolledBack) return undoAndFail(entry, failure)
 
 		// The folder may now be hidden under a name the provider chose. Keep the record: an uncertain
 		// rollback must never leave an untracked folder. Use the path encoded in the returned document
@@ -569,7 +563,7 @@ class DotRenameHider(
 	 */
 	private fun grantable(parent: String): Boolean {
 		val clean = parent.trimEnd('/')
-		return clean != paths.emulatedRoot && clean != paths.emulatedRoot + "/" + DOWNLOAD
+		return clean != paths.emulatedRoot && !clean.equals(paths.emulatedRoot + "/" + DOWNLOAD, ignoreCase = true)
 	}
 
 	private fun exists(tree: Uri?, path: String): Boolean {

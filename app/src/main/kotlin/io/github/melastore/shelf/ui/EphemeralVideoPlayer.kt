@@ -204,10 +204,10 @@ fun EphemeralVideoPlayerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> 
 				),
 			contentAlignment = Alignment.Center,
 		) {
+			// The ratio alone, not the full width first: forced to the width, a tall video ran off the
+			// top and bottom of a landscape screen instead of fitting its height.
 			Box(
-				modifier = Modifier
-					.fillMaxWidth()
-					.aspectRatio(videoAspectRatio),
+				modifier = Modifier.aspectRatio(videoAspectRatio),
 				contentAlignment = Alignment.Center,
 			) {
 				AndroidView(

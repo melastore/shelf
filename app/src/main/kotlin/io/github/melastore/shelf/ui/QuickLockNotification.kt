@@ -27,6 +27,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The emergency-hide signal, delivered straight to whatever is listening in this process.
@@ -259,6 +260,10 @@ class QuickLockService : Service() {
 
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 	private var operation: Job? = null
+
+	// A request that arrived while a pass ran, and may have exposed a folder that pass never saw.
+	// Read and written on the main thread only, like [operation], so none can fall between them.
+	private var again = false
 	private var credentialLease: AutoCloseable? = null
 	private var wakeLock: AutoCloseable? = null
 	private var identity: QuickLockIdentity? = null
@@ -317,31 +322,46 @@ class QuickLockService : Service() {
 	// The wake lock is not optional here: this runs with the screen off by design, and a suspend part
 	// way through leaves a journalled folder still readable.
 	private fun hideNow(identity: QuickLockIdentity) {
-		if (operation?.isActive == true) return
+		if (operation != null) {
+			again = true
+			return
+		}
 		runCatching {
 			startForeground(QuickLockNotification.ID, QuickLockNotification.showWorking(this, identity))
 		}
 		credentialLease = retainRehideCredential(this)
 		wakeLock = holdCpu(this)
 		operation = scope.launch {
-			val remaining = try {
-				performQuickHide(this@QuickLockService)
+			var remaining: Int
+			try {
+				do {
+					remaining = performQuickHide(this@QuickLockService)
+				} while (withContext(Dispatchers.Main) { again.also { again = false } })
 			} finally {
 				credentialLease?.close()
 				credentialLease = null
 				wakeLock?.close()
 				wakeLock = null
 			}
-			QuickLockSignal.completed()
-			QuickLockNotification.finish(this@QuickLockService, identity, remaining)
-			if (remaining == 0) {
-				stopForeground(STOP_FOREGROUND_REMOVE)
-				// Not stopSelf(startId). A second request arriving while this ran left a newer id
-				// behind, and stopping against the older one does nothing, leaving a foreground
-				// service and its notification up for good.
-				stopSelf()
+			withContext(Dispatchers.Main) {
+				operation = null
+				// Came in after the last pass looked: run another rather than stop under it.
+				if (again) {
+					again = false
+					hideNow(identity)
+					return@withContext
+				}
+				QuickLockSignal.completed()
+				QuickLockNotification.finish(this@QuickLockService, identity, remaining)
+				if (remaining == 0) {
+					stopForeground(STOP_FOREGROUND_REMOVE)
+					// Not stopSelf(startId). A second request arriving while this ran left a newer id
+					// behind, and stopping against the older one does nothing, leaving a foreground
+					// service and its notification up for good.
+					stopSelf()
+				}
+				// Anything left in the open keeps the watch up, with the notification back on the retry.
 			}
-			// Anything left in the open keeps the watch up, with the notification back on the retry.
 		}
 	}
 
