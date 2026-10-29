@@ -1,0 +1,9 @@
+- Fixed "path must be absolute" when picking a folder after a root hide.
+- Folders nested deeper than 8 levels are now fully protected.
+- Rebooting no longer resets the wait after wrong PIN attempts.
+- The private space locks after a minute in the background.
+- Unhide everything reports folders hidden under an older PIN.
+- Forget on a half-hidden folder puts its files back first.
+- Auto hide starts again after a reboot.
+- Clearer emergency PIN text.
+- Many smaller fixes.
