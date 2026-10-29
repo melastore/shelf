@@ -71,12 +71,21 @@ internal class FolderCoordinator(
 	 * Drops every record of [emulatedPath], journal row included, hidden or not. Both or neither:
 	 * [load] adopts a journal row the registry has no entry for, so clearing one side alone puts the
 	 * folder back in the list on the next reload and it can never be removed.
+	 *
+	 * A row whose folder reads as exposed can be a hide cut off after the per-file passes, so it is
+	 * restored first. Dropping it outright leaves scrambled files and nothing that can put them back.
+	 * Returns the restore that stopped it, or null once everything is gone.
 	 */
-	suspend fun forget(emulatedPath: String) {
-		journal.read()
-			.filter { paths.toEmulated(it.path) == emulatedPath }
-			.forEach { journal.remove(it.path) }
+	suspend fun forget(emulatedPath: String): HideResult? {
+		val rows = journal.read().filter { paths.toEmulated(it.path) == emulatedPath }
+		for (row in rows) {
+			if (!runCatching { hider.isExposed(row) }.getOrDefault(false)) continue
+			val undone = hider.restore(row)
+			if (undone !is HideResult.Ok) return undone
+		}
+		rows.forEach { journal.remove(it.path) }
 		registry.remove(emulatedPath)
+		return null
 	}
 
 	suspend fun availableMethods(checkRoot: Boolean): Set<HideMethod> = hider.availableMethods(checkRoot)
@@ -118,4 +127,5 @@ internal class FolderCoordinator(
 	}
 	suspend fun recoverEverything(): Int = hider.recoverEverything()
 	suspend fun recoverOrphans(method: HideMethod): Int = hider.recoverOrphans(method)
+	suspend fun lockedOrphans(): Int = hider.lockedOrphans()
 }

@@ -70,6 +70,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class Screen { DECOY, VAULT, SETTINGS }
 
@@ -194,6 +195,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 * permission screen then walking away is enough to do that.
 	 */
 	private var awaitingPickerUntil = 0L
+
+	/** When the app last went to the background, or 0 while a picker had it. */
+	private var leftAt = 0L
 	private var pending: (suspend () -> Unit)? = null
 	private val operationMutex = Mutex()
 	private val authenticationMutex = Mutex()
@@ -440,13 +444,20 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		auth.clearBurner()
 		auth.clearDecoy()
 		val app = getApplication<Application>()
-		app.filesDir.listFiles()?.forEach { file ->
-			if (file.name.contains("journal") || file.name.contains("gate") || file.name.contains("recovery") ||
-				file.name.contains("vault") || file.name.contains("folders") || file.name.contains("duress") ||
-				file.name.contains("attempts")
-			) {
-				file.delete()
+		// A hide or restore still running would write its record back after the delete. Wait for it,
+		// but not long: the prompt only answers once this is done.
+		val locked = withTimeoutOrNull(WIPE_WAIT_MILLIS) { operationMutex.lock() } != null
+		try {
+			app.filesDir.listFiles()?.forEach { file ->
+				if (file.name.contains("journal") || file.name.contains("gate") || file.name.contains("recovery") ||
+					file.name.contains("vault") || file.name.contains("folders") || file.name.contains("duress") ||
+					file.name.contains("attempts")
+				) {
+					file.delete()
+				}
 			}
+		} finally {
+			if (locked) operationMutex.unlock()
 		}
 		// With no credential at all the next frame is the setup wizard, which names the app and shows
 		// a wipe just happened. A gate nobody knows keeps the disguise up and refuses every entry.
@@ -847,7 +858,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				decoyItems = items,
 				duressAlert = null,
 				failedAttemptAlert = null,
-				method = HideMethod.DOT_RENAME,
+				// The label the real space shows. A fixed one is a tell on any phone set up otherwise.
+				method = folderCoordinator.selectedMethod(it.hidingPreference, it.availableMethods)
+					?: HideMethod.DOT_RENAME,
 				safRecoveryCandidates = emptyList(),
 			)
 		}
@@ -1192,6 +1205,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		val awaitingPicker = SystemClock.elapsedRealtime() < awaitingPickerUntil
 		awaitingPickerUntil = 0L
 		backgroundLock?.cancel()
+		leftAt = if (awaitingPicker) 0L else SystemClock.elapsedRealtime()
 		if (!awaitingPicker) applyPendingDisguise()
 		if (screenOff && _state.value.autoHideMode != AutoHideMode.NEVER) {
 			autoHideAndClose()
@@ -1226,10 +1240,19 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		}
 	}
 
+	/**
+	 * Under screen-off and never, leaving keeps the space open, which is fine for a quick switch to
+	 * the gallery. Left longer than that, it comes back locked, or anyone picking up the unlocked
+	 * phone walks past the disguise from Recents. Folders stay as they are, only the screen locks.
+	 */
 	fun onMovedToForeground() {
 		backgroundLock?.cancel()
 		backgroundLock = null
 		autoHideRequested = false
+		val away = leftAt
+		leftAt = 0L
+		val open = _state.value.screen != Screen.DECOY
+		if (open && away != 0L && SystemClock.elapsedRealtime() - away >= AWAY_LOCK_MILLIS) lockVault()
 	}
 
 	/** Screen-off covers both non-never choices. Immediate has usually already fired from onStop. */
@@ -1295,9 +1318,11 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		val tracked = guard { registry.read() }.orEmpty()
 		tracked.firstOrNull { !it.path.equals(path, ignoreCase = true) && overlaps(it.path) }
 			?.let { return uiMessage(R.string.folder_overlaps_tracked, it.displayName) }
+		// A root hide leaves hiddenPath empty, and toEmulated throws on that.
 		val hidden = guard { journal.read() }.orEmpty()
 		return hidden
-			.firstOrNull { it.hiddenPath != it.path && overlaps(paths.toEmulated(it.hiddenPath)) }
+			.filter { it.hiddenPath.isNotEmpty() && it.hiddenPath != it.path }
+			.firstOrNull { overlaps(paths.toEmulated(it.hiddenPath)) }
 			?.let { uiMessage(R.string.folder_overlaps_tracked, it.displayName) }
 	}
 
@@ -1613,15 +1638,18 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 */
 	fun forceUnhideAll() = launchBusy {
 		val recovered = guard { folderCoordinator.recoverEverything() } ?: 0
+		// Otherwise a reinstall with a new PIN reads as nothing to unhide while the folders sit there.
+		val locked = (guard { folderCoordinator.lockedOrphans() } ?: 0)
+			.takeIf { it > 0 }
+			?.let { uiMessage(R.string.orphans_other_credential, folderCount(it)) }
 		val entries = guard { loadFolders() }.orEmpty().mapNotNull { it.entry }
 		if (entries.isEmpty()) {
-			reloadVault(
-				if (recovered > 0) {
-					uiMessage(R.string.recovered_records_unreadable, folderCount(recovered))
-				} else {
-					uiMessage(R.string.nothing_to_unhide)
-				},
-			)
+			val summary = when {
+				recovered > 0 -> uiMessage(R.string.recovered_records_unreadable, folderCount(recovered))
+				locked != null -> null
+				else -> uiMessage(R.string.nothing_to_unhide)
+			}
+			reloadVault(withNote(summary, locked))
 			return@launchBusy
 		}
 
@@ -1658,7 +1686,13 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		} else {
 			null
 		}
-		reloadVault(summary)
+		reloadVault(withNote(summary, locked))
+	}
+
+	private fun withNote(message: UiMessage?, note: UiMessage?): UiMessage? = when {
+		message == null -> note
+		note == null -> message
+		else -> uiMessage(R.string.message_joined, message, note)
 	}
 
 	/**
@@ -1667,10 +1701,15 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 * folder back, so no automatic pass ever decides to do it.
 	 */
 	fun forgetEntry(folder: VaultFolder) = launchBusy {
-		guard {
+		val blocked = guard {
 			// By path, not folder.entry: that is null while a journalled folder is exposed, and the
 			// row left behind is adopted straight back on the next reload.
 			folderCoordinator.forget(folder.path)
+		}
+		when (blocked) {
+			is HideResult.Failed -> return@launchBusy fail(namedFailure(folder.displayName, blocked.failure.toUiMessage()))
+			is HideResult.NeedsAccess -> return@launchBusy fail(accessNeeded(blocked))
+			else -> Unit
 		}
 		reloadVault(uiMessage(R.string.folder_record_removed, folder.displayName))
 	}
@@ -1895,6 +1934,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		const val MAX_UNLOCK_ATTEMPTS = 5
 		const val KEYPAD_FREE_MISSES = 10
 		const val PICKER_GRACE_MILLIS = 120_000L
+		const val WIPE_WAIT_MILLIS = 3_000L
+		const val AWAY_LOCK_MILLIS = 60_000L
 		const val UNKNOWABLE_LENGTH = 48
 		const val UNKNOWABLE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
 	}

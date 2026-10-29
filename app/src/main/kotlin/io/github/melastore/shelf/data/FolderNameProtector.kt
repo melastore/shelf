@@ -143,7 +143,8 @@ class FolderNameProtector(
 	private suspend fun restoreFile(root: File): NameProtectionResult {
 		val manifestFile = File(root, MANIFEST)
 		if (!manifestFile.isFile) return NameProtectionResult.NoFiles
-		val mappings = readManifest(readFile(manifestFile) ?: return NameProtectionResult.Failed())
+		// Listed but not openable is the mount refusing this app, not a damaged manifest.
+		val mappings = readManifest(readFile(manifestFile) ?: return NameProtectionResult.AccessUnavailable)
 			?: return credentialFailure()
 		val result = applyFileMappings(root, mappings, protect = false)
 		if (result is NameProtectionResult.Done || result == NameProtectionResult.NoFiles) {
@@ -558,7 +559,10 @@ class FolderNameProtector(
 		const val MIME = "application/octet-stream"
 		const val OPAQUE_PREFIX = "sfn_"
 		const val MAX_FILES = ContentLocker.MAX_FILES
-		const val MAX_DEPTH = 8
+
+		// Only there to stop a runaway walk. The File walk has no cap, and a lower one here left a
+		// deep folder hidden with all-files access with no way back through a grant.
+		const val MAX_DEPTH = 64
 		const val MAX_PATH = 4_096
 
 		// The headers' work factor. Both sit side by side under one credential, so a guesser takes the

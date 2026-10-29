@@ -180,7 +180,17 @@ class RootChmodHider(
 		}
 		val nameRestore = names.restore(paths.toEmulated(entry.path))
 		when (nameRestore) {
-			is NameProtectionResult.Done, NameProtectionResult.NoFiles -> Unit
+			is NameProtectionResult.Done -> Unit
+
+			// Nothing seen is not nothing there. After a reinstall drops all-files access the mount
+			// hides the manifest from the app, and going on would drop the record over scrambled files.
+			NameProtectionResult.NoFiles -> {
+				val manifest = "${entry.path}/${FolderNameProtector.MANIFEST}"
+				if (root.run("test -f ${RootShell.quote(manifest)}").ok) {
+					root.run("chmod 000 ${RootShell.quote(entry.path)}")
+					return HideResult.Failed(HideFailure.AllFilesRequired(entry.displayName))
+				}
+			}
 
 			NameProtectionResult.CredentialRequired -> {
 				root.run("chmod 000 ${RootShell.quote(entry.path)}")

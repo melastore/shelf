@@ -34,7 +34,7 @@ Root makes hiding stronger but is not required.
 - **Ways out in a hurry.** Turn the phone face down, plug in a cable, or tap a
   notification that carries the disguise's own name.
 - **Two credentials for being made to open it.** One opens a space that holds
-  nothing that matters. The other destroys the keys.
+  nothing that matters. The other wipes Shelf's records.
 - **No network, no accounts, no ads.** No analytics and no proprietary
   dependencies. The only optional permission is all-files access.
 
@@ -191,10 +191,17 @@ real one and holds nothing that matters. Nothing in the app calls it a decoy on
 any screen you could be made to open. Its use is recorded, and your real space
 tells you about it the next time you get in.
 
-**An emergency PIN** destroys the encryption keys and journals the moment it is
-entered, at any unlock prompt. Your folders stay where they are on disk, but
-Shelf can no longer find or unscramble them, and neither can anyone holding the
-phone. There is no undo, and no recovery file will bring them back afterwards.
+**An emergency PIN** wipes Shelf's records the moment it is entered, at any
+unlock prompt: the list of hidden folders, the recovery markers, and every
+credential. Your folders stay where they are on disk, but Shelf no longer knows
+where they are. There is no undo, and no recovery file will bring them back
+afterwards.
+
+It does not make the files themselves unrecoverable. Their headers and names are
+still encrypted under your real credential, so someone who finds the folders and
+later gets that credential out of you can unscramble them. What the wipe takes
+away is the map, not the lock.
+
 The disguise stays up and answers as if the PIN were simply wrong, and from then
 on nothing opens it, your real credential included. To use Shelf again, clear
 its storage in Android's app settings.

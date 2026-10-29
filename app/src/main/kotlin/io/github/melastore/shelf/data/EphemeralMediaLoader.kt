@@ -105,14 +105,19 @@ object EphemeralMediaLoader {
 
 			// Extension and magic settle a file outright. The bitmap decoder is a guess and says yes
 			// far too readily, so it only sees what nothing else has claimed.
-			val type = when {
-				isPdf(realName, sample) -> EphemeralMediaType.PDF
-				isVideo(realName, sample) -> EphemeralMediaType.VIDEO
-				isAudio(realName, sample) -> EphemeralMediaType.AUDIO
-				isImageByHeader(realName, sample) -> EphemeralMediaType.IMAGE
-				isText(realName, sample) -> EphemeralMediaType.TEXT
-				decodesAsBitmap(sample) -> EphemeralMediaType.IMAGE
-				else -> null
+			val type = try {
+				when {
+					isPdf(realName, sample) -> EphemeralMediaType.PDF
+					isVideo(realName, sample) -> EphemeralMediaType.VIDEO
+					isAudio(realName, sample) -> EphemeralMediaType.AUDIO
+					isImageByHeader(realName, sample) -> EphemeralMediaType.IMAGE
+					isText(realName, sample) -> EphemeralMediaType.TEXT
+					decodesAsBitmap(sample) -> EphemeralMediaType.IMAGE
+					else -> null
+				}
+			} finally {
+				// Only read to pick a type. The opened item decrypts its own copy.
+				if (isLocked) sample.fill(0)
 			}
 			if (type != null) {
 				items += EphemeralMediaItem(realName, target, isLocked, type)

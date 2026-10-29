@@ -151,9 +151,18 @@ object FileLocker {
 				LockTrailer(sealed.cipherText, salt, sealed.nonce, sealed.tag, size, padding),
 			)
 
-			// The recoverable copy is durable before the original is touched.
-			target.write(size, trailer)
-			target.sync()
+			// The recoverable copy is durable before the original is touched. A trailer cut short
+			// (storage full) has no footer, so later passes would take it for part of the file.
+			try {
+				target.write(size, trailer)
+				target.sync()
+			} catch (e: Exception) {
+				runCatching {
+					target.truncate(size)
+					target.sync()
+				}
+				throw e
+			}
 			target.write(0, sealed.cipherText)
 			target.sync()
 			if (originalTimestamp > 0L) {

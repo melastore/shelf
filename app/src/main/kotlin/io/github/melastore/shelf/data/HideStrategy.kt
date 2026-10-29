@@ -116,6 +116,9 @@ interface HideStrategy {
 	/** Rebuilds records from markers that survived outside app data, after a wipe or reinstall. */
 	suspend fun recoverOrphans(): Int = 0
 
+	/** Markers [recoverOrphans] passed over because a different credential sealed them. */
+	suspend fun lockedOrphans(): Int = 0
+
 	/** Deletes what [recoverOrphans] reads, so a wipe leaves nothing that points back at a folder. */
 	suspend fun dropRecoveryMarkers() = Unit
 }

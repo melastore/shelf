@@ -9,8 +9,8 @@ import kotlinx.coroutines.sync.withLock
  *
  * While the viewer is up the folder sits at 755, which looks the same as a folder restored behind
  * Shelf's back. A re-hide that took it for one restored and re-hid it while the viewer was about to
- * chmod it back to 000, and could record 000 as the mode to restore. Re-hides and the viewer's
- * chmods share one lock so they never interleave.
+ * chmod it back to 000, and could record 000 as the mode to restore. Every hide, restore and
+ * re-hide in FolderHider shares one lock with the viewer's chmods so they never interleave.
  */
 internal object OpenFolders {
 	private val lock = Mutex()

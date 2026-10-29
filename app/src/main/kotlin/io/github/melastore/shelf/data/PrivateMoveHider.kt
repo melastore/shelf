@@ -355,6 +355,19 @@ class PrivateMoveHider(
 		recovered
 	}
 
+	/** Left behind by a reinstall that set a new credential. Only the old one opens them. */
+	override suspend fun lockedOrphans(): Int = withContext(Dispatchers.IO) {
+		if (!isAvailable() || !ContentCredential.isAvailable()) return@withContext 0
+		vaults().sumOf { vault ->
+			vault.listFiles()?.asSequence()
+				?.filter { it.isDirectory }
+				?.take(MAX_RECOVERY_DIRECTORIES)
+				?.map { File(it, ORIGIN_MARKER) }
+				?.count { it.isFile && isSealed(it) && readOrigin(it) == null }
+				?: 0
+		}
+	}
+
 	/** Keeps the vault out of the media index, in case its contents ever become scannable. */
 	private fun markNoMedia(vault: File) {
 		vault.mkdirs()

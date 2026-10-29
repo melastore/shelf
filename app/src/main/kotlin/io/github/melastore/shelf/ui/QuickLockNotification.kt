@@ -391,8 +391,11 @@ private fun retainRehideCredential(context: Context): AutoCloseable {
 	val persisted = if (ContentCredential.isAvailable()) null else EmergencyCredentialStore.load(context)
 	if (persisted != null) ContentCredential.set(persisted)
 	val lease = ContentCredential.retain()
-	persisted?.fill(' ')
-	ContentCredential.clear()
+	// Only drop what this pass loaded. One already held belongs to an open private space.
+	if (persisted != null) {
+		persisted.fill(' ')
+		ContentCredential.clear()
+	}
 	return lease
 }
 

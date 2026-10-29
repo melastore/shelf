@@ -65,16 +65,19 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 	 * the only way to hide one sitting in the volume root without all-files access: the provider will
 	 * not grant the parent, so the folder keeps its name and its contents are protected in place.
 	 */
-	suspend fun hide(target: FolderTarget, preference: HidingPreference): HideResult = withContext(Dispatchers.IO) {
+	suspend fun hide(target: FolderTarget, preference: HidingPreference): HideResult =
+		withContext(Dispatchers.IO) { OpenFolders.transition { hideNow(target, preference) } }
+
+	private suspend fun hideNow(target: FolderTarget, preference: HidingPreference): HideResult {
 		val method = activeMethod(preference)
-			?: return@withContext HideResult.Failed(HideFailure.MethodUnavailable)
+			?: return HideResult.Failed(HideFailure.MethodUnavailable)
 		val strategy = strategies.first { it.method == method }
 		// A folder still hidden in place from before a reinstall goes back to that method, which takes
 		// it over. Any other method would hide it a second time over its scrambled contents.
 		val fallback = inPlaceStrategy()?.takeIf {
 			it.hiddenHere(target.emulatedPath) || strategy.blocker(target.emulatedPath) != null
 		}
-		(fallback ?: strategy).hide(target)
+		return (fallback ?: strategy).hide(target)
 	}
 
 	/**
@@ -90,10 +93,10 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 					if (health.status != HiddenHealthStatus.ALREADY_RESTORED) {
 						return@transition HideResult.Failed(HideFailure.AlreadyHidden(target.displayName))
 					}
-					val rolledBack = restore(interrupted)
+					val rolledBack = restoreNow(interrupted)
 					if (rolledBack !is HideResult.Ok) return@transition rolledBack
 				}
-				hide(target, preference)
+				hideNow(target, preference)
 			}
 		}
 
@@ -108,15 +111,21 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 	 */
 	suspend fun isExposed(entry: HiddenEntry): Boolean = health(entry).status == HiddenHealthStatus.ALREADY_RESTORED
 
-	suspend fun restore(entry: HiddenEntry): HideResult = withContext(Dispatchers.IO) {
+	// Same lock as rehide. A restore takes seconds on a big folder and reads as exposed partway
+	// through, so a screen-off re-hide could otherwise start on it and drop the new journal record.
+	suspend fun restore(entry: HiddenEntry): HideResult =
+		withContext(Dispatchers.IO) { OpenFolders.transition { restoreNow(entry) } }
+
+	private suspend fun restoreNow(entry: HiddenEntry): HideResult =
 		strategies.firstOrNull { it.method == entry.method }?.restore(entry)
 			?: HideResult.Failed(HideFailure.MethodCannotRestore)
-	}
 
 	/** Puts [entry] under a name in the current style. A no-op for methods with no visible name. */
 	suspend fun remask(entry: HiddenEntry): HideResult = withContext(Dispatchers.IO) {
-		strategies.firstOrNull { it.method == entry.method }?.remask(entry)
-			?: HideResult.Failed(HideFailure.MethodUnavailable)
+		OpenFolders.transition {
+			strategies.firstOrNull { it.method == entry.method }?.remask(entry)
+				?: HideResult.Failed(HideFailure.MethodUnavailable)
+		}
 	}
 
 	suspend fun health(entry: HiddenEntry): HiddenHealth = withContext(Dispatchers.IO) {
@@ -134,13 +143,15 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 	}
 
 	suspend fun recover(candidate: SafRecoveryCandidate, restoredName: String): HideResult = withContext(Dispatchers.IO) {
-		strategies.firstOrNull { it.method == HideMethod.DOT_RENAME }
-			?.recover(candidate, restoredName)
-			?: HideResult.Failed(HideFailure.MethodCannotRecover)
+		OpenFolders.transition {
+			strategies.firstOrNull { it.method == HideMethod.DOT_RENAME }
+				?.recover(candidate, restoredName)
+				?: HideResult.Failed(HideFailure.MethodCannotRecover)
+		}
 	}
 
 	suspend fun recoverOrphans(method: HideMethod): Int = withContext(Dispatchers.IO) {
-		strategies.firstOrNull { it.method == method }?.recoverOrphans() ?: 0
+		OpenFolders.transition { strategies.firstOrNull { it.method == method }?.recoverOrphans() ?: 0 }
 	}
 
 	/**
@@ -149,8 +160,10 @@ class FolderHider(private val strategies: List<HideStrategy>) {
 	 * so doing one here too would ask for root twice.
 	 */
 	suspend fun recoverEverything(): Int = withContext(Dispatchers.IO) {
-		strategies.sumOf { it.recoverOrphans() }
+		OpenFolders.transition { strategies.sumOf { it.recoverOrphans() } }
 	}
+
+	suspend fun lockedOrphans(): Int = withContext(Dispatchers.IO) { strategies.sumOf { it.lockedOrphans() } }
 
 	suspend fun dropRecoveryMarkers() = withContext(Dispatchers.IO) {
 		strategies.forEach { runCatching { it.dropRecoveryMarkers() } }

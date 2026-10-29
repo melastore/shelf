@@ -35,7 +35,11 @@ class BootReceiver : BroadcastReceiver() {
 				RehideTimer.reschedule(appContext, exposed > 0)
 				if (exposed == 0 || !ShelfCore.preferences.quickLockNotification()) return@launch
 				val identity = QuickLockNotification.identity(appContext)
-				QuickLockNotification.show(appContext, identity.label, identity.icon)
+				// The watch, not just the notification, or screen-off hiding stays dead until the app is
+				// opened. Boot is allowed to start a specialUse service; the plain one covers a refusal.
+				if (!QuickLockNotification.startWatch(appContext, identity)) {
+					QuickLockNotification.show(appContext, identity.label, identity.icon)
+				}
 			} finally {
 				finish.finish()
 			}

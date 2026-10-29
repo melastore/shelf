@@ -167,6 +167,7 @@ class SafLockTarget(val resolver: ContentResolver, val uri: Uri, override val na
 			return true
 		}
 
-		private const val MAX_DEPTH = 8
+		// Matches FolderNameProtector.MAX_DEPTH. Both walks have to reach every file the other can.
+		private const val MAX_DEPTH = 64
 	}
 }

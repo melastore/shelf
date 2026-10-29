@@ -1,8 +1,10 @@
 package io.github.melastore.shelf.data
 
 import android.app.Application
+import android.provider.Settings
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -89,6 +91,19 @@ class AppPreferencesLockoutTest {
 		assertEquals(0L, preferences.blockedUntil(0L))
 	}
 
+	/** Restarting the phone used to clear the wait and hand out a fresh set of guesses. */
+	@Test
+	fun `a reboot carries the wait over instead of clearing it`() {
+		setBootCount(1)
+		lockOutOnce(NOW)
+		setBootCount(2)
+
+		val after = 5_000L
+		val until = preferences.blockedUntil(after)
+		assertTrue(until > after && until <= after + LOCKOUT_LADDER.first())
+		assertEquals(until, preferences.blockedUntil(after))
+	}
+
 	@Test
 	fun `keypad misses block the keypad and leave the prompt alone`() {
 		repeat(KEYPAD_FREE - 1) { assertEquals(0L, preferences.recordKeypadMiss(NOW, KEYPAD_FREE)) }
@@ -104,6 +119,11 @@ class AppPreferencesLockoutTest {
 		preferences.clearFailedUnlocks()
 
 		assertEquals(0L, preferences.keypadBlockedUntil(NOW))
+	}
+
+	private fun setBootCount(count: Int) {
+		val application: Application = ApplicationProvider.getApplicationContext()
+		Settings.Global.putInt(application.contentResolver, Settings.Global.BOOT_COUNT, count)
 	}
 
 	private fun lockOutOnce(now: Long): Long {

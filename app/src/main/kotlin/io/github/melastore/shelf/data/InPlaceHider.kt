@@ -245,6 +245,14 @@ class InPlaceHider(context: Context, private val journal: Journal, private val p
 		return HideResult.Failed(failure)
 	}
 
+	// A folder hidden in place is its own grant, so its marker sits at the root of one.
+	override suspend fun dropRecoveryMarkers() = withContext(Dispatchers.IO) {
+		for (grant in resolver.persistedUriPermissions) {
+			val root = DocumentFile.fromTreeUri(appContext, grant.uri)?.takeIf { it.isDirectory } ?: continue
+			runCatching { deleteChild(root, MARKER) }
+		}
+	}
+
 	private fun writeMarker(root: DocumentFile, ourNoMedia: Boolean): Boolean {
 		if (SafTree.child(appContext, root.uri, MARKER) != null && !deleteChild(root, MARKER)) return false
 		val body = if (ourNoMedia) OWNS_NO_MEDIA else KEEPS_NO_MEDIA

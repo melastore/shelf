@@ -247,6 +247,7 @@
 	<string name="recovery_imported_with_skips">Imported %1$s; %2$d already existed and %3$d conflicted with existing records.</string>
 	<string name="recovered_records_unreadable">Found %1$s but could not read the records back.</string>
 	<string name="nothing_to_unhide">Nothing to unhide.</string>
+	<string name="orphans_other_credential">Left %1$s alone, hidden under a different PIN or password. Change back to that one in Settings, then run this again.</string>
 	<string name="force_unhide_success_recovered">Unhid %1$s, including %2$d recovered records.</string>
 	<string name="force_unhide_none">Nothing could be unhidden. %1$s</string>
 	<string name="force_unhide_partial">Unhid %1$s (%2$d recovered). %3$d could not be restored: %4$s</string>
@@ -330,7 +331,7 @@
 		<item quantity="other">%1$d minutes exposed</item>
 	</plurals>
 	<string name="quick_lock_notification">Emergency hide notification</string>
-	<string name="quick_lock_notification_summary">A quiet notification with an action that closes the private space and hides every folder.</string>
+	<string name="quick_lock_notification_summary">A quiet notification with an action that closes the private space and hides every folder. Without it, auto hide only works while Shelf is open.</string>
 	<string name="notification_channel_name">Background activity</string>
 	<string name="quick_lock_notification_text">Running in the background.</string>
 	<string name="quick_lock_notification_working">Putting folders out of sight…</string>
@@ -460,10 +461,10 @@
 	<string name="forward_10">Forward 10 seconds</string>
 	<string name="create_burner_pin">Set emergency wipe PIN</string>
 	<string name="change_burner_pin">Change emergency wipe PIN</string>
-	<string name="burner_pin_summary">Entering this PIN permanently destroys encryption keys and journals under duress</string>
+	<string name="burner_pin_summary">Entering this PIN permanently wipes Shelf\'s records and credentials</string>
 	<string name="remove_burner_pin">Remove emergency wipe PIN</string>
 	<string name="remove_burner_pin_summary">Disables the emergency destruction PIN</string>
-	<string name="burner_pin_hint">Pick a distinct emergency PIN. Entering it at any unlock prompt wipes keys and journals.</string>
+	<string name="burner_pin_hint">Pick a distinct emergency PIN. Entering it at any unlock prompt wipes Shelf\'s records and credentials.</string>
 	<string name="remove_burner_pin_confirm">The emergency wipe PIN will be removed and will no longer trigger a wipe.</string>
 	<string name="burner_pin_saved">Emergency wipe PIN saved.</string>
 	<string name="burner_pin_removed">Emergency wipe PIN removed.</string>

@@ -27,8 +27,8 @@ the real one and contains nothing that matters, the one to give up if you are
 ever made to hand one over. Shelf records that it was used and tells you on your
 next real unlock, along with any wrong credentials someone else tried.
 
-A separate emergency PIN destroys the encryption keys and journals as soon as it
-is entered at any unlock prompt. Turning the phone face down or plugging in a
+A separate emergency PIN wipes Shelf's records and credentials as soon as it is
+entered at any unlock prompt. Turning the phone face down or plugging in a
 USB cable can also lock everything at once.
 
 Folders can be hidden in three ways: with root, by clearing permission bits on

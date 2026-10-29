@@ -154,7 +154,7 @@ class DotRenameHider(
 		if (originalFolderTime > 0L) {
 			runCatching { File(finalEntry.hiddenPath).setLastModified(originalFolderTime) }
 		}
-		if (!journal.replace(finalEntry)) {
+		if (!replaced(finalEntry)) {
 			return@withContext rollbackRename(finalEntry, renamed.uri, name, HideFailure.JournalUpdateFailed)
 		}
 
@@ -329,7 +329,7 @@ class DotRenameHider(
 		val renamed = renameFolder(tree, entry.hiddenPath, wanted)
 			?: return@withContext HideResult.Failed(HideFailure.RenameFailed(entry.displayName))
 		val moved = entry.copy(hiddenPath = SafPaths.sibling(entry.hiddenPath, renamed.name ?: wanted))
-		if (journal.replace(moved)) return@withContext HideResult.Ok(moved)
+		if (replaced(moved)) return@withContext HideResult.Ok(moved)
 
 		// The record is the only way back to a folder whose name no longer resembles it, so a journal
 		// that will not take the new name means the folder goes back to the old one.
@@ -493,6 +493,10 @@ class DotRenameHider(
 	 * only goes when that came back clean: a partial undo keeps it, and the next hide rolls the rest
 	 * back before starting.
 	 */
+	// A journal write that throws (storage full) has to reach the rename rollback like one that
+	// returns false, or the folder stays renamed with the old hiddenPath on record.
+	private suspend fun replaced(entry: HiddenEntry): Boolean = runCatching { journal.replace(entry) }.getOrDefault(false)
+
 	private suspend fun undoAndFail(entry: HiddenEntry, failure: HideFailure): HideResult {
 		if (!undoPasses(names, content, entry.path)) return HideResult.Failed(HideFailure.FilesNotPutBack(failure))
 		journal.remove(entry.path)
@@ -520,7 +524,7 @@ class DotRenameHider(
 		// rollback must never leave an untracked folder. Use the path encoded in the returned document
 		// uri when the provider exposes one.
 		val hiddenPath = renamed?.let(::documentPath) ?: entry.hiddenPath
-		journal.replace(entry.copy(hiddenPath = hiddenPath))
+		replaced(entry.copy(hiddenPath = hiddenPath))
 		return HideResult.Failed(HideFailure.RollbackFailed(failure))
 	}
 

@@ -1,6 +1,7 @@
 package io.github.melastore.shelf.data
 
 import android.content.Context
+import android.provider.Settings
 import androidx.core.content.edit
 import io.github.melastore.shelf.security.CredentialKind
 import java.security.SecureRandom
@@ -61,6 +62,7 @@ data class AppSettings(
 class AppPreferences(context: Context) {
 
 	private val values = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+	private val resolver = context.applicationContext.contentResolver
 
 	/** Older installs used a passphrase, so a missing kind keeps whatever input mode they had. */
 	fun read(vaultCredentialExists: Boolean): AppSettings = AppSettings(
@@ -250,9 +252,26 @@ class AppPreferences(context: Context) {
 
 	private fun blockedUntil(now: Long, untilKey: String, lockoutsKey: String): Long {
 		val until = values.getLong(untilKey, 0L)
+		if (until == 0L) return 0L
+		val lockout = lockoutMillis(values.getInt(lockoutsKey, 0))
+		val boot = bootCount()
+		// Uptime starts again at boot, so a wait set before a reboot would read as over and give out
+		// a fresh set of guesses. Carried over by the wall clock instead, capped at the full wait.
+		if (boot != values.getInt(untilKey + BOOT_SUFFIX, boot)) {
+			val left = values.getLong(untilKey + WALL_SUFFIX, 0L) - System.currentTimeMillis()
+			val carried = if (left > 0L) now + minOf(left, lockout) else 0L
+			values.edit(commit = true) {
+				putLong(untilKey, carried)
+				putInt(untilKey + BOOT_SUFFIX, boot)
+			}
+			return carried
+		}
 		if (until <= now) return 0L
-		return until.takeIf { it - now <= lockoutMillis(values.getInt(lockoutsKey, 0)) } ?: 0L
+		return until.takeIf { it - now <= lockout } ?: 0L
 	}
+
+	private fun bootCount(): Int =
+		runCatching { Settings.Global.getInt(resolver, Settings.Global.BOOT_COUNT, -1) }.getOrDefault(-1)
 
 	/**
 	 * Counts one wrong credential and returns when the next attempt is allowed, or zero.
@@ -276,6 +295,8 @@ class AppPreferences(context: Context) {
 			putInt(countKey, 0)
 			putInt(lockoutsKey, lockouts)
 			putLong(untilKey, blockedUntil)
+			putInt(untilKey + BOOT_SUFFIX, bootCount())
+			putLong(untilKey + WALL_SUFFIX, System.currentTimeMillis() + lockoutMillis(lockouts))
 		}
 		return blockedUntil
 	}
@@ -286,9 +307,13 @@ class AppPreferences(context: Context) {
 			remove(KEY_FAILED_UNLOCKS)
 			remove(KEY_LOCKOUTS)
 			remove(KEY_BLOCKED_UNTIL)
+			remove(KEY_BLOCKED_UNTIL + BOOT_SUFFIX)
+			remove(KEY_BLOCKED_UNTIL + WALL_SUFFIX)
 			remove(KEY_KEYPAD_MISSES)
 			remove(KEY_KEYPAD_LOCKOUTS)
 			remove(KEY_KEYPAD_BLOCKED_UNTIL)
+			remove(KEY_KEYPAD_BLOCKED_UNTIL + BOOT_SUFFIX)
+			remove(KEY_KEYPAD_BLOCKED_UNTIL + WALL_SUFFIX)
 		}
 	}
 
@@ -338,6 +363,8 @@ class AppPreferences(context: Context) {
 		const val KEY_FAILED_UNLOCKS = "failed_unlocks"
 		const val KEY_LOCKOUTS = "lockouts"
 		const val KEY_BLOCKED_UNTIL = "blocked_until"
+		const val BOOT_SUFFIX = "_boot"
+		const val WALL_SUFFIX = "_wall"
 		const val KEY_KEYPAD_MISSES = "keypad_misses"
 		const val KEY_KEYPAD_LOCKOUTS = "keypad_lockouts"
 		const val KEY_KEYPAD_BLOCKED_UNTIL = "keypad_blocked_until"
