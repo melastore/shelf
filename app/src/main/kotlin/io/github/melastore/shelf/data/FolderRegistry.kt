@@ -4,9 +4,12 @@ import java.io.File
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 
-/** A folder the user has handed to Shelf, whether or not it is hidden at this moment. */
+/**
+ * A folder the user has handed to Shelf, whether or not it is hidden at this moment. [bundle] marks
+ * one Shelf made to carry picked files, which go back up a level on unhide.
+ */
 @Serializable
-data class TrackedFolder(val path: String, val displayName: String, val addedAt: Long)
+data class TrackedFolder(val path: String, val displayName: String, val addedAt: Long, val bundle: Boolean = false,)
 
 /**
  * Every folder the user has handed to Shelf, kept across a restore.
@@ -23,14 +26,21 @@ class FolderRegistry(file: File) {
 
 	suspend fun read(): List<TrackedFolder> = store.read()
 
-	/** Adds [path], or refreshes the name of one already tracked. Order is preserved. */
-	suspend fun put(path: String, displayName: String, now: Long = System.currentTimeMillis()) {
+	/**
+	 * Adds [path], or refreshes the name of one already tracked. Order is preserved. A bundle flag is
+	 * only ever set here, never cleared: a plain put after a rename must not turn one back into a folder.
+	 */
+	suspend fun put(path: String, displayName: String, now: Long = System.currentTimeMillis(), bundle: Boolean = false,) {
 		store.update { current ->
 			val existing = current.firstOrNull { it.path == path }
 			when {
-				existing == null -> (current + TrackedFolder(path, displayName, now)).takeLast(MAX_FOLDERS)
-				existing.displayName == displayName -> current
-				else -> current.map { if (it.path == path) it.copy(displayName = displayName) else it }
+				existing == null -> (current + TrackedFolder(path, displayName, now, bundle)).takeLast(MAX_FOLDERS)
+
+				existing.displayName == displayName && (existing.bundle || !bundle) -> current
+
+				else -> current.map {
+					if (it.path == path) it.copy(displayName = displayName, bundle = it.bundle || bundle) else it
+				}
 			}
 		}
 	}

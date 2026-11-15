@@ -51,6 +51,8 @@ import io.github.melastore.shelf.data.EphemeralPdf
 import io.github.melastore.shelf.data.EphemeralText
 import javax.crypto.SecretKey
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 /** Chrome shared by both readers: a close button, the file name, and whatever the reader shows. */
@@ -141,16 +143,14 @@ fun EphemeralTextViewerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> S
 @Composable
 fun EphemeralPdfViewerDialog(item: EphemeralMediaItem, keyFor: (ByteArray) -> SecretKey?, onDismiss: () -> Unit,) {
 	var settled by remember(item) { mutableStateOf(false) }
+	// Closing the renderer is what frees the decrypted document from memory. The load is not
+	// cancelled with the dialog: dropped halfway, the document it was opening would never be closed.
 	val document = produceState<EphemeralPdf?>(initialValue = null, item) {
-		val loaded = withContext(Dispatchers.IO) { EphemeralMediaLoader.loadPdf(item.target, keyFor) }
+		val loaded = withContext(Dispatchers.IO + NonCancellable) { EphemeralMediaLoader.loadPdf(item.target, keyFor) }
 		value = loaded
 		settled = true
+		awaitDispose { loaded?.close() }
 	}.value
-
-	// Closing the renderer is what frees the decrypted document from memory.
-	DisposableEffect(document) {
-		onDispose { document?.close() }
-	}
 
 	DocumentScaffold(item.name, onDismiss) {
 		when {
@@ -190,7 +190,9 @@ private fun PdfPage(document: EphemeralPdf, index: Int, widthPx: Int) {
 	// On demand and dropped with the row: a long document held as bitmaps is far more memory than
 	// the file it came from.
 	val page = produceState<Bitmap?>(initialValue = null, document, index, widthPx) {
-		value = withContext(Dispatchers.IO) { document.renderPage(index, widthPx) }
+		val rendered = withContext(Dispatchers.IO + NonCancellable) { document.renderPage(index, widthPx) }
+		// Scrolled away while it rendered, so nothing below will ever see it.
+		if (!isActive) rendered?.recycle() else value = rendered
 	}.value
 
 	DisposableEffect(page) {

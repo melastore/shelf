@@ -14,6 +14,24 @@ class FolderRegistryTest {
 	private fun registry() = FolderRegistry(File(temp.root, "folders.json"))
 
 	@Test
+	fun `a list written before bundles reads as plain folders`() = runBlocking {
+		File(temp.root, "folders.json").writeText(
+			"""[{"path":"/storage/emulated/0/Docs","displayName":"Docs","addedAt":1}]""",
+		)
+
+		assertEquals(listOf(false), registry().read().map { it.bundle })
+	}
+
+	@Test
+	fun `a plain put never clears the bundle flag`() = runBlocking {
+		val registry = registry()
+		registry.put("/storage/emulated/0/Pictures/Files-1", "a.jpg", bundle = true)
+		registry.put("/storage/emulated/0/Pictures/Files-1", "a.jpg +1")
+
+		assertEquals(listOf(true), registry.read().map { it.bundle })
+	}
+
+	@Test
 	fun `a folder stays listed after its record is gone`() = runBlocking {
 		val registry = registry()
 		registry.put("/storage/emulated/0/DCIM/Camera", "Camera")

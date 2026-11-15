@@ -56,6 +56,7 @@ data class AppSettings(
 	val deepProtection: Boolean = true,
 	val hiddenNameStyle: HiddenNameStyle = HiddenNameStyle.CAMOUFLAGE,
 	val rehideMinutes: Int = 0,
+	val shareTarget: Boolean = false,
 )
 
 /** Small, non-sensitive settings. Secrets live in [io.github.melastore.shelf.security.PassphraseGate]. */
@@ -81,6 +82,7 @@ class AppPreferences(context: Context) {
 		deepProtection = deepProtection(),
 		hiddenNameStyle = hiddenNameStyle(),
 		rehideMinutes = rehideMinutes(),
+		shareTarget = shareTarget(),
 	)
 
 	fun setDecoy(value: DecoyType) = putString(KEY_DECOY, value.name)
@@ -199,6 +201,33 @@ class AppPreferences(context: Context) {
 	fun hiddenNameStyle(): HiddenNameStyle = enumValue(KEY_HIDDEN_NAME_STYLE, HiddenNameStyle.CAMOUFLAGE)
 
 	/** Zero is off. */
+	fun shareTarget(): Boolean = values.getBoolean(KEY_SHARE_TARGET, false)
+
+	fun setShareTarget(value: Boolean) {
+		values.edit(commit = true) { putBoolean(KEY_SHARE_TARGET, value) }
+	}
+
+	/** Salted digests of the folders the last recovery file covered, or null before the first export. */
+	fun recoveryExported(): Set<String>? = values.getStringSet(KEY_RECOVERY_EXPORTED, null)?.toSet()
+
+	fun setRecoveryExported(value: Set<String>) {
+		values.edit(commit = true) { putStringSet(KEY_RECOVERY_EXPORTED, value) }
+	}
+
+	/** The same, for the set the owner last said "not now" to. */
+	fun recoverySnoozed(): Set<String>? = values.getStringSet(KEY_RECOVERY_SNOOZED, null)?.toSet()
+
+	fun setRecoverySnoozed(value: Set<String>) {
+		values.edit(commit = true) { putStringSet(KEY_RECOVERY_SNOOZED, value) }
+	}
+
+	fun clearRecoveryNudge() {
+		values.edit(commit = true) {
+			remove(KEY_RECOVERY_EXPORTED)
+			remove(KEY_RECOVERY_SNOOZED)
+		}
+	}
+
 	fun rehideMinutes(): Int = values.getInt(KEY_REHIDE_MINUTES, 0)
 
 	fun setRehideMinutes(value: Int) {
@@ -369,6 +398,9 @@ class AppPreferences(context: Context) {
 		const val KEY_KEYPAD_LOCKOUTS = "keypad_lockouts"
 		const val KEY_KEYPAD_BLOCKED_UNTIL = "keypad_blocked_until"
 		const val KEY_REHIDE_MINUTES = "rehide_minutes"
+		const val KEY_SHARE_TARGET = "share_target"
+		const val KEY_RECOVERY_EXPORTED = "recovery_exported"
+		const val KEY_RECOVERY_SNOOZED = "recovery_snoozed"
 		const val KEY_REHIDE_AT = "rehide_at"
 		const val KEY_SALT_PREFIX = "salt_"
 	}

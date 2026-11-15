@@ -7,7 +7,13 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 
 @Serializable
-data class DecoyItem(val id: String, val name: String, val hiddenAt: Long, val hidden: Boolean = true)
+data class DecoyItem(
+	val id: String,
+	val name: String,
+	val hiddenAt: Long,
+	val hidden: Boolean = true,
+	val files: Boolean = false,
+)
 
 /**
  * What someone sees when the second credential is entered.
@@ -42,12 +48,15 @@ class DecoyVault(file: File) {
 		current.map { it.copy(hidden = hidden) }
 	}
 
-	/** Picking a name already listed hides that row again, as picking a tracked folder does. */
-	suspend fun add(name: String) = store.update { current ->
-		if (current.any { it.name == name }) {
-			current.map { if (it.name == name) it.copy(hidden = true) else it }
+	/**
+	 * Picking a folder already listed hides that row again, as picking a tracked folder does. Files
+	 * always get a row of their own, as they get a folder of their own in the real space.
+	 */
+	suspend fun add(name: String, files: Boolean = false) = store.update { current ->
+		if (!files && current.any { it.name == name && !it.files }) {
+			current.map { if (it.name == name && !it.files) it.copy(hidden = true) else it }
 		} else {
-			current + DecoyItem(UUID.randomUUID().toString(), name, System.currentTimeMillis())
+			current + DecoyItem(UUID.randomUUID().toString(), name, System.currentTimeMillis(), files = files)
 		}
 	}
 

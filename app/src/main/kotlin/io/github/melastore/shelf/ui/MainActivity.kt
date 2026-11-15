@@ -411,6 +411,8 @@ class MainActivity : ComponentActivity() {
 		viewModel.refreshBiometricAvailability()
 		// A hide may have happened in a receiver while this was in the background.
 		viewModel.refreshExposure()
+		// A share from the gallery lands here. Locked, it waits for the unlock instead.
+		viewModel.offerIncomingShare()
 	}
 
 	/**

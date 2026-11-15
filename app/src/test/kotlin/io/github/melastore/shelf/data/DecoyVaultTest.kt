@@ -34,6 +34,18 @@ class DecoyVaultTest {
 	}
 
 	@Test
+	fun `files always get a row of their own`() = runBlocking {
+		val vault = DecoyVault(File(temp.root, "decoy.json"))
+		vault.add("Camera")
+		vault.add("Camera", files = true)
+		vault.add("Receipts", files = true)
+		vault.add("Receipts", files = true)
+
+		val rows = vault.read().filter { it.name == "Camera" || it.name == "Receipts" }
+		assertEquals(listOf(false, true, true, true), rows.map { it.files })
+	}
+
+	@Test
 	fun `fallback remains plausible when the backing file is damaged`() {
 		val items = DecoyVault(File(temp.root, "decoy.json")).fallback()
 

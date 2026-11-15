@@ -12,6 +12,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.melastore.shelf.R
 import io.github.melastore.shelf.data.AppPreferences
 import io.github.melastore.shelf.data.AutoHideMode
+import io.github.melastore.shelf.data.BundleResult
 import io.github.melastore.shelf.data.CalendarEvent
 import io.github.melastore.shelf.data.CalendarEventStore
 import io.github.melastore.shelf.data.ContentCredential
@@ -24,6 +25,7 @@ import io.github.melastore.shelf.data.EntryMethod
 import io.github.melastore.shelf.data.EphemeralMediaLoader
 import io.github.melastore.shelf.data.FailedUnlock
 import io.github.melastore.shelf.data.FailedUnlockLog
+import io.github.melastore.shelf.data.FileBundler
 import io.github.melastore.shelf.data.FolderTarget
 import io.github.melastore.shelf.data.Habit
 import io.github.melastore.shelf.data.HabitStore
@@ -36,12 +38,16 @@ import io.github.melastore.shelf.data.HideMethod
 import io.github.melastore.shelf.data.HideResult
 import io.github.melastore.shelf.data.HideWarning
 import io.github.melastore.shelf.data.HidingPreference
+import io.github.melastore.shelf.data.OpenFolders
 import io.github.melastore.shelf.data.RecordsCorrupted
 import io.github.melastore.shelf.data.RecoveryBundleCodec
+import io.github.melastore.shelf.data.RecoveryNudge
 import io.github.melastore.shelf.data.SafPaths
 import io.github.melastore.shelf.data.SafRecoveryCandidate
 import io.github.melastore.shelf.data.ShelfCore
 import io.github.melastore.shelf.data.ThemeMode
+import io.github.melastore.shelf.data.UriPaths
+import io.github.melastore.shelf.data.mergeWarnings
 import io.github.melastore.shelf.data.worksOnCalculatorKeypad
 import io.github.melastore.shelf.security.BiometricAuth
 import io.github.melastore.shelf.security.CredentialFault
@@ -77,9 +83,12 @@ enum class Screen { DECOY, VAULT, SETTINGS }
 /** Shared with the dialog that collects it, so the two cannot disagree on what is long enough. */
 const val MIN_RECOVERY_PASSWORD = 12
 
+internal const val MAX_PICKED_FILES = 500
+
 /**
  * One row of the private space. [entry] is the journal record describing how to put the folder back,
- * and is null exactly when the folder is sitting in the open under its own name.
+ * and is null exactly when the folder is sitting in the open under its own name. [bundle] is a folder
+ * Shelf made for picked files.
  */
 data class VaultFolder(
 	val path: String,
@@ -87,9 +96,13 @@ data class VaultFolder(
 	val entry: HiddenEntry?,
 	val health: HiddenHealth? = null,
 	val blocker: HideFailure? = null,
+	val bundle: Boolean = false,
 ) {
 	val hidden: Boolean get() = entry != null
 }
+
+/** Files picked and checked, waiting on a name for the folder they go into. */
+data class NamingFiles(val count: Int, val suggested: String)
 
 data class FolderProblem(val name: String, val reason: UiMessage, val needsAllFiles: Boolean = false,)
 
@@ -150,6 +163,10 @@ data class AppUiState(
 	/** Wrong credentials since the last time the owner got in, on the same terms. */
 	val failedAttemptAlert: UiMessage? = null,
 	val blocked: BlockedReport? = null,
+	val namingFiles: NamingFiles? = null,
+	/** Hidden folders the last recovery file does not cover, enough to say so. */
+	val recoveryNudge: Boolean = false,
+	val shareTarget: Boolean = false,
 	val busy: Boolean = false,
 	val message: UiMessage? = null,
 ) {
@@ -180,7 +197,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	private val journal = ShelfCore.journal
 	private val registry = ShelfCore.registry
 	private val hider = ShelfCore.hider
-	private val folderCoordinator = FolderCoordinator(paths, journal, registry, hider)
+	private val bundler = ShelfCore.bundler
+	private val uriPaths = UriPaths(app, paths)
+	private val folderCoordinator = FolderCoordinator(paths, journal, registry, hider, bundler)
 	private val decoyVault = ShelfCore.decoyVault
 	private val recoveryCoordinator = RecoveryCoordinator(journal, RecoveryBundleCodec(paths))
 	private val duressLog = DuressLog(File(app.filesDir, "duress.json"))
@@ -196,14 +215,22 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 */
 	private var awaitingPickerUntil = 0L
 
+	/** Until when a trip out is the share sheet. Cleared on the way back in, since it has no result. */
+	private var sharingUntil = 0L
+	private var pendingFiles: List<FileGroup>? = null
+
 	/** When the app last went to the background, or 0 while a picker had it. */
 	private var leftAt = 0L
 	private var pending: (suspend () -> Unit)? = null
+
+	// What undoes the steps taken before [pending] was asked for, when the grant is not given.
+	private var refused: (suspend () -> Unit)? = null
 	private val operationMutex = Mutex()
 	private val authenticationMutex = Mutex()
 	private var recoveryCheckedFor: HideMethod? = null
 	private var backgroundLock: Job? = null
 	private var autoHideRequested = false
+	private var autoHides = 0
 
 	// The count starts at zero and is filled in off the main thread. Until it lands, zero means
 	// "not counted yet", and treating that as "nothing to hide" skipped the hide outright.
@@ -239,7 +266,12 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			// Not while setup is unfinished. Disabling the alias the wizard runs under ends its task
 			// and drops the owner on the home screen halfway through, so the disguise goes on once
 			// there is a credential behind it.
-			if (credentialSet) withContext(Dispatchers.IO) { launcherAliases.apply(settings.decoy) }
+			if (credentialSet) {
+				withContext(Dispatchers.IO) {
+					launcherAliases.apply(settings.decoy)
+					launcherAliases.applyShare(settings.decoy, settings.shareTarget)
+				}
+			}
 			val habits = guard { habitStore.read() }.orEmpty()
 			val events = guard { calendarStore.read() }.orEmpty()
 			_state.update {
@@ -264,6 +296,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					usbPanic = settings.usbPanic,
 					deepProtection = settings.deepProtection,
 					rehideMinutes = settings.rehideMinutes,
+					shareTarget = settings.shareTarget,
 					setupStep = if (credentialSet) 0 else preferences.setupStep(),
 					habits = habits,
 					calendarEvents = events,
@@ -328,6 +361,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			withContext(Dispatchers.IO) { preferences.clearSetupStep() }
 			_state.update { it.copy(credentialSet = true, credentialKind = kind, setupStep = 0) }
 			keepEntryReachable(kind)
+			applyShareEntry()
 			openVault()
 		} finally {
 			credential.fill(' ')
@@ -438,6 +472,9 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		EmergencyCredentialStore.clear(getApplication())
 		RehideTimer.sync(getApplication(), exposed = false)
 		preferences.clearFailedUnlocks()
+		preferences.clearRecoveryNudge()
+		IncomingShare.clear()
+		ShareOut.clear()
 		preferences.setBiometricEnabled(false)
 		BiometricAuth.reset(getApplication())
 		auth.clearPrimary()
@@ -799,21 +836,25 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			.takeIf { it.isNotEmpty() }?.let(::duressSummary)
 		val attempts = runCatching { failedUnlockLog.read() }.getOrNull().orEmpty()
 			.takeIf { it.isNotEmpty() }?.let(::attemptSummary)
+		val nudge = recoveryNudgeDue()
 		_state.update {
 			it.copy(
 				screen = Screen.VAULT,
 				duress = false,
+				recoveryNudge = nudge,
 				folders = loaded.getOrDefault(emptyList()),
 				exposedFolders = loaded.getOrNull()?.count { folder -> !folder.hidden } ?: it.exposedFolders,
 				decoyItems = emptyList(),
 				duressAlert = alert,
 				failedAttemptAlert = attempts,
 				blocked = null,
+				namingFiles = null,
 				message = loaded.exceptionOrNull()?.let(::listFailure) ?: it.message,
 			)
 		}
 		runCatching { refreshCapabilitiesNow() }
 		prepareContentKeys(loaded.getOrNull().orEmpty())
+		offerIncomingShare()
 	}
 
 	/** Seconds of CPU per unlock, so only when a hide or restore is going to need the keys. */
@@ -862,8 +903,10 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				method = folderCoordinator.selectedMethod(it.hidingPreference, it.availableMethods)
 					?: HideMethod.DOT_RENAME,
 				safRecoveryCandidates = emptyList(),
+				namingFiles = null,
 			)
 		}
+		offerIncomingShare()
 	}
 
 	/**
@@ -875,7 +918,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	 * no grant is kept, so the folder picked is left exactly as it was.
 	 */
 	private suspend fun addDecoyFolder(treeUri: Uri) {
-		val path = resolveDocumentPath(treeUri, isTree = true)
+		val path = uriPaths.treePath(treeUri)
 			?: return fail(uiMessage(R.string.folder_path_unresolved))
 		// Only the check that needs nothing tracked. The overlap check names a real folder.
 		reservedFolder(path)?.let { return fail(it) }
@@ -889,7 +932,23 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		refreshDecoyItems(uiMessage(R.string.folder_record_removed, item.name))
 	}
 
+	/**
+	 * Files picked here become rows and nothing more, as folders do. The checks are the real space's,
+	 * so a pick it would refuse is refused here in the same words.
+	 */
+	private suspend fun addDecoyFiles(groups: List<FileGroup>) {
+		groups.firstNotNullOfOrNull { reservedFolder(bundler.plannedPath(it.parent, it.folder)) }?.let { return fail(it) }
+		groups.forEach { runCatching { decoyVault.add(it.label, files = true) } }
+		val count = groups.sumOf { it.files.size }
+		refreshDecoyItems(uiPlural(R.plurals.files_hidden, count, count))
+	}
+
+	// Unhiding real files puts them back and drops the row, so a decoy row of files goes the same way.
 	fun toggleDecoyItem(item: DecoyItem) = launchBusy {
+		if (item.files && item.hidden) {
+			runCatching { decoyVault.remove(item.id) }
+			return@launchBusy refreshDecoyItems(uiMessage(R.string.files_put_back_named, item.name))
+		}
 		val hidden = !item.hidden
 		runCatching { decoyVault.setHidden(item.id, hidden) }
 		refreshDecoyItems(
@@ -968,6 +1027,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 	fun closeSettings() {
 		if (_state.value.screen == Screen.SETTINGS) _state.update { it.copy(screen = Screen.VAULT) }
+		offerIncomingShare()
 	}
 
 	/**
@@ -979,10 +1039,14 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	fun lockVault() {
 		ContentCredential.clear()
 		EphemeralMediaLoader.clearCache()
+		ShareOut.clear()
 		backgroundLock?.cancel()
 		backgroundLock = null
 		awaitingPickerUntil = 0L
+		sharingUntil = 0L
 		pending = null
+		refused = null
+		pendingFiles = null
 		recoveryCheckedFor = null
 		autoHideRequested = false
 		_state.update {
@@ -995,6 +1059,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				duressAlert = null,
 				failedAttemptAlert = null,
 				blocked = null,
+				namingFiles = null,
+				recoveryNudge = false,
 				safRecoveryCandidates = emptyList(),
 				accessNeededFor = null,
 				method = null,
@@ -1028,6 +1094,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		try {
 			withContext(Dispatchers.IO) { preferences.setDecoy(decoy) }
 			_state.update { it.copy(decoy = decoy, message = uiMessage(R.string.disguise_changed)) }
+			applyShareEntry()
 		} catch (e: Exception) {
 			fail(
 				e.message?.let { uiMessage(R.string.disguise_change_failed_detail, it) }
@@ -1070,6 +1137,19 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	fun setThemeMode(mode: ThemeMode) = viewModelScope.launch {
 		withContext(Dispatchers.IO) { preferences.setThemeMode(mode) }
 		_state.update { it.copy(themeMode = mode) }
+	}
+
+	fun setShareTarget(enabled: Boolean) = viewModelScope.launch {
+		preferences.setShareTarget(enabled)
+		_state.update { it.copy(shareTarget = enabled) }
+		applyShareEntry()
+	}
+
+	// Unlike the launcher entry, the share entry can change at once: nothing runs under it.
+	private suspend fun applyShareEntry() {
+		val current = _state.value
+		if (!current.credentialSet) return
+		runCatching { withContext(Dispatchers.IO) { launcherAliases.applyShare(current.decoy, current.shareTarget) } }
 	}
 
 	fun setFlipToHide(enabled: Boolean) = viewModelScope.launch {
@@ -1193,6 +1273,12 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE, "primary:")
 	}.getOrNull()
 
+	/** The files picker opened in the folder [path] sits in, so adding to it starts where it can work. */
+	fun filesPickerStart(path: String?): Uri? = path
+		?.let { SafPaths.documentId(paths.emulatedRoot, SafPaths.parentOf(it)) }
+		?.let { runCatching { DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE, it) }.getOrNull() }
+		?: _state.value.pickerStart
+
 	fun expectExternalPicker() {
 		awaitingPickerUntil = SystemClock.elapsedRealtime() + PICKER_GRACE_MILLIS
 	}
@@ -1201,10 +1287,21 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		awaitingPickerUntil = 0L
 	}
 
+	fun expectShareSheet() {
+		sharingUntil = SystemClock.elapsedRealtime() + PICKER_GRACE_MILLIS
+	}
+
 	fun onMovedToBackground(screenOff: Boolean = false) {
 		val awaitingPicker = SystemClock.elapsedRealtime() < awaitingPickerUntil
 		awaitingPickerUntil = 0L
+		// Unlike a picker this is a real trip out, so the away lock still counts it. Only an immediate
+		// hide waits, or the app shared to finds the copies gone before it reads them.
+		val sharing = SystemClock.elapsedRealtime() < sharingUntil
+		sharingUntil = 0L
 		backgroundLock?.cancel()
+		// Walked away from, a share is abandoned, not waiting for whoever unlocks next. Not on lock:
+		// the away lock runs as a share arrives at a space left open, and would drop it.
+		if (!awaitingPicker) IncomingShare.clear()
 		leftAt = if (awaitingPicker) 0L else SystemClock.elapsedRealtime()
 		if (!awaitingPicker) applyPendingDisguise()
 		if (screenOff && _state.value.autoHideMode != AutoHideMode.NEVER) {
@@ -1214,7 +1311,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		if (_state.value.autoHideMode != AutoHideMode.IMMEDIATE) return
 		// A picker briefly interrupts an immediate hide, or no folder could ever be picked. If it is
 		// abandoned, the grace period still ends by closing and hiding everything.
-		if (awaitingPicker) {
+		if (awaitingPicker || sharing) {
 			backgroundLock = viewModelScope.launch {
 				delay(PICKER_GRACE_MILLIS)
 				autoHideAndClose()
@@ -1236,7 +1333,12 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		if (!_state.value.credentialSet) return
 		val decoy = _state.value.decoy
 		viewModelScope.launch {
-			runCatching { withContext(Dispatchers.IO) { launcherAliases.apply(decoy) } }
+			runCatching {
+				withContext(Dispatchers.IO) {
+					launcherAliases.apply(decoy)
+					launcherAliases.applyShare(decoy, _state.value.shareTarget)
+				}
+			}
 		}
 	}
 
@@ -1249,6 +1351,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		backgroundLock?.cancel()
 		backgroundLock = null
 		autoHideRequested = false
+		sharingUntil = 0L
 		val away = leftAt
 		leftAt = 0L
 		val open = _state.value.screen != Screen.DECOY
@@ -1279,6 +1382,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		}
 		lockVault()
 		autoHideRequested = true
+		autoHides++
 		QuickLockNotification.requestHide(getApplication())
 	}
 
@@ -1286,7 +1390,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 	fun hideFolder(treeUri: Uri) = launchBusy {
 		if (_state.value.duress) return@launchBusy addDecoyFolder(treeUri)
-		val path = resolveDocumentPath(treeUri, isTree = true)
+		val path = uriPaths.treePath(treeUri)
 			?: return@launchBusy fail(uiMessage(R.string.folder_path_unresolved))
 		unsuitable(path)?.let { return@launchBusy fail(it) }
 		val name = DocumentFile.fromTreeUri(getApplication(), treeUri)?.name ?: File(path).name
@@ -1295,6 +1399,400 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		// from instead of something the user has to find in the picker twice.
 		guard { registry.put(path, name) }
 		hide(FolderTarget(path, name, treeUri.takeIf { persisted }))
+	}
+
+	/**
+	 * Hides picked files by moving them into a folder made next to them and hiding that folder. Each
+	 * directory picked from gets its own folder and its own row. The pick is checked here and the
+	 * folder is named first, so nothing moves before the owner has said what to call it.
+	 */
+	fun hideFiles(uris: List<Uri>) = launchBusy {
+		if (!_state.value.duress && !ContentCredential.isAvailable()) {
+			return@launchBusy fail(HideFailure.PrimaryPinSessionRequired.toUiMessage())
+		}
+		val groups = pickedFiles(uris) ?: return@launchBusy
+		pendingFiles = groups
+		val count = groups.sumOf { it.files.size }
+		_state.update { it.copy(namingFiles = NamingFiles(count, bundler.defaultName())) }
+	}
+
+	/**
+	 * Files shared to Shelf from another app. The paths were read while the share's grant was still
+	 * held, so all that is left is the same naming step a pick goes through. Offered only once the
+	 * space is open; whoever opened it, the decoy included, gets the same dialog.
+	 */
+	fun offerIncomingShare() {
+		val current = _state.value
+		if (current.screen != Screen.VAULT || current.busy || current.namingFiles != null) return
+		val batch = IncomingShare.take(SystemClock.elapsedRealtime()) ?: return
+		launchBusy { hideSharedFiles(batch) }
+	}
+
+	private suspend fun hideSharedFiles(batch: IncomingShare.Batch) {
+		if (!_state.value.duress && !ContentCredential.isAvailable()) {
+			return fail(HideFailure.PrimaryPinSessionRequired.toUiMessage())
+		}
+		val files = batch.paths.distinct()
+		if (batch.tooMany || files.size > MAX_PICKED_FILES) {
+			return fail(uiMessage(R.string.files_too_many, MAX_PICKED_FILES))
+		}
+		if (files.isEmpty()) return fail(uiMessage(R.string.share_nothing_usable))
+		val groups = groupFiles(files)
+		pendingFiles = groups
+		_state.update {
+			it.copy(
+				namingFiles = NamingFiles(files.size, bundler.defaultName()),
+				message = if (batch.refused >
+					0
+				) {
+					uiPlural(R.plurals.share_some_left_out, batch.refused, batch.refused)
+				} else {
+					it.message
+				},
+			)
+		}
+	}
+
+	fun cancelNamingFiles() {
+		pendingFiles = null
+		_state.update { it.copy(namingFiles = null) }
+		offerIncomingShare()
+	}
+
+	fun nameFiles(raw: String) = launchBusy {
+		val groups = pendingFiles ?: return@launchBusy
+		val suggested = _state.value.namingFiles?.suggested
+		cancelNamingFiles()
+		val name = FileBundler.folderName(raw) ?: return@launchBusy fail(uiMessage(R.string.folder_name_invalid))
+		// Left as suggested, the row goes on naming the files, which says more than a date.
+		val named = groups.map { if (name == suggested) it.copy(folder = name) else it.copy(folder = name, label = name) }
+		if (_state.value.duress) return@launchBusy addDecoyFiles(named)
+		if (!ContentCredential.isAvailable()) {
+			return@launchBusy fail(HideFailure.PrimaryPinSessionRequired.toUiMessage())
+		}
+		// The whole pick or none of it, so a refusal never leaves half the files moved.
+		for (group in named) {
+			unsuitable(bundler.plannedPath(group.parent, group.folder))?.let { return@launchBusy fail(it) }
+		}
+		hideFileGroups(named, FilesProgress())
+	}
+
+	/**
+	 * Moves more picked files into a row's folder. A hidden one is unhidden for the move, without
+	 * putting its files back, and hidden again after. Only files from the folder it sits in, which
+	 * is where unhiding will put them.
+	 */
+	fun addFiles(key: String, uris: List<Uri>) = launchBusy {
+		if (_state.value.duress) {
+			val item = _state.value.decoyItems.firstOrNull { it.id == key && it.files } ?: return@launchBusy
+			val count = pickedFiles(uris)?.sumOf { it.files.size } ?: return@launchBusy
+			return@launchBusy refreshDecoyItems(uiPlural(R.plurals.files_added_named, count, count, item.name))
+		}
+		val folder = _state.value.folders.firstOrNull { it.path == key && it.bundle } ?: return@launchBusy
+		if (!ContentCredential.isAvailable()) {
+			return@launchBusy fail(HideFailure.PrimaryPinSessionRequired.toUiMessage())
+		}
+		val groups = pickedFiles(uris) ?: return@launchBusy
+		val parent = SafPaths.parentOf(folder.path)
+		if (groups.any { it.parent != parent }) {
+			return@launchBusy fail(uiMessage(R.string.files_add_elsewhere, SafPaths.nameOf(parent)))
+		}
+		addToBundle(folder, groups.flatMap { it.files })
+	}
+
+	private suspend fun addToBundle(folder: VaultFolder, files: List<String>) =
+		ShelfCore.bundleSteps.withLock { addToBundleNow(folder, files) }
+
+	// Retries run inside the grant callback, which already holds the operation lock.
+	private suspend fun addToBundleNow(folder: VaultFolder, files: List<String>) {
+		var path = folder.path
+		folder.entry?.let { entry ->
+			when (val opened = folderCoordinator.reopen(entry)) {
+				is HideResult.Ok -> path = paths.toEmulated(opened.entry.path)
+
+				is HideResult.NeedsAccess -> return askForAccess(opened) { addToBundle(folder, files) }
+
+				is HideResult.Failed -> {
+					reportBlocked(uiMessage(R.string.cannot_add_files_title), problem(folder.displayName, opened.failure))
+					return reloadVault()
+				}
+			}
+		}
+		val filled = bundler.fill(path, files)
+		if (filled is BundleResult.NeedsAccess) {
+			// Open now. The retry adds to it as it stands, and a refusal hides it again.
+			val exposed = folder.copy(path = path, entry = null)
+			reloadVault()
+			return askForAccess(
+				HideResult.NeedsAccess(filled.path, folder.displayName),
+				onRefused = rehideAfterRefusal(folder, path),
+			) { addToBundle(exposed, files) }
+		}
+		val moved = (filled as? BundleResult.Ok)?.moved ?: 0
+		val problems = when (filled) {
+			is BundleResult.Ok -> filled.failed.map { FolderProblem(it, uiMessage(R.string.file_not_moved)) }
+			is BundleResult.Failed -> listOf(problem(folder.displayName, filled.failure))
+			is BundleResult.NeedsAccess -> emptyList()
+		}.toMutableList()
+		// Back out of sight whatever moved, as it was before the pick.
+		val target = FolderTarget(path, folder.displayName, null)
+		var warning: HideWarning? = null
+		when (val hidden = folderCoordinator.hide(target, _state.value.hidingPreference)) {
+			is HideResult.Ok -> warning = hidden.warning
+
+			is HideResult.Failed -> problems += problem(folder.displayName, hidden.failure)
+
+			is HideResult.NeedsAccess -> {
+				if (problems.isNotEmpty()) reportBlocked(uiMessage(R.string.cannot_add_files_title), problems)
+				reloadVault()
+				return askForAccess(hidden) { hide(target) }
+			}
+		}
+		if (problems.isNotEmpty()) reportBlocked(uiMessage(R.string.cannot_add_files_title), problems)
+		reloadVault(
+			moved.takeIf { it > 0 }?.let { uiPlural(R.plurals.files_added_named, it, it, folder.displayName) },
+			warning,
+		)
+	}
+
+	private suspend fun pickedFiles(uris: List<Uri>): List<FileGroup>? {
+		if (uris.isEmpty()) return null
+		if (uris.size > MAX_PICKED_FILES) {
+			fail(uiMessage(R.string.files_too_many, MAX_PICKED_FILES))
+			return null
+		}
+		val refusal = arrayOfNulls<UiMessage>(1)
+		val files = withContext(Dispatchers.IO) {
+			uris.map { uri ->
+				val path = uriPaths.filePath(uri)
+				if (path == null) {
+					refusal[0] = uiMessage(R.string.files_pick_refused)
+					return@withContext null
+				}
+				if (DocumentFile.fromSingleUri(getApplication(), uri)?.isDirectory == true) {
+					refusal[0] = uiMessage(R.string.files_pick_folder)
+					return@withContext null
+				}
+				path
+			}.distinct()
+		}
+		if (files == null) {
+			refusal[0]?.let(::fail)
+			return null
+		}
+		return groupFiles(files)
+	}
+
+	private fun groupFiles(files: List<String>): List<FileGroup> =
+		files.groupBy(SafPaths::parentOf).map { (parent, picked) ->
+			val first = SafPaths.nameOf(picked.first())
+			FileGroup(parent, picked, if (picked.size == 1) first else "$first +${picked.size - 1}")
+		}
+
+	// Retries run inside the grant callback, which already holds the operation lock.
+	private suspend fun hideFileGroups(groups: List<FileGroup>, progress: FilesProgress) {
+		var done = progress
+		for ((index, group) in groups.withIndex()) {
+			done = when (val outcome = hideFileGroup(group)) {
+				is GroupOutcome.Hidden -> done.copy(
+					moved = done.moved + outcome.moved,
+					warning = mergeWarnings(done.warning, outcome.warning),
+					problems = done.problems + outcome.problems,
+				)
+
+				is GroupOutcome.Stopped -> done.copy(problems = done.problems + outcome.problems)
+
+				is GroupOutcome.NeedsAccess -> {
+					// Reloaded first: the message asking for access must be the last one set.
+					reloadVault()
+					val rest = groups.drop(index)
+					val sofar = done
+					askForAccess(outcome.needed) { hideFileGroups(rest, sofar) }
+					return
+				}
+			}
+		}
+		if (done.problems.isNotEmpty()) reportBlocked(uiMessage(R.string.cannot_hide_files_title), done.problems)
+		reloadVault(done.moved.takeIf { it > 0 }?.let { uiPlural(R.plurals.files_hidden, it, it) }, done.warning)
+	}
+
+	private suspend fun hideFileGroup(group: FileGroup): GroupOutcome =
+		ShelfCore.bundleSteps.withLock { hideFileGroupNow(group) }
+
+	private suspend fun hideFileGroupNow(group: FileGroup): GroupOutcome {
+		val bundlePath = when (val created = bundler.create(group.parent, group.label, group.folder)) {
+			is BundleResult.Ok -> created.bundlePath
+
+			is BundleResult.NeedsAccess -> return GroupOutcome.NeedsAccess(
+				HideResult.NeedsAccess(created.path, created.name),
+			)
+
+			is BundleResult.Failed -> return GroupOutcome.Stopped(listOf(problem(group.label, created.failure)))
+		}
+		// Tracked before anything moves. From the first file on, a crash leaves a row to act on, and
+		// the re-hide on lock treats it like any other exposed folder.
+		if (guard { registry.put(bundlePath, group.label, bundle = true) } == null) {
+			discardBundle(bundlePath)
+			return GroupOutcome.Stopped(emptyList())
+		}
+		val filled = bundler.fill(bundlePath, group.files)
+		if (filled !is BundleResult.Ok) {
+			discardBundle(bundlePath)
+			val failure = (filled as? BundleResult.Failed)?.failure ?: HideFailure.ParentNotGrantable(group.label)
+			return GroupOutcome.Stopped(listOf(problem(group.label, failure)))
+		}
+		val leftBehind = filled.failed.map { FolderProblem(it, uiMessage(R.string.file_not_moved)) }
+		if (filled.moved == 0) {
+			discardBundle(bundlePath)
+			return GroupOutcome.Stopped(leftBehind)
+		}
+
+		val target = FolderTarget(bundlePath, group.label, null)
+		return when (val result = folderCoordinator.hide(target, _state.value.hidingPreference)) {
+			is HideResult.Ok -> GroupOutcome.Hidden(filled.moved, result.warning, leftBehind)
+
+			// A kept journal row means the hide could not be undone cleanly. Hiding again finishes the
+			// rollback, as it does for a folder, so the files stay where they are until then.
+			is HideResult.Failed -> {
+				if (!journalHas(bundlePath)) discardBundle(bundlePath)
+				GroupOutcome.Stopped(listOf(problem(group.label, result.failure)) + leftBehind)
+			}
+
+			// Nothing was changed by the hide. The files go back before asking, and the retry starts the
+			// group over once the grant is there.
+			is HideResult.NeedsAccess -> {
+				discardBundle(bundlePath)
+				GroupOutcome.NeedsAccess(HideResult.NeedsAccess(result.path, group.label))
+			}
+		}
+	}
+
+	/** Puts a bundle's files back and drops its row, keeping the row if anything stayed inside. */
+	private suspend fun discardBundle(bundlePath: String) {
+		val back = bundler.unwrap(bundlePath)
+		if (back is BundleResult.Ok && back.failed.isEmpty()) guard { registry.remove(bundlePath) }
+	}
+
+	private suspend fun journalHas(emulatedPath: String): Boolean =
+		runCatching { journal.read().any { paths.toEmulated(it.path) == emulatedPath } }.getOrDefault(true)
+
+	private fun problem(name: String, failure: HideFailure) =
+		FolderProblem(name, failure.toUiMessage(), failure.needsAllFiles())
+
+	/** For a bundle left exposed: its files go back where they were picked from, and the row goes. */
+	fun putBack(folder: VaultFolder) = launchBusy {
+		if (_state.value.duress) return@launchBusy
+		putBackOrAsk(folder)
+	}
+
+	private suspend fun putBackOrAsk(folder: VaultFolder) {
+		val result = ShelfCore.bundleSteps.withLock { folderCoordinator.putBack(folder.path, folder.displayName) }
+		when (result) {
+			is BundleResult.Ok -> if (result.failed.isEmpty()) {
+				reloadVault(uiMessage(R.string.files_put_back_named, folder.displayName))
+			} else {
+				reportBlocked(
+					uiMessage(R.string.cannot_put_back_title),
+					result.failed.map { FolderProblem(it, uiMessage(R.string.file_not_moved)) },
+				)
+				reloadVault()
+			}
+
+			is BundleResult.NeedsAccess -> askForAccess(HideResult.NeedsAccess(result.path, folder.displayName)) {
+				putBackOrAsk(folder)
+			}
+
+			is BundleResult.Failed -> {
+				reportBlocked(restoreBlockedTitle(1), problem(folder.displayName, result.failure))
+				reloadVault()
+			}
+		}
+	}
+
+	/**
+	 * Puts some of a bundle's files back where they were picked from. A hidden bundle is opened for
+	 * the move, without putting the rest back, and hidden again after. Emptied, the bundle goes.
+	 */
+	fun takeOutFiles(folder: VaultFolder, names: List<String>) = launchBusy {
+		if (_state.value.duress || names.isEmpty() || !folder.bundle) return@launchBusy
+		if (!ContentCredential.isAvailable()) {
+			return@launchBusy fail(HideFailure.PrimaryPinSessionRequired.toUiMessage())
+		}
+		// The viewer closes a root folder it opened on its way out. Opening it here first would see it
+		// put back to 000 underneath the move.
+		folder.entry?.takeIf { it.method == HideMethod.ROOT_CHMOD }?.let { entry ->
+			withTimeoutOrNull(VIEWER_CLOSE_MILLIS) { while (OpenFolders.isOpen(entry.path)) delay(50) }
+		}
+		takeOut(folder, names, rehide = folder.entry != null)
+	}
+
+	private suspend fun takeOut(folder: VaultFolder, names: List<String>, rehide: Boolean) =
+		ShelfCore.bundleSteps.withLock { takeOutNow(folder, names, rehide) }
+
+	// Retries run inside the grant callback, which already holds the operation lock.
+	private suspend fun takeOutNow(folder: VaultFolder, names: List<String>, rehide: Boolean) {
+		var path = folder.path
+		folder.entry?.let { entry ->
+			when (val opened = folderCoordinator.reopen(entry)) {
+				is HideResult.Ok -> path = paths.toEmulated(opened.entry.path)
+
+				is HideResult.NeedsAccess -> return askForAccess(opened) { takeOut(folder, names, rehide) }
+
+				is HideResult.Failed -> {
+					reportBlocked(uiMessage(R.string.cannot_put_back_title), problem(folder.displayName, opened.failure))
+					return reloadVault()
+				}
+			}
+		}
+		val taken = bundler.takeOut(path, names)
+		if (taken is BundleResult.NeedsAccess) {
+			val exposed = folder.copy(path = path, entry = null)
+			reloadVault()
+			return askForAccess(
+				HideResult.NeedsAccess(taken.path, folder.displayName),
+				onRefused = if (rehide) rehideAfterRefusal(folder, path) else null,
+			) { takeOut(exposed, names, rehide) }
+		}
+		val moved = (taken as? BundleResult.Ok)?.moved ?: 0
+		val problems = when (taken) {
+			is BundleResult.Ok -> taken.failed.map { FolderProblem(it, uiMessage(R.string.file_not_moved)) }
+			is BundleResult.Failed -> listOf(problem(folder.displayName, taken.failure))
+			is BundleResult.NeedsAccess -> emptyList()
+		}.toMutableList()
+		val parentName = SafPaths.nameOf(SafPaths.parentOf(path))
+		val done = moved.takeIf { it > 0 }?.let { uiPlural(R.plurals.files_taken_out, it, it, parentName) }
+
+		var warning: HideWarning? = null
+		if (bundler.hasFiles(path) == false) {
+			// Nothing left to keep hidden. The empty folder and its row go, as on Put back.
+			when (val gone = folderCoordinator.putBack(path, folder.displayName)) {
+				is BundleResult.Ok -> problems += gone.failed.map { FolderProblem(it, uiMessage(R.string.file_not_moved)) }
+
+				is BundleResult.Failed -> problems += problem(folder.displayName, gone.failure)
+
+				is BundleResult.NeedsAccess -> {
+					if (problems.isNotEmpty()) reportBlocked(uiMessage(R.string.cannot_put_back_title), problems)
+					reloadVault(done)
+					val exposed = folder.copy(path = path, entry = null)
+					return askForAccess(HideResult.NeedsAccess(gone.path, folder.displayName)) { putBackOrAsk(exposed) }
+				}
+			}
+		} else if (rehide) {
+			val target = FolderTarget(path, folder.displayName, null)
+			when (val hidden = folderCoordinator.hide(target, _state.value.hidingPreference)) {
+				is HideResult.Ok -> warning = hidden.warning
+
+				is HideResult.Failed -> problems += problem(folder.displayName, hidden.failure)
+
+				is HideResult.NeedsAccess -> {
+					if (problems.isNotEmpty()) reportBlocked(uiMessage(R.string.cannot_put_back_title), problems)
+					reloadVault(done)
+					return askForAccess(hidden) { hide(target) }
+				}
+			}
+		}
+		if (problems.isNotEmpty()) reportBlocked(uiMessage(R.string.cannot_put_back_title), problems)
+		reloadVault(done, warning)
 	}
 
 	/**
@@ -1328,6 +1826,10 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 	private fun reservedFolder(path: String): UiMessage? {
 		val relative = path.removePrefix(paths.emulatedRoot).trim('/')
+		// The checks below compare strings, so a ".." would walk straight past them.
+		if (relative.isNotEmpty() && !relative.split('/').all(SafPaths::isSafeName)) {
+			return uiMessage(R.string.folder_path_unresolved)
+		}
 		// Where the all-files method keeps what it moved, at any depth.
 		val top = relative.substringBefore('/').lowercase()
 		if (relative.isNotEmpty() && relative.lowercase() !in RESERVED_FOLDERS && top != PRIVATE_VAULT) return null
@@ -1507,12 +2009,14 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	}
 
 	fun recoverRenamedFolder(candidate: SafRecoveryCandidate, restoredName: String) = launchBusy {
-		when (val result = folderCoordinator.recover(candidate, restoredName)) {
+		val recovered = folderCoordinator.recover(candidate, restoredName)
+		when (val result = recovered.result) {
 			is HideResult.Ok -> {
 				_state.update {
 					it.copy(safRecoveryCandidates = it.safRecoveryCandidates - candidate)
 				}
-				reloadVault(uiMessage(R.string.folder_restored_named, result.entry.displayName), result.warning)
+				val done = if (recovered.bundle) R.string.files_put_back_named else R.string.folder_restored_named
+				reloadVault(uiMessage(done, result.entry.displayName), result.warning)
 			}
 
 			is HideResult.Failed -> fail(result.failure.toUiMessage())
@@ -1528,6 +2032,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			if (password.size < MIN_RECOVERY_PASSWORD) {
 				return@launchBusy fail(uiMessage(R.string.recovery_password_too_short))
 			}
+			// Read under the same lock as the export, so it is the set the file holds.
+			val covered = journal.read().map { paths.toEmulated(it.path) }
 			encrypted = recoveryCoordinator.export(password)
 			val resolver = getApplication<Application>().contentResolver
 			// The destination can be a cloud provider, which blocks for as long as the upload takes.
@@ -1541,7 +2047,8 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			}
 			if (!written) return@launchBusy fail(uiMessage(R.string.recovery_destination_open_failed))
 			exported = true
-			_state.update { it.copy(message = uiMessage(R.string.recovery_exported)) }
+			runCatching { preferences.setRecoveryExported(hiddenDigests(covered)) }
+			_state.update { it.copy(message = uiMessage(R.string.recovery_exported), recoveryNudge = false) }
 		} finally {
 			password.fill(' ')
 			encrypted.fill(0)
@@ -1550,6 +2057,25 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	}
 
 	/** The picker creates the file before the passphrase is asked for, so an export that stops leaves it empty. */
+	fun snoozeRecoveryNudge() = viewModelScope.launch {
+		val current = runCatching { journal.read().map { paths.toEmulated(it.path) } }.getOrNull() ?: return@launch
+		runCatching { preferences.setRecoverySnoozed(hiddenDigests(current)) }
+		_state.update { it.copy(recoveryNudge = false) }
+	}
+
+	private suspend fun recoveryNudgeDue(): Boolean = withContext(Dispatchers.IO) {
+		val current = runCatching { journal.read().map { paths.toEmulated(it.path) } }.getOrNull()
+			?: return@withContext false
+		runCatching {
+			RecoveryNudge.due(hiddenDigests(current), preferences.recoveryExported(), preferences.recoverySnoozed())
+		}.getOrDefault(false)
+	}
+
+	private fun hiddenDigests(paths: List<String>): Set<String> {
+		val salt = preferences.installSalt(NUDGE_SALT, NUDGE_SALT_BYTES)
+		return paths.mapTo(hashSetOf()) { RecoveryNudge.digest(salt, it.lowercase(Locale.ROOT)) }
+	}
+
 	fun discardRecoveryDestination(destination: Uri) = viewModelScope.launch(Dispatchers.IO) {
 		runCatching { DocumentsContract.deleteDocument(getApplication<Application>().contentResolver, destination) }
 	}
@@ -1585,6 +2111,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				RecoveryRead.TooLarge -> return@launchBusy fail(uiMessage(R.string.recovery_file_too_large))
 				RecoveryRead.Unopened -> return@launchBusy fail(uiMessage(R.string.recovery_file_open_failed))
 			}
+			val before = journal.read().mapTo(hashSetOf()) { paths.toEmulated(it.path) }
 			val merged = runCatching { recoveryCoordinator.import(encrypted, password) }.getOrElse {
 				return@launchBusy if (it is InvalidRecoveryRecords) {
 					fail(uiMessage(R.string.recovery_records_invalid, it.cause?.message.orEmpty()))
@@ -1605,6 +2132,11 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 					merged.conflicts,
 				)
 			}
+			// What just came from a file is already in one, so it is no reason to ask for another.
+			val imported = journal.read().map { paths.toEmulated(it.path) }.filterNot { it in before }
+			runCatching {
+				preferences.setRecoveryExported(preferences.recoveryExported().orEmpty() + hiddenDigests(imported))
+			}
 			reloadVault(summary)
 		} finally {
 			password.fill(' ')
@@ -1613,9 +2145,14 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	}
 
 	private suspend fun restoreEntry(entry: HiddenEntry) {
-		when (val result = folderCoordinator.restore(entry)) {
+		val restored = folderCoordinator.restoreFolder(entry)
+		when (val result = restored.result) {
 			is HideResult.Ok -> reloadVault(
-				uiMessage(R.string.folder_restored_named, result.entry.displayName),
+				if (restored.bundle) {
+					uiMessage(R.string.files_put_back_named, entry.displayName)
+				} else {
+					uiMessage(R.string.folder_restored_named, result.entry.displayName)
+				},
 				result.warning,
 			)
 
@@ -1722,17 +2259,29 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	private fun accessNeeded(needed: HideResult.NeedsAccess): UiMessage =
 		uiMessage(R.string.folder_access_needed, needed.name)
 
-	private fun askForAccess(needed: HideResult.NeedsAccess, retry: suspend () -> Unit) {
+	// Only a bundle opened for this goes back: one the owner had out already stays out.
+	private fun rehideAfterRefusal(folder: VaultFolder, path: String): (suspend () -> Unit)? =
+		if (folder.entry == null) null else ({ hide(FolderTarget(path, folder.displayName, null)) })
+
+	private fun askForAccess(
+		needed: HideResult.NeedsAccess,
+		onRefused: (suspend () -> Unit)? = null,
+		retry: suspend () -> Unit,
+	) {
 		pending = retry
+		refused = onRefused
 		_state.update { it.copy(message = accessNeeded(needed), accessNeededFor = initialUri(needed.path)) }
 	}
 
 	fun grantedAccess(treeUri: Uri?) = launchBusy {
 		_state.update { it.copy(accessNeededFor = null) }
 		val retry = pending ?: return@launchBusy
+		val undo = refused
 		pending = null
-		if (treeUri == null) return@launchBusy fail(uiMessage(R.string.nothing_changed))
+		refused = null
+		if (treeUri == null) return@launchBusy undo?.invoke() ?: fail(uiMessage(R.string.nothing_changed))
 		if (!persist(treeUri)) {
+			undo?.invoke()
 			return@launchBusy fail(uiMessage(R.string.folder_access_not_persisted))
 		}
 		retry()
@@ -1787,6 +2336,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 	private suspend fun reloadVault(message: UiMessage? = null, warning: HideWarning? = null) {
 		val folders = guard { loadFolders() }.orEmpty()
 		syncEmergencyCredential(folders)
+		val nudge = recoveryNudgeDue()
 		_state.update {
 			// An operation can outlive the lock that closed the space, and neither the list nor a message
 			// naming a folder is for whatever screen is up by the time it finishes. The count still is:
@@ -1798,6 +2348,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 			it.copy(
 				folders = if (stillOpen) folders else it.folders,
 				exposedFolders = folders.count { folder -> !folder.hidden },
+				recoveryNudge = stillOpen && nudge,
 				message = if (stillOpen) joined else it.message,
 			)
 		}
@@ -1830,6 +2381,7 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				// A lock while this runs clears the session credential. The operation keeps its own
 				// copy until it finishes, or a hide or restore loses it halfway through a folder.
 				val lease = ContentCredential.retain()
+				val hidesBefore = autoHides
 				try {
 					block()
 				} catch (e: RecordsCorrupted) {
@@ -1840,10 +2392,17 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 				} catch (e: Exception) {
 					fail(unexpected(e))
 				} finally {
+					// An unhide still running when the lock's hide went through finishes in the open,
+					// after that hide found nothing to do. The reload armed the credential for it.
+					if (autoHides != hidesBefore && _state.value.screen == Screen.DECOY && _state.value.exposedFolders > 0) {
+						QuickLockNotification.requestHide(getApplication())
+					}
 					lease.close()
 					_state.update { it.copy(busy = false) }
 				}
 			}
+			// A share that came in while this ran, or while Settings or the naming dialog was up.
+			offerIncomingShare()
 		}
 	}
 
@@ -1888,18 +2447,23 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 
 	private fun fail(reason: UiMessage) = _state.update { it.copy(message = reason) }
 
-	private fun resolveDocumentPath(uri: Uri, isTree: Boolean): String? {
-		if (uri.authority != EXTERNAL_STORAGE) return null
-		val document = if (isTree) {
-			DocumentFile.fromTreeUri(getApplication(), uri)
-		} else {
-			DocumentFile.fromSingleUri(getApplication(), uri)
-		}
-		val documentId = document?.uri?.lastPathSegment ?: uri.lastPathSegment ?: return null
-		val parts = documentId.split(':', limit = 2)
-		if (parts.firstOrNull() != "primary") return null
-		val relative = parts.getOrElse(1) { "" }
-		return paths.emulatedRoot + if (relative.isEmpty()) "" else "/$relative"
+	private data class FileGroup(
+		val parent: String,
+		val files: List<String>,
+		val label: String,
+		val folder: String? = null,
+	)
+
+	private data class FilesProgress(
+		val moved: Int = 0,
+		val problems: List<FolderProblem> = emptyList(),
+		val warning: HideWarning? = null,
+	)
+
+	private sealed interface GroupOutcome {
+		data class Hidden(val moved: Int, val warning: HideWarning?, val problems: List<FolderProblem>) : GroupOutcome
+		data class Stopped(val problems: List<FolderProblem>) : GroupOutcome
+		data class NeedsAccess(val needed: HideResult.NeedsAccess) : GroupOutcome
 	}
 
 	private sealed interface RecoveryRead {
@@ -1930,12 +2494,15 @@ class ShelfViewModel(app: Application) : AndroidViewModel(app) {
 		)
 
 		const val PRIVATE_VAULT = ".shelf"
-		const val EXTERNAL_STORAGE = "com.android.externalstorage.documents"
+		const val EXTERNAL_STORAGE = UriPaths.EXTERNAL_STORAGE
 		const val MAX_UNLOCK_ATTEMPTS = 5
 		const val KEYPAD_FREE_MISSES = 10
 		const val PICKER_GRACE_MILLIS = 120_000L
 		const val WIPE_WAIT_MILLIS = 3_000L
 		const val AWAY_LOCK_MILLIS = 60_000L
+		const val VIEWER_CLOSE_MILLIS = 5_000L
+		const val NUDGE_SALT = "recovery_nudge"
+		const val NUDGE_SALT_BYTES = 16
 		const val UNKNOWABLE_LENGTH = 48
 		const val UNKNOWABLE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
 	}

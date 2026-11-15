@@ -111,6 +111,8 @@ fun HideFailure.toUiMessage(): UiMessage = when (this) {
 	is HideFailure.NameProtectionFailed -> uiMessage(R.string.error_name_protection_failed, count)
 
 	is HideFailure.NameRestoreFailed -> uiMessage(R.string.error_name_restore_failed, count)
+
+	is HideFailure.FolderCreateFailed -> uiMessage(R.string.error_folder_create_failed, name)
 }
 
 fun HideWarning.toUiMessage(): UiMessage = when (this) {
@@ -132,6 +134,8 @@ fun HideWarning.toUiMessage(): UiMessage = when (this) {
 	HideWarning.ContentProtectionUnavailable -> uiMessage(R.string.warning_content_protection_unavailable)
 
 	HideWarning.NameProtectionUnavailable -> uiMessage(R.string.warning_name_protection_unavailable)
+
+	is HideWarning.FilesLeftInFolder -> uiMessage(R.string.warning_files_left_in_folder)
 
 	is HideWarning.Multiple -> warnings.map(HideWarning::toUiMessage)
 		.reduceOrNull { first, next -> uiMessage(R.string.message_joined, first, next) }

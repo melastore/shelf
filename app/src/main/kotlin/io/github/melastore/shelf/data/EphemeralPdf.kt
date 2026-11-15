@@ -24,7 +24,8 @@ class EphemeralPdf private constructor(
 
 	private var closed = false
 
-	val pageCount: Int get() = renderer.pageCount
+	// Read once: asked after close, the renderer throws.
+	val pageCount: Int = renderer.pageCount
 
 	@Synchronized
 	fun renderPage(index: Int, width: Int): Bitmap? {

@@ -92,6 +92,18 @@ authenticated, PIN-encrypted manifest written before any rename. This defeats
 ordinary filename browsing, previews, and opening, but is not full-file
 confidentiality or forensic erasure.
 
+Hiding single files moves them into a folder Shelf creates beside them and hides
+that folder. Under the root method its name, `Files-<date>` or whatever the owner
+typed, stays visible where it was made, and under the rename method it is renamed like any hidden folder. The
+folder holds a `.shelf-bundle-v1` marker carrying only a version number, which
+names no file but does show the folder is Shelf's to anyone who opens it.
+
+Sharing a file out of the viewer hands the receiving app a plaintext copy. Shelf
+holds it in an anonymous memfd, never on disk, and drops it when the space
+locks, but what the other app does with it after that is outside Shelf's reach.
+Sharing into Shelf only records the shared paths in memory; nothing moves until
+the space is unlocked, and the record expires after ten minutes.
+
 The journal is committed before a folder changes, and failed or uncertain writes
 retain recovery state instead of deleting it. Restores always use the method
 that hid the folder, never whatever the device can do best today.

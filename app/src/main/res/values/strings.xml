@@ -204,6 +204,37 @@
 	<string name="folder_hidden_named">Hidden %1$s.</string>
 	<string name="folder_restored_named">Restored %1$s.</string>
 	<string name="bulk_hidden">Hid %1$s.</string>
+	<!-- Hiding single files -->
+	<string name="add_folder_option">Folder</string>
+	<string name="add_files_option">Files</string>
+	<string name="put_back">Put back</string>
+	<plurals name="files_hidden">
+		<item quantity="one">Hid %d file.</item>
+		<item quantity="other">Hid %d files.</item>
+	</plurals>
+	<string name="files_put_back_named">Put back %1$s.</string>
+	<string name="files_too_many">Pick at most %1$d files at a time.</string>
+	<string name="files_pick_refused">Shelf could not find where these files are stored. Pick them from internal storage in the file picker.</string>
+	<string name="files_pick_folder">Pick files only. Use Folder to hide a whole folder.</string>
+	<string name="cannot_hide_files_title">Some files were not hidden</string>
+	<string name="name_files_title">Name the folder</string>
+	<plurals name="name_files_body">
+		<item quantity="one">The file goes into a new folder next to it, and the folder is hidden. Unhiding puts it back where it was.</item>
+		<item quantity="other">The %d files go into a new folder next to them, and the folder is hidden. Unhiding puts them back where they were.</item>
+	</plurals>
+	<string name="folder_name_label">Folder name</string>
+	<string name="folder_name_invalid">Use a name that does not start with a dot and has none of / \\ : * ? \" &lt; &gt; |</string>
+	<string name="add_files">Add files</string>
+	<plurals name="files_added_named">
+		<item quantity="one">Added %1$d file to %2$s.</item>
+		<item quantity="other">Added %1$d files to %2$s.</item>
+	</plurals>
+	<string name="files_add_elsewhere">Pick files from %1$s. Files added here go back there when unhidden.</string>
+	<string name="cannot_add_files_title">Some files were not added</string>
+	<string name="cannot_put_back_title">Some files were not put back</string>
+	<string name="file_not_moved">Could not be moved. It was left where it was.</string>
+	<string name="error_folder_create_failed">Could not make a folder for %1$s.</string>
+	<string name="warning_files_left_in_folder">Some files are still in the folder Shelf made for them. Use Put back to finish.</string>
 	<string name="hidden_names_changed">Renamed %1$s.</string>
 	<string name="bulk_restored">Unhid %1$s.</string>
 	<string name="duress_used_once">Your second PIN was used on %1$s.</string>
@@ -496,6 +527,39 @@
 	<string name="stealth_guide_safety_title">Before you uninstall</string>
 	<string name="stealth_guide_safety_body">Unhide your folders first, or export a recovery file from Settings. A folder hidden by an app that is no longer installed stays hidden.</string>
 
+	<!-- Share in, share out, viewer -->
+	<string name="share_nothing_usable">Shelf could not reach the shared files. It needs the file itself, not a copy: share from the gallery or the Files app, from internal storage.</string>
+	<plurals name="share_some_left_out">
+		<item quantity="one">%d shared item could not be reached and was left out.</item>
+		<item quantity="other">%d shared items could not be reached and were left out.</item>
+	</plurals>
+	<string name="share_target">Show in the share menu</string>
+	<string name="share_target_summary">Pick files in the gallery, tap Share and choose %1$s to hide them. Off keeps the app out of other apps\' share menus.</string>
+	<plurals name="files_taken_out">
+		<item quantity="one">Put %1$d file back in %2$s.</item>
+		<item quantity="other">Put %1$d files back in %2$s.</item>
+	</plurals>
+	<plurals name="selected_count">
+		<item quantity="one">%d selected</item>
+		<item quantity="other">%d selected</item>
+	</plurals>
+	<string name="share_out">Share</string>
+	<string name="share_out_failed">Could not share. A file would not open, or the selection is over %1$d MB. Shared files are held in memory while the other app reads them, so pick fewer.</string>
+	<string name="select_all">Select all</string>
+	<string name="search">Search</string>
+	<string name="search_in_folder">Search this folder</string>
+	<string name="search_no_match">No file names match.</string>
+	<string name="sort">Sort</string>
+	<string name="sort_name">Name</string>
+	<string name="sort_newest">Newest first</string>
+	<string name="sort_largest">Largest first</string>
+	<string name="sort_type">Type</string>
+	<string name="ok">OK</string>
+	<!-- Recovery reminder -->
+	<string name="recovery_nudge_title">Save a recovery file</string>
+	<string name="recovery_nudge_text">If Shelf\'s data is lost to a reinstall, a reset or cleared storage, this file and your unlock code are how it finds your hidden folders again. Keep it somewhere off this phone.</string>
+	<string name="recovery_nudge_export">Export</string>
+	<string name="not_now">Not now</string>
 	<!-- Setup -->
 	<string name="setup_credential_keypad_hint">The calculator takes your code on its own keypad, so it has to be one you can tap out there: a PIN on the keys, or a knock code on the display. A password or a pattern would leave no way in.</string>
 	<string name="setup_entry_calculator_hint">Choose to type it on the keypad and the calculator takes your code on its own keys. Type it and press equals, and there is no gesture for anyone to find. A knock code also works on the blank space above the keys: tap the quarters, then hold.</string>

@@ -321,6 +321,7 @@ internal fun DisguiseSettingsSection(
 	state: AppUiState,
 	onDecoy: (DecoyType) -> Unit,
 	onEntryMethod: (EntryMethod) -> Unit,
+	onShareTarget: (Boolean) -> Unit,
 ) {
 	SettingsGroup(
 		stringResource(R.string.disguise),
@@ -344,6 +345,13 @@ internal fun DisguiseSettingsSection(
 				},
 			)
 		}
+		// The share entry wears the disguise's name, so it sits with the disguise.
+		SettingsRow(
+			title = stringResource(R.string.share_target),
+			summary = stringResource(R.string.share_target_summary, stringResource(state.decoy.identity().first)),
+			trailing = { ToggleMark(state.shareTarget) },
+			onClick = { onShareTarget(!state.shareTarget) },
+		)
 	}
 }
 

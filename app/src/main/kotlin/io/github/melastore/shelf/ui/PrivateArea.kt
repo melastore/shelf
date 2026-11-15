@@ -3,9 +3,11 @@ package io.github.melastore.shelf.ui
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -61,6 +63,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,6 +85,7 @@ import io.github.melastore.shelf.data.AutoHideMode
 import io.github.melastore.shelf.data.DecoyItem
 import io.github.melastore.shelf.data.DecoyType
 import io.github.melastore.shelf.data.EntryMethod
+import io.github.melastore.shelf.data.FileBundler
 import io.github.melastore.shelf.data.HiddenNameStyle
 import io.github.melastore.shelf.data.HidingPreference
 import io.github.melastore.shelf.data.SafRecoveryCandidate
@@ -101,6 +105,18 @@ fun PrivateArea(
 	val pickFolder = rememberLauncherForActivityResult(PickFolderToKeep()) { uri ->
 		viewModel.onPickerResult()
 		uri?.let(viewModel::hideFolder)
+	}
+	val pickFiles = rememberLauncherForActivityResult(PickFilesToHide()) { uris ->
+		viewModel.onPickerResult()
+		if (uris.isNotEmpty()) viewModel.hideFiles(uris)
+	}
+	// The row the picker was opened for. Saved, so a picker that outlives the activity still knows.
+	var addingTo by rememberSaveable { mutableStateOf<String?>(null) }
+	val pickMoreFiles = rememberLauncherForActivityResult(PickFilesToHide()) { uris ->
+		viewModel.onPickerResult()
+		val key = addingTo
+		addingTo = null
+		if (key != null && uris.isNotEmpty()) viewModel.addFiles(key, uris)
 	}
 	val requestAllFiles = rememberLauncherForActivityResult(
 		ActivityResultContracts.StartActivityForResult(),
@@ -145,11 +161,28 @@ fun PrivateArea(
 				viewModel.expectExternalPicker()
 				pickFolder.launch(state.pickerStart)
 			},
+			onAddFiles = {
+				viewModel.expectExternalPicker()
+				pickFiles.launch(state.pickerStart)
+			},
 			onHideAll = viewModel::hideAll,
 			onUnhideAll = viewModel::unhideAll,
 			onRestore = viewModel::restore,
 			onHideAgain = viewModel::hideAgain,
 			onForget = viewModel::forgetEntry,
+			onPutBack = viewModel::putBack,
+			onTakeOut = viewModel::takeOutFiles,
+			onLeaving = viewModel::expectShareSheet,
+			onExportRecovery = {
+				viewModel.expectExternalPicker()
+				createRecovery.launch("shelf-recovery.shelfrecovery")
+			},
+			onSnoozeRecovery = viewModel::snoozeRecoveryNudge,
+			onAddFilesTo = { key, path ->
+				addingTo = key
+				viewModel.expectExternalPicker()
+				pickMoreFiles.launch(viewModel.filesPickerStart(path))
+			},
 			onToggleDecoyItem = viewModel::toggleDecoyItem,
 			onRemoveDecoyItem = viewModel::removeDecoyItem,
 			onDismissAlert = viewModel::dismissDuressAlert,
@@ -163,6 +196,7 @@ fun PrivateArea(
 			onDecoy = viewModel::setDecoy,
 			onEntryMethod = viewModel::setEntryMethod,
 			onFakeCrash = viewModel::setFakeCrash,
+			onShareTarget = viewModel::setShareTarget,
 			onHideFromRecents = viewModel::setHideFromRecents,
 			onThemeMode = viewModel::setThemeMode,
 			onHidingPreference = viewModel::setHidingPreference,
@@ -233,6 +267,10 @@ fun PrivateArea(
 		)
 	}
 
+	state.namingFiles?.let { naming ->
+		NameFilesDialog(naming, onConfirm = viewModel::nameFiles, onDismiss = viewModel::cancelNamingFiles)
+	}
+
 	state.blocked?.let { blocked ->
 		BlockedDialog(
 			report = blocked,
@@ -254,11 +292,18 @@ private fun VaultScreen(
 	onClose: () -> Unit,
 	onSettings: () -> Unit,
 	onAddFolder: () -> Unit,
+	onAddFiles: () -> Unit,
 	onHideAll: () -> Unit,
 	onUnhideAll: () -> Unit,
 	onRestore: (VaultFolder) -> Unit,
 	onHideAgain: (VaultFolder) -> Unit,
 	onForget: (VaultFolder) -> Unit,
+	onPutBack: (VaultFolder) -> Unit,
+	onTakeOut: (VaultFolder, List<String>) -> Unit,
+	onLeaving: () -> Unit,
+	onExportRecovery: () -> Unit,
+	onSnoozeRecovery: () -> Unit,
+	onAddFilesTo: (key: String, path: String?) -> Unit,
 	onToggleDecoyItem: (DecoyItem) -> Unit,
 	onRemoveDecoyItem: (DecoyItem) -> Unit,
 	onDismissAlert: () -> Unit,
@@ -309,14 +354,35 @@ private fun VaultScreen(
 				)
 			},
 			floatingActionButton = {
-				// The same picker under duress. A name box here would be the one control that differs,
-				// and the picked folder only becomes a row: see ShelfViewModel.hideFolder.
-				ExtendedFloatingActionButton(
-					onClick = onAddFolder,
-					expanded = true,
-					icon = { Icon(Icons.Filled.Add, null) },
-					text = { Text(stringResource(R.string.hide_folder)) },
-				)
+				// The same pickers under duress. A name box here would be the one control that differs,
+				// and the pick only becomes a row: see ShelfViewModel.hideFolder.
+				var adding by remember { mutableStateOf(false) }
+				Box {
+					ExtendedFloatingActionButton(
+						onClick = { adding = true },
+						expanded = true,
+						icon = { Icon(Icons.Filled.Add, null) },
+						text = { Text(stringResource(R.string.hide_folder)) },
+					)
+					DropdownMenu(expanded = adding, onDismissRequest = { adding = false }) {
+						DropdownMenuItem(
+							text = { Text(stringResource(R.string.add_folder_option)) },
+							leadingIcon = { Icon(painterResource(R.drawable.ic_folder), null) },
+							onClick = {
+								adding = false
+								onAddFolder()
+							},
+						)
+						DropdownMenuItem(
+							text = { Text(stringResource(R.string.add_files_option)) },
+							leadingIcon = { Icon(painterResource(R.drawable.ic_file), null) },
+							onClick = {
+								adding = false
+								onAddFiles()
+							},
+						)
+					}
+				}
 			},
 		) { padding ->
 			val rows = if (state.duress) {
@@ -336,6 +402,8 @@ private fun VaultScreen(
 						hidden = item.hidden,
 						onToggle = { onToggleDecoyItem(item) },
 						onForget = { discarding = item },
+						files = item.files,
+						onAddFiles = { onAddFilesTo(item.id, null) }.takeIf { item.files },
 					)
 				}
 			} else {
@@ -360,6 +428,9 @@ private fun VaultScreen(
 						onToggle = { if (folder.hidden) onRestore(folder) else onHideAgain(folder) },
 						onForget = { forgetting = folder },
 						onViewMedia = { viewingMedia = folder },
+						files = folder.bundle,
+						onPutBack = { onPutBack(folder) }.takeIf { folder.bundle && !folder.hidden },
+						onAddFiles = { onAddFilesTo(folder.path, folder.path) }.takeIf { folder.bundle },
 					)
 				}
 			}
@@ -388,6 +459,9 @@ private fun VaultScreen(
 								onDismissAttempts,
 							)
 						}
+					}
+					if (state.recoveryNudge && !state.duress) {
+						item { RecoveryNudgeCard(onExport = onExportRecovery, onLater = onSnoozeRecovery) }
 					}
 					// No seeding button under duress: it would be the one thing on screen calling this a
 					// decoy. The owner fills it from settings in the real space.
@@ -454,6 +528,11 @@ private fun VaultScreen(
 		EphemeralMediaViewer(
 			folder = folder,
 			onDismiss = { viewingMedia = null },
+			onTakeOut = { names: List<String> ->
+				viewingMedia = null
+				onTakeOut(folder, names)
+			}.takeIf { folder.bundle && !state.busy },
+			onLeaving = onLeaving,
 		)
 	}
 }
@@ -484,6 +563,33 @@ private fun SecurityAlert(title: String, text: String, onDismiss: () -> Unit) {
 	}
 }
 
+@Composable
+private fun RecoveryNudgeCard(onExport: () -> Unit, onLater: () -> Unit) {
+	Surface(
+		modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+		shape = MaterialTheme.shapes.large,
+		color = MaterialTheme.colorScheme.secondaryContainer,
+	) {
+		Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 4.dp)) {
+			Text(
+				stringResource(R.string.recovery_nudge_title),
+				style = MaterialTheme.typography.titleSmall,
+				color = MaterialTheme.colorScheme.onSecondaryContainer,
+			)
+			Text(
+				stringResource(R.string.recovery_nudge_text),
+				modifier = Modifier.padding(top = 4.dp, end = 8.dp),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSecondaryContainer,
+			)
+			Row(Modifier.align(Alignment.End)) {
+				TextButton(onClick = onLater) { Text(stringResource(R.string.not_now)) }
+				TextButton(onClick = onExport) { Text(stringResource(R.string.recovery_nudge_export)) }
+			}
+		}
+	}
+}
+
 /** One row of the shelf, built once so the decoy space and the real one cannot drift apart. */
 private data class ShelfRow(
 	val key: String,
@@ -493,6 +599,9 @@ private data class ShelfRow(
 	val onToggle: () -> Unit,
 	val onForget: (() -> Unit)?,
 	val onViewMedia: (() -> Unit)? = null,
+	val files: Boolean = false,
+	val onPutBack: (() -> Unit)? = null,
+	val onAddFiles: (() -> Unit)? = null,
 )
 
 /**
@@ -547,7 +656,11 @@ private fun FolderTile(row: ShelfRow, busy: Boolean) {
 				contentAlignment = Alignment.Center,
 			) {
 				Icon(
-					if (row.hidden) rememberVectorPainter(Icons.Filled.Lock) else painterResource(R.drawable.ic_folder),
+					when {
+						row.hidden -> rememberVectorPainter(Icons.Filled.Lock)
+						row.files -> painterResource(R.drawable.ic_file)
+						else -> painterResource(R.drawable.ic_folder)
+					},
 					contentDescription = null,
 					modifier = Modifier.size(22.dp),
 					tint = if (row.hidden) colors.onPrimaryContainer else colors.onTertiaryContainer,
@@ -597,6 +710,24 @@ private fun FolderTile(row: ShelfRow, busy: Boolean) {
 								},
 							)
 						}
+						if (row.onAddFiles != null) {
+							DropdownMenuItem(
+								text = { Text(stringResource(R.string.add_files)) },
+								onClick = {
+									menu = false
+									row.onAddFiles.invoke()
+								},
+							)
+						}
+						if (row.onPutBack != null) {
+							DropdownMenuItem(
+								text = { Text(stringResource(R.string.put_back)) },
+								onClick = {
+									menu = false
+									row.onPutBack.invoke()
+								},
+							)
+						}
 						if (row.onForget != null) {
 							DropdownMenuItem(
 								text = { Text(stringResource(R.string.forget_record)) },
@@ -621,6 +752,7 @@ private fun SettingsScreen(
 	onDecoy: (DecoyType) -> Unit,
 	onEntryMethod: (EntryMethod) -> Unit,
 	onFakeCrash: (Boolean) -> Unit,
+	onShareTarget: (Boolean) -> Unit,
 	onHideFromRecents: (Boolean) -> Unit,
 	onThemeMode: (ThemeMode) -> Unit,
 	onHidingPreference: (HidingPreference) -> Unit,
@@ -705,7 +837,7 @@ private fun SettingsScreen(
 				}
 
 				SettingsCategory.DISGUISE -> {
-					item { DisguiseSettingsSection(state, onDecoy, onEntryMethod) }
+					item { DisguiseSettingsSection(state, onDecoy, onEntryMethod, onShareTarget) }
 					item { EntrySettingsSection(state, onEntryMethod, onFakeCrash) }
 				}
 
@@ -1032,6 +1164,38 @@ private fun RecoverRenamedDialog(
 }
 
 @Composable
+private fun NameFilesDialog(naming: NamingFiles, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
+	var name by rememberSaveable { mutableStateOf(naming.suggested) }
+	val valid = FileBundler.folderName(name) != null
+	val wrong = !valid && name.isNotBlank()
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text(stringResource(R.string.name_files_title)) },
+		text = {
+			Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+				Text(pluralStringResource(R.plurals.name_files_body, naming.count, naming.count))
+				OutlinedTextField(
+					value = name,
+					onValueChange = { name = it.take(FileBundler.MAX_NAME) },
+					label = { Text(stringResource(R.string.folder_name_label)) },
+					supportingText = if (wrong) {
+						{ Text(stringResource(R.string.folder_name_invalid)) }
+					} else {
+						null
+					},
+					isError = wrong,
+					singleLine = true,
+				)
+			}
+		},
+		confirmButton = {
+			TextButton(onClick = { onConfirm(name) }, enabled = valid) { Text(stringResource(R.string.hide)) }
+		},
+		dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+	)
+}
+
+@Composable
 private fun RecoveryPassphraseDialog(
 	title: String,
 	confirmEntry: Boolean,
@@ -1090,6 +1254,17 @@ private const val KEEP_ACCESS = Intent.FLAG_GRANT_READ_URI_PERMISSION or
 private class PickFolderToKeep : ActivityResultContracts.OpenDocumentTree() {
 	override fun createIntent(context: Context, input: Uri?): Intent =
 		super.createIntent(context, input).addFlags(KEEP_ACCESS)
+}
+
+// Opens where the folder picker does. Without a start it lands on Recents, whose uris Shelf refuses.
+private class PickFilesToHide : ActivityResultContract<Uri?, List<Uri>>() {
+	private val pick = ActivityResultContracts.OpenMultipleDocuments()
+
+	override fun createIntent(context: Context, input: Uri?): Intent = pick.createIntent(context, arrayOf("*/*")).apply {
+		input?.let { putExtra(DocumentsContract.EXTRA_INITIAL_URI, it) }
+	}
+
+	override fun parseResult(resultCode: Int, intent: Intent?): List<Uri> = pick.parseResult(resultCode, intent)
 }
 
 private fun allFilesAccessSettings(packageName: String): Intent = Intent(

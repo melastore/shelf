@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Environment
 import android.provider.DocumentsContract
 import android.util.LruCache
 import androidx.documentfile.provider.DocumentFile
@@ -24,6 +25,9 @@ data class EphemeralMediaItem(
 	val target: LockTarget,
 	val isLocked: Boolean,
 	val type: EphemeralMediaType = EphemeralMediaType.IMAGE,
+	val size: Long = 0L,
+	// Zero where reading it costs a provider query per file.
+	val modified: Long = 0L,
 )
 
 /** A row's picture and the duration shown beside it. A null [bitmap] means nothing would decode. */
@@ -79,12 +83,14 @@ object EphemeralMediaLoader {
 			val realName = nameMap?.get(target.name) ?: target.name
 			val trailer = FileLocker.readTrailer(target)
 			val isLocked = trailer != null
+			val realSize = trailer?.originalSize?.takeIf { it >= 0 } ?: size
+			val modified = if (target.keepsTimestamp) runCatching { target.lastModified() }.getOrDefault(0L) else 0L
 			// A known extension settles the type with no read at all, which on a document provider is a
 			// Binder round trip and a 64 KB slice per file before the list could show. A file whose
 			// head does not decrypt fails when it is opened instead.
 			val byName = typeByExtension(realName)
 			if (byName != null && (trailer == null || keyFor(trailer.salt) != null)) {
-				items += EphemeralMediaItem(realName, target, isLocked, byName)
+				items += EphemeralMediaItem(realName, target, isLocked, byName, realSize, modified)
 				continue
 			}
 			val sample = if (isLocked) {
@@ -120,7 +126,7 @@ object EphemeralMediaLoader {
 				if (isLocked) sample.fill(0)
 			}
 			if (type != null) {
-				items += EphemeralMediaItem(realName, target, isLocked, type)
+				items += EphemeralMediaItem(realName, target, isLocked, type, realSize, modified)
 			}
 		}
 		return items
@@ -561,8 +567,15 @@ object EphemeralMediaLoader {
 		paths: StoragePaths,
 		treeUri: String? = null,
 	): List<LockTarget> {
-		val direct = File(path).takeIf(::canWalkAsFile)?.let(ContentLocker::targetsUnder)
-		if (!direct.isNullOrEmpty()) return direct
+		// Without all-files access a plain listing shows only the files Shelf wrote itself, so a grant
+		// goes first and the plain walk is the fallback (a root-opened folder has no grant).
+		val direct by lazy { File(path).takeIf(::canWalkAsFile)?.let(ContentLocker::targetsUnder) }
+		if (runCatching {
+				Environment.isExternalStorageManager()
+			}.getOrDefault(false)
+		) {
+			direct?.takeIf { it.isNotEmpty() }?.let { return it }
+		}
 
 		if (!treeUri.isNullOrBlank()) {
 			val tree = runCatching { Uri.parse(treeUri) }.getOrNull()
@@ -577,6 +590,6 @@ object EphemeralMediaLoader {
 
 		val saf = SafGrants.folder(context.applicationContext, paths, path)
 			?.let { SafLockTarget.targetsUnder(context.contentResolver, it) }
-		return saf.orEmpty()
+		return saf?.takeIf { it.isNotEmpty() } ?: direct.orEmpty()
 	}
 }

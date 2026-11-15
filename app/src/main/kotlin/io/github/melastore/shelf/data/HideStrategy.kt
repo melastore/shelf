@@ -40,6 +40,7 @@ sealed interface HideFailure {
 	data class ContentRestoreFailed(val count: Int) : HideFailure
 	data class NameProtectionFailed(val count: Int) : HideFailure
 	data class NameRestoreFailed(val count: Int) : HideFailure
+	data class FolderCreateFailed(val name: String) : HideFailure
 }
 
 sealed interface HideWarning {
@@ -51,6 +52,9 @@ sealed interface HideWarning {
 	data object FolderNameVisible : HideWarning
 	data object ContentProtectionUnavailable : HideWarning
 	data object NameProtectionUnavailable : HideWarning
+
+	/** Unhidden, but [count] picked files are still in the folder Shelf made for them. Zero when not counted. */
+	data class FilesLeftInFolder(val count: Int) : HideWarning
 	data class Multiple(val warnings: List<HideWarning>) : HideWarning
 }
 

@@ -557,18 +557,7 @@ class DotRenameHider(
 	private fun renameFailure(tree: Uri?, name: String): HideFailure =
 		if (tree == null) HideFailure.ParentNotGrantable(name) else HideFailure.RenameFailed(name)
 
-	/**
-	 * Whether the picker could ever return a grant covering children of [parent].
-	 *
-	 * ExternalStorageProvider sets FLAG_DIR_BLOCKS_OPEN_DOCUMENT_TREE on the volume root and on
-	 * Download, so OPEN_DOCUMENT_TREE cannot land on either. A grant inside one of them is no help:
-	 * the rename is authorised by the folder above, and that is the blocked one. Asking anyway is
-	 * what used to make the picker reappear however often it was answered.
-	 */
-	private fun grantable(parent: String): Boolean {
-		val clean = parent.trimEnd('/')
-		return clean != paths.emulatedRoot && !clean.equals(paths.emulatedRoot + "/" + DOWNLOAD, ignoreCase = true)
-	}
+	private fun grantable(parent: String): Boolean = SafPaths.grantable(paths.emulatedRoot, parent)
 
 	private fun exists(tree: Uri?, path: String): Boolean {
 		val uri = documentUri(tree, path) ?: return File(path).exists()
@@ -647,7 +636,6 @@ class DotRenameHider(
 
 	private companion object {
 		const val PRIMARY_DOCUMENT = "primary:"
-		const val DOWNLOAD = "Download"
 		const val MAX_DEPTH = 8
 		const val MAX_CHILDREN = 5_000
 		const val MAX_RECOVERY_CANDIDATES = 200

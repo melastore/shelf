@@ -119,6 +119,25 @@ hidden but its contents are left as they are, which the vault says on the row.
 > internal storage or to Download. A folder sitting directly in either of those
 > needs all-files access instead. Anything nested deeper is fine.
 
+**Single files** work too: the add button offers Folder or Files. Picked files
+are moved into a new folder next to them, under a name you choose (`Files-` and
+the date if you leave it), and that folder is hidden like any other. Unhiding
+moves them back where they were and removes the folder. Files picked from
+several folders get one row per folder. Add files on a row's menu moves more
+files from the same place into it, and a name already taken inside gets a
+number rather than replacing anything. Pick from internal storage, including
+the picker's Images, Videos and Downloads views.
+
+You can also pick photos in the gallery, tap Share and choose Shelf. The share
+entry wears the disguise's name and icon, and Settings can take it out of share
+menus altogether. Nothing moves until the space is unlocked and the folder is
+named. In a hidden folder's viewer, search and sort the files, and long-press to
+select: Share sends a copy decrypted in memory to another app without unhiding
+anything, and Put back moves the chosen files out of a folder of picked files.
+
+After the first hide, and again when much of what is hidden is missing from the
+last recovery file, the vault suggests exporting a new one.
+
 A renamed folder is still listed by any file manager showing hidden files, so
 what it is called matters. By default it takes a name that reads as bookkeeping
 some app left behind, such as `.meta` or `.index`, and never one that cleaners

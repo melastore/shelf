@@ -57,6 +57,93 @@
 		<receiver android:name=".ui.QuickLockReceiver" android:exported="false" />
 
 		<!--
+			Share target. Own empty task affinity so it never lands in the gallery's task, and gone
+			from recents once it has handed the files on. Reached through the aliases below, all off
+			until the app turns on the one that matches the disguise.
+		-->
+		<activity
+			android:name=".ui.ShareActivity"
+			android:excludeFromRecents="true"
+			android:exported="false"
+			android:noHistory="true"
+			android:taskAffinity=""
+			android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+		<activity-alias
+			android:name=".ShareToShelf"
+			android:enabled="false"
+			android:exported="true"
+			android:icon="@mipmap/ic_launcher_shelf"
+			android:label="@string/launcher_shelf"
+			android:roundIcon="@mipmap/ic_launcher_shelf"
+			android:targetActivity=".ui.ShareActivity">
+			<intent-filter>
+				<action android:name="android.intent.action.SEND" />
+				<action android:name="android.intent.action.SEND_MULTIPLE" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<data android:mimeType="*/*" />
+			</intent-filter>
+		</activity-alias>
+
+		<activity-alias
+			android:name=".ShareToHabits"
+			android:enabled="false"
+			android:exported="true"
+			android:icon="@mipmap/ic_launcher"
+			android:label="@string/launcher_habits"
+			android:roundIcon="@mipmap/ic_launcher_round"
+			android:targetActivity=".ui.ShareActivity">
+			<intent-filter>
+				<action android:name="android.intent.action.SEND" />
+				<action android:name="android.intent.action.SEND_MULTIPLE" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<data android:mimeType="*/*" />
+			</intent-filter>
+		</activity-alias>
+
+		<activity-alias
+			android:name=".ShareToCalendar"
+			android:enabled="false"
+			android:exported="true"
+			android:icon="@mipmap/ic_launcher_calendar"
+			android:label="@string/launcher_calendar"
+			android:roundIcon="@mipmap/ic_launcher_calendar"
+			android:targetActivity=".ui.ShareActivity">
+			<intent-filter>
+				<action android:name="android.intent.action.SEND" />
+				<action android:name="android.intent.action.SEND_MULTIPLE" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<data android:mimeType="*/*" />
+			</intent-filter>
+		</activity-alias>
+
+		<activity-alias
+			android:name=".ShareToCalculator"
+			android:enabled="false"
+			android:exported="true"
+			android:icon="@mipmap/ic_launcher_calculator"
+			android:label="@string/launcher_calculator"
+			android:roundIcon="@mipmap/ic_launcher_calculator"
+			android:targetActivity=".ui.ShareActivity">
+			<intent-filter>
+				<action android:name="android.intent.action.SEND" />
+				<action android:name="android.intent.action.SEND_MULTIPLE" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<data android:mimeType="*/*" />
+			</intent-filter>
+		</activity-alias>
+
+		<!--
+			Hands decrypted files to an app the owner shares to, from memory. Not exported: each uri
+			is reachable only through the grant that comes with the share.
+		-->
+		<provider
+			android:name=".ui.ShareOutProvider"
+			android:authorities="${applicationId}.shareout"
+			android:exported="false"
+			android:grantUriPermissions="true" />
+
+		<!--
 			Exported because only the system sends BOOT_COMPLETED, and a receiver for it cannot be
 			reached any other way. It reposts the emergency-hide notification and nothing else.
 		-->

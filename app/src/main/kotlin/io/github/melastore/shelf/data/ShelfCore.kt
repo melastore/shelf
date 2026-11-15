@@ -5,6 +5,8 @@ import io.github.melastore.shelf.root.RootShell
 import io.github.melastore.shelf.root.StoragePaths
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -23,7 +25,19 @@ object ShelfCore {
 	val registry: FolderRegistry by lazy { FolderRegistry(File(appContext.filesDir, "folders.json")) }
 	val hider: FolderHider by lazy { FolderHider(appContext, journal, paths) }
 	val preferences: AppPreferences by lazy { AppPreferences(appContext) }
+	val bundler: FileBundler by lazy {
+		FileBundler(appContext, paths, isHidden = { path ->
+			runCatching { journal.read().any { paths.toEmulated(it.path) == path } }.getOrDefault(true)
+		})
+	}
 	val decoyVault: DecoyVault by lazy { DecoyVault(File(appContext.filesDir, "decoy_vault.json")) }
+
+	/**
+	 * Held through a bundle's open, move and hide. Each step takes the folder lock on its own, so
+	 * without this a hide on lock could land between them: on a bundle made but not yet filled, or on
+	 * one emptied but not yet removed.
+	 */
+	val bundleSteps = Mutex()
 
 	fun install(context: Context) {
 		if (!::appContext.isInitialized) appContext = context.applicationContext
@@ -65,6 +79,10 @@ object ShelfCore {
 	 * leave the rest exposed.
 	 */
 	suspend fun hideAllExposed(preference: HidingPreference): Int = withContext(Dispatchers.IO) {
+		bundleSteps.withLock { hideAllExposedNow(preference) }
+	}
+
+	private suspend fun hideAllExposedNow(preference: HidingPreference): Int {
 		var hidden = 0
 		val entries = runCatching { journal.read().associateBy { paths.toEmulated(it.path) } }
 			.getOrDefault(emptyMap())
@@ -78,6 +96,6 @@ object ShelfCore {
 			}.getOrNull()
 			if (result is HideResult.Ok) hidden++
 		}
-		hidden
+		return hidden
 	}
 }
