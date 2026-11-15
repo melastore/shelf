@@ -1,0 +1,8 @@
+- Hide single files, not just folders (#15).
+- Share files to Shelf from other apps to hide them. Off by default, turn it on in Settings.
+- Put single files back, or add more files to a hidden group.
+- The viewer can sort, search, select and share files out.
+- A reminder to export a recovery bundle.
+- Locking during an unhide hides the folder again.
+- Fixed PDFs staying open after closing the viewer.
+- Many smaller fixes.
